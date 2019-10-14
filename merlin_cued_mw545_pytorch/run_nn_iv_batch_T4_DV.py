@@ -1,5 +1,5 @@
-import os, sys, cPickle, time, shutil, logging
-import math, numpy, scipy, scipy.io.wavfile, sigproc, sigproc.pystraight
+import os, sys, pickle, time, shutil, logging
+import math, numpy, scipy, scipy.io.wavfile#, sigproc, sigproc.pystraight
 
 from modules import make_logger, read_file_list, prepare_file_path, prepare_file_path_list, make_held_out_file_number, copy_to_scratch
 from modules import keep_by_speaker, remove_by_speaker, keep_by_file_number, remove_by_file_number
@@ -24,10 +24,11 @@ class configuration(object):
         # self.Processes['MuLawWav'] = False
         self.Processes['ResilPitch']   = False
 
+        self.Processes['TrainCMPTorch'] = True
 
-        self.Processes['TrainCMPDVY'] = True
-        self.Processes['TestCMPDVY']  = True
-        self.Processes['GenCMPDVY']   = True
+        self.Processes['TrainCMPDVY'] = False
+        self.Processes['TestCMPDVY']  = False
+        self.Processes['GenCMPDVY']   = False
 
 
         self.Processes['TrainWavDVY'] = False
@@ -149,20 +150,24 @@ class configuration(object):
         self.held_out_file_number = make_held_out_file_number(80)
         self.AM_held_out_file_number = make_held_out_file_number(40)
 
-        self.all_speaker_list = ['p100', 'p101', 'p102', 'p103', 'p105', 'p106', 'p107', 'p109', 'p10', 'p110', 'p112', 'p113', 'p114', 'p116', 'p117', 'p118', 'p11', 'p120', 'p122', 'p123', 'p124', 'p125', 'p126', 'p128', 'p129', 'p130', 'p131', 'p132', 'p134', 'p135', 'p136', 'p139', 'p13', 'p140', 'p141', 'p142', 'p146', 'p147', 'p14', 'p151', 'p152', 'p153', 'p155', 'p156', 'p157', 'p158', 'p15', 'p160', 'p161', 'p162', 'p163', 'p164', 'p165', 'p166', 'p167', 'p168', 'p170', 'p171', 'p173', 'p174', 'p175', 'p176', 'p177', 'p178', 'p179', 'p17', 'p180', 'p182', 'p184', 'p187', 'p188', 'p192', 'p194', 'p197', 'p19', 'p1', 'p200', 'p201', 'p207', 'p208', 'p209', 'p210', 'p211', 'p212', 'p215', 'p216', 'p217', 'p218', 'p219', 'p21', 'p220', 'p221', 'p223', 'p224', 'p22', 'p23', 'p24', 'p26', 'p27', 'p28', 'p290', 'p293', 'p294', 'p295', 'p298', 'p299', 'p2', 'p300', 'p302', 'p303', 'p304', 'p306', 'p308', 'p30', 'p310', 'p311', 'p312', 'p313', 'p314', 'p316', 'p31', 'p320', 'p321', 'p322', 'p327', 'p32', 'p331', 'p333', 'p334', 'p336', 'p337', 'p339', 'p33', 'p340', 'p341', 'p343', 'p344', 'p347', 'p348', 'p349', 'p34', 'p350', 'p351', 'p353', 'p354', 'p356', 'p35', 'p36', 'p370', 'p375', 'p376', 'p37', 'p384', 'p386', 'p38', 'p398', 'p39', 'p3', 'p41', 'p43', 'p44', 'p45', 'p47', 'p48', 'p49', 'p4', 'p52', 'p53', 'p54', 'p55', 'p56', 'p57', 'p5', 'p60', 'p61', 'p62', 'p63', 'p65', 'p67', 'p68', 'p69', 'p6', 'p70', 'p71', 'p73', 'p74', 'p75', 'p76', 'p77', 'p79', 'p7', 'p81', 'p84', 'p85', 'p87', 'p88', 'p89', 'p8', 'p90', 'p91', 'p93', 'p94', 'p95', 'p96', 'p97', 'p98', 'p99']        
-        self.valid_speaker_list = ['p162', 'p2', 'p303', 'p48', 'p109', 'p153', 'p38', 'p166', 'p218', 'p70']    # Last 3 are males
-        self.num_valid_speakers = len(self.valid_speaker_list)
-        self.test_speaker_list  = ['p293', 'p210', 'p26', 'p24', 'p313', 'p223', 'p141', 'p386', 'p178', 'p290'] # Last 3 are males
-        self.num_test_speakers  = len(self.test_speaker_list)
-        self.train_speaker_list = [spk for spk in self.all_speaker_list if (spk not in (self.valid_speaker_list+self.test_speaker_list))]
-        self.num_train_speakers = len(self.train_speaker_list)
-        self.male_speaker_list  = ['p1', 'p15', 'p33', 'p65', 'p4', 'p10', 'p94', 'p99', 'p102', 'p39', 'p136', 'p7', 'p151', 'p28', 'p19', 'p70', 'p192', 'p17', 'p101', 'p96', 'p14', 'p6', 'p87', 'p63', 'p79', 'p134', 'p116', 'p88', 'p30', 'p3', 'p157', 'p31', 'p118', 'p76', 'p171', 'p177', 'p180', 'p36', 'p126', 'p179', 'p215', 'p212', 'p219', 'p218', 'p173', 'p194', 'p209', 'p174', 'p166', 'p178', 'p130', 'p344', 'p334', 'p347', 'p302', 'p298', 'p304', 'p311', 'p316', 'p322', 'p224', 'p290', 'p320', 'p356', 'p375', 'p386', 'p376', 'p384', 'p398']
-        self.num_male_speakers  = len(self.male_speaker_list)
-        self.speaker_id_list_dict = {}
-        self.speaker_id_list_dict['all']   = self.all_speaker_list
-        self.speaker_id_list_dict['train'] = self.train_speaker_list
-        self.speaker_id_list_dict['valid'] = self.valid_speaker_list
-        self.speaker_id_list_dict['test']  = self.test_speaker_list
+        self.speaker_id_list_dict, self.num_speaker_dict = self.make_speaker_id_list_dict()
+
+
+    def make_speaker_id_list_dict(self):
+        speaker_id_list_dict = {}
+        speaker_id_list_dict['all'] = ['p100', 'p101', 'p102', 'p103', 'p105', 'p106', 'p107', 'p109', 'p10', 'p110', 'p112', 'p113', 'p114', 'p116', 'p117', 'p118', 'p11', 'p120', 'p122', 'p123', 'p124', 'p125', 'p126', 'p128', 'p129', 'p130', 'p131', 'p132', 'p134', 'p135', 'p136', 'p139', 'p13', 'p140', 'p141', 'p142', 'p146', 'p147', 'p14', 'p151', 'p152', 'p153', 'p155', 'p156', 'p157', 'p158', 'p15', 'p160', 'p161', 'p162', 'p163', 'p164', 'p165', 'p166', 'p167', 'p168', 'p170', 'p171', 'p173', 'p174', 'p175', 'p176', 'p177', 'p178', 'p179', 'p17', 'p180', 'p182', 'p184', 'p187', 'p188', 'p192', 'p194', 'p197', 'p19', 'p1', 'p200', 'p201', 'p207', 'p208', 'p209', 'p210', 'p211', 'p212', 'p215', 'p216', 'p217', 'p218', 'p219', 'p21', 'p220', 'p221', 'p223', 'p224', 'p22', 'p23', 'p24', 'p26', 'p27', 'p28', 'p290', 'p293', 'p294', 'p295', 'p298', 'p299', 'p2', 'p300', 'p302', 'p303', 'p304', 'p306', 'p308', 'p30', 'p310', 'p311', 'p312', 'p313', 'p314', 'p316', 'p31', 'p320', 'p321', 'p322', 'p327', 'p32', 'p331', 'p333', 'p334', 'p336', 'p337', 'p339', 'p33', 'p340', 'p341', 'p343', 'p344', 'p347', 'p348', 'p349', 'p34', 'p350', 'p351', 'p353', 'p354', 'p356', 'p35', 'p36', 'p370', 'p375', 'p376', 'p37', 'p384', 'p386', 'p38', 'p398', 'p39', 'p3', 'p41', 'p43', 'p44', 'p45', 'p47', 'p48', 'p49', 'p4', 'p52', 'p53', 'p54', 'p55', 'p56', 'p57', 'p5', 'p60', 'p61', 'p62', 'p63', 'p65', 'p67', 'p68', 'p69', 'p6', 'p70', 'p71', 'p73', 'p74', 'p75', 'p76', 'p77', 'p79', 'p7', 'p81', 'p84', 'p85', 'p87', 'p88', 'p89', 'p8', 'p90', 'p91', 'p93', 'p94', 'p95', 'p96', 'p97', 'p98', 'p99']        
+        speaker_id_list_dict['valid'] = ['p162', 'p2', 'p303', 'p48', 'p109', 'p153', 'p38', 'p166', 'p218', 'p70']    # Last 3 are males
+        
+        speaker_id_list_dict['test']  = ['p293', 'p210', 'p26', 'p24', 'p313', 'p223', 'p141', 'p386', 'p178', 'p290'] # Last 3 are males
+        speaker_id_list_dict['train'] = [spk for spk in self.all_speaker_list if (spk not in (self.valid_speaker_list+self.test_speaker_list))]
+        speaker_id_list_dict['male']  = ['p1', 'p15', 'p33', 'p65', 'p4', 'p10', 'p94', 'p99', 'p102', 'p39', 'p136', 'p7', 'p151', 'p28', 'p19', 'p70', 'p192', 'p17', 'p101', 'p96', 'p14', 'p6', 'p87', 'p63', 'p79', 'p134', 'p116', 'p88', 'p30', 'p3', 'p157', 'p31', 'p118', 'p76', 'p171', 'p177', 'p180', 'p36', 'p126', 'p179', 'p215', 'p212', 'p219', 'p218', 'p173', 'p194', 'p209', 'p174', 'p166', 'p178', 'p130', 'p344', 'p334', 'p347', 'p302', 'p298', 'p304', 'p311', 'p316', 'p322', 'p224', 'p290', 'p320', 'p356', 'p375', 'p386', 'p376', 'p384', 'p398']
+
+        num_speaker_dict = {}
+        for k in ['all', 'train', 'valid', 'test', 'male']:
+            num_speaker_dict[k] = len(speaker_id_list_dict[k])
+
+        return speaker_id_list_dict, num_speaker_dict
+
 
     def need_to_load_file_id_list(self):
         need_list = ['copy_to_scratch', 'MakeCmp', 'MakeWav', 'ResilLab', 'ResilCmp', 'ResilWav', 'ResilPitch', 'NormLab', 'NormCmp', 'NormWav', 'remakePML']
@@ -173,8 +178,8 @@ class configuration(object):
 
 def main_function(cfg):
 
-    logger = make_logger("configuration")
-    log_class_attri(cfg, logger, except_list=['all_speaker_list', 'male_speaker_list', 'train_speaker_list', 'valid_speaker_list', 'test_speaker_list'])
+    logger = make_logger("Main_config")
+    log_class_attri(cfg, logger, except_list=['all_speaker_list', 'male_speaker_list', 'train_speaker_list', 'valid_speaker_list', 'test_speaker_list', 'speaker_id_list_dict'])
 
     logger = make_logger("Main")
 
@@ -219,7 +224,10 @@ def main_function(cfg):
     if cfg.Processes['ResilPitch']:
         logger.info('ResilPitch')
         from modules import reduce_silence_reaper_output_list
-        reduce_silence_reaper_output_list(cfg, file_id_list, reaper_output_dir='/home/dawna/tts/mw545/Data/Data_Voicebank_48kHz_Pitch', label_align_dir='/data/vectra2/tts/mw545/Data/data_voicebank/label_state_align', out_dir='/home/dawna/tts/mw545/Data/Data_Voicebank_48kHz_Pitch_Resil', reaper_output_ext='.used.pm', label_align_ext='.lab', out_ext='.pm')
+        reaper_output_dir = '/home/dawna/tts/mw545/Data/Data_Voicebank_48kHz_Pitch'
+        label_align_dir   = '/data/vectra2/tts/mw545/Data/data_voicebank/label_state_align'
+        out_dir           = '/home/dawna/tts/mw545/Data/Data_Voicebank_48kHz_Pitch_Resil'
+        reduce_silence_reaper_output_list(cfg, file_id_list, reaper_output_dir, label_align_dir, out_dir, reaper_output_ext='.used.pm', label_align_ext='.lab', out_ext='.pm')
 
     if cfg.Processes['NormLab']:
         logger.info('NormLab')
@@ -241,6 +249,10 @@ def main_function(cfg):
     #     nn_resil_norm_file_list[feat_name+'_mu'] = prepare_file_path_list(file_id_list, cfg.nn_feat_resil_norm_dirs[feat_name], '.mu.'+feat_name)
     #     perform_mu_law_list(nn_resil_norm_file_list[feat_name], nn_resil_norm_file_list[feat_name+'_mu'], mu_value=255.)
 
+    if cfg.Processes['TrainCMPTorch']:
+        from exp_mw545.exp_dv_cmp_pytorch import train_dv_y_cmp_model
+        train_dv_y_cmp_model(cfg)
+
     if cfg.Processes['TrainCMPDVY']:
         from exp_mw545.exp_dv_cmp_baseline import train_dv_y_cmp_model
         train_dv_y_cmp_model(cfg)
@@ -252,6 +264,8 @@ def main_function(cfg):
     if cfg.Processes['GenCMPDVY']:
         from exp_mw545.exp_dv_cmp_baseline import gen_dv_y_cmp_model
         gen_dv_y_cmp_model(cfg)
+
+
 
         
 
