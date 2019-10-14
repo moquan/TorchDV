@@ -59,7 +59,7 @@ class dv_y_configuration(object):
         self.speaker_id_list_dict = cfg.speaker_id_list_dict
         self.num_speaker_dict     = cfg.num_speaker_dict
 
-        self.log_except_list = ['data_split_file_number']
+        self.log_except_list = ['data_split_file_number', 'speaker_id_list_dict', 'feat_index']
 
 
     def auto_complete(self, cfg):
@@ -92,11 +92,11 @@ class dv_y_configuration(object):
         if '_smallbatch' not in self.exp_dir:
             self.exp_dir = self.exp_dir + '_smallbatch'
         self.num_train_epoch = 5
-        self.train_speaker_list   = self.train_speaker_list[:10]
-        self.num_train_speakers   = 10
+        self.num_speaker_dict['train'] = 10
+        self.speaker_id_list_dict['train'] = self.speaker_id_list_dict['train'][:self.num_speaker_dict['train']]
 
     def change_to_test_mode(self):
-        self.num_valid_batch = 4000
+        self.epoch_num_batch  = {'train': 0, 'valid':4000}
         self.batch_num_spk = 10
         self.spk_num_utter = 1
         spk_num_utter_list = [1,2,5,10]
@@ -174,12 +174,12 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
 
     logger = make_logger("train_dv_y_model")
     logger.info('Creating data lists')
-    speaker_id_list = dv_y_cfg.train_speaker_list # For DV training and evaluation, use train speakers only
+    speaker_id_list = dv_y_cfg.speaker_id_list_dict['train'] # For DV training and evaluation, use train speakers only
     file_id_list    = read_file_list(cfg.file_id_list_file)
     file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
 
 
-
+    
     
 
 
