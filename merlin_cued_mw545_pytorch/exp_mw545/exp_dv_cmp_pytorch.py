@@ -36,8 +36,7 @@ class dv_y_configuration(object):
         self.warmup_epoch     = 10
         self.early_stop_epoch = 5    # After this number of non-improvement, roll-back to best previous model and decay learning rate
         self.max_num_decay    = 10
-        self.num_train_batch  = 400
-        self.num_valid_batch  = self.num_train_batch
+        self.epoch_num_batch  = {'train': 400, 'valid':400}
 
         self.batch_num_spk = 100 # S
         self.spk_num_utter = 1 # When >1, windows from different utterances are stacked along B
@@ -89,11 +88,10 @@ class dv_y_configuration(object):
         self.gpu_per_process_gpu_memory_fraction = 0.8
 
     def change_to_debug_mode(self):
-        self.num_train_batch  = 10
+        self.epoch_num_batch  = {'train': 10, 'valid':10}
         if '_smallbatch' not in self.exp_dir:
             self.exp_dir = self.exp_dir + '_smallbatch'
         self.num_train_epoch = 5
-        self.num_valid_batch = self.num_train_batch
         self.train_speaker_list   = self.train_speaker_list[:10]
         self.num_train_speakers   = 10
 
