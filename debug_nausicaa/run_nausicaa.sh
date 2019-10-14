@@ -21,4 +21,4 @@ unset LD_PRELOAD
 source activate ${VENV}
 #OMP_NUM_THREADS=30 python ./test.py
 #OMP_NUM_THREADS=30 python ./run_nn_iv_batch_T4_DV.py ${PWD}
-python ./torch_test.py
+python ./pytorch_gpu_test.py
