@@ -152,7 +152,7 @@ class configuration(object):
 
         self.speaker_id_list_dict, self.num_speaker_dict = self.make_speaker_id_list_dict()
 
-        self.log_except_list = ['all_speaker_list', 'male_speaker_list', 'train_speaker_list', 'valid_speaker_list', 'test_speaker_list', 'speaker_id_list_dict']
+        self.log_except_list = ['all_speaker_list', 'male_speaker_list', 'train_speaker_list', 'valid_speaker_list', 'test_speaker_list', 'speaker_id_list_dict', 'held_out_file_number', 'AM_held_out_file_number']
 
 
     def make_speaker_id_list_dict(self):
