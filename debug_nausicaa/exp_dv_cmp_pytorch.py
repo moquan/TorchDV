@@ -60,6 +60,8 @@ class dv_y_configuration(object):
         self.train_speaker_list   = cfg.train_speaker_list
         self.num_train_speakers   = cfg.num_train_speakers
 
+        self.log_except_list = ['data_split_file_number']
+
 
 
     def auto_complete(self, cfg):
@@ -147,7 +149,7 @@ class dv_y_cmp_configuration(dv_y_configuration):
         self.batch_output_form = 'mean' # Method to convert from SBD to SD
         self.retrain_model = False
         self.previous_model_name = ''
-        self.python_script_name = '/home/dawna/tts/mw545/DVExp/tools/merlin_cued_mw545/exp_mw545/exp_dv_cmp_baseline.py'
+        self.python_script_name = '/home/dawna/tts/mw545/tools/merlin/merlin_cued_mw545_pytorch/debug_nausicaa/exp_dv_cmp_pytorch.py'
         self.y_feat_name   = 'cmp'
         self.out_feat_list = ['mgc', 'lf0', 'bap']
         self.nn_layer_config_list = [
@@ -171,9 +173,15 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
 
     logger = make_logger("dv_y_config")
-    log_class_attri(dv_y_cfg, logger)
+    log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
 
     logger = make_logger("train_dv_y_model")
+    logger.info('Creating data lists')
+    speaker_id_list = dv_y_cfg.train_speaker_list # For DV training and evaluation, use train speakers only
+    file_id_list    = read_file_list(cfg.file_id_list_file)
+    file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
+
+
 
     
 

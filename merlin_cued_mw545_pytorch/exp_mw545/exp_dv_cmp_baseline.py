@@ -1,5 +1,5 @@
 # exp_dv_cmp_baseline.py
-import os, sys, cPickle, time, shutil, logging, copy
+import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy
 from modules import make_logger, read_file_list, prepare_file_path, prepare_file_path_list, make_held_out_file_number, copy_to_scratch
 from modules import keep_by_speaker, remove_by_speaker, keep_by_file_number, remove_by_file_number, keep_by_min_max_file_number, check_and_change_to_list
@@ -358,7 +358,7 @@ def gen_dv_y_model(cfg, dv_y_cfg=None, dv_y_model_class=None, make_feed_dict_met
             generation_finished = True
     logger.info('saving dv of %i speakers ' % len(lambda_S.keys()))
     logger.info('saving dv file to '+ str(dv_y_cfg.dv_file_name))
-    cPickle.dump(lambda_S, open(dv_y_cfg.dv_file_name, 'wb'))
+    pickle.dump(lambda_S, open(dv_y_cfg.dv_file_name, 'wb'))
 
     dv_y_model.close_tf_session_and_reset()
 

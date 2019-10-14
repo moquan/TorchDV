@@ -152,6 +152,8 @@ class configuration(object):
 
         self.speaker_id_list_dict, self.num_speaker_dict = self.make_speaker_id_list_dict()
 
+        self.log_except_list = ['all_speaker_list', 'male_speaker_list', 'train_speaker_list', 'valid_speaker_list', 'test_speaker_list', 'speaker_id_list_dict']
+
 
     def make_speaker_id_list_dict(self):
         speaker_id_list_dict = {}
@@ -179,7 +181,7 @@ class configuration(object):
 def main_function(cfg):
 
     logger = make_logger("Main_config")
-    log_class_attri(cfg, logger, except_list=['all_speaker_list', 'male_speaker_list', 'train_speaker_list', 'valid_speaker_list', 'test_speaker_list', 'speaker_id_list_dict'])
+    log_class_attri(cfg, logger, except_list=cfg.log_except_list)
 
     logger = make_logger("Main")
 
