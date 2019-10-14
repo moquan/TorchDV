@@ -1,5 +1,6 @@
 import torch
 
+gpu_id = 2
 
 class TwoLayerNet(torch.nn.Module):
     def __init__(self, D_in, H, D_out):
@@ -32,7 +33,7 @@ y = torch.randn(N, D_out)
 
 # Construct our model by instantiating the class defined above
 model = TwoLayerNet(D_in, H, D_out)
-model.to(torch.device('cuda'))
+model.to(torch.device('cuda:%i' % gpu_id))
 # Construct our loss function and an Optimizer. The call to model.parameters()
 # in the SGD constructor will contain the learnable parameters of the two
 # nn.Linear modules which are members of the model.
@@ -40,8 +41,8 @@ criterion = torch.nn.MSELoss(reduction='sum')
 optimizer = torch.optim.SGD(model.parameters(), lr=1e-4)
 for t in range(50000):
     # Forward pass: Compute predicted y by passing x to the model
-    x = x.to(torch.device('cuda'))
-    y = y.to(torch.device('cuda'))
+    x = x.to(torch.device('cuda:%i' % gpu_id))
+    y = y.to(torch.device('cuda:%i' % gpu_id))
 
     y_pred = model(x)
 
