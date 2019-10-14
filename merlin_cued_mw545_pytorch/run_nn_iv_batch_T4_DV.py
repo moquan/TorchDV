@@ -6,8 +6,11 @@ from modules import keep_by_speaker, remove_by_speaker, keep_by_file_number, rem
 from modules_2 import log_class_attri, resil_nn_file_list, norm_nn_file_list
 
 class configuration(object):
-    def __init__(self):
-        self.work_dir = "/home/dawna/tts/mw545/TorchDV/debug"
+    def __init__(self, work_dir=None):
+        if work_dir is None:
+            self.work_dir = "/home/dawna/tts/mw545/TorchDV/debug"
+        else:
+            self.work_dir = work_dir # Comes from bash command argument, ${PWD}
         self.Processes = {}
         self.Processes['copy_to_scratch'] = False
         self.Processes['MakeCmp']  = False
@@ -22,49 +25,44 @@ class configuration(object):
         self.Processes['ResilPitch']   = False
 
 
-        # self.work_dir = "/home/dawna/tts/mw545/TorchDV/dv_cmp_baseline"
         self.Processes['TrainCMPDVY'] = True
         self.Processes['TestCMPDVY']  = True
         self.Processes['GenCMPDVY']   = True
 
 
-        # self.work_dir = "/home/dawna/tts/mw545/TorchDV/dv_wav_baseline"
         self.Processes['TrainWavDVY'] = False
         self.Processes['TestWavDVY']  = False
         self.Processes['GenWavDVY']   = False
 
 
-        # self.work_dir = "/home/dawna/tts/mw545/TorchDV/dv_wav_cnn_atten"
         self.Processes['TrainWavCA'] = False
         self.Processes['TestWavCA']  = False
         self.Processes['GenWavCA']   = False
         self.Processes['GenWavAttenCA'] = False
-        
 
         # Experiments where REAPER F0 and phase shift info are known
-        # self.work_dir = "/home/dawna/tts/mw545/TorchDV/dv_wav_sine_atten_given_f_phi"
         self.Processes['TrainWavSine'] = False
         self.Processes['TestWavSine']  = False
         self.Processes['GenWavSine']   = False
 
 
-        # self.work_dir = "/home/dawna/tts/mw545/TorchDV/am_pretrain"
         self.Processes['TrainAM'] = False
         self.Processes['GenAM']   = False
         self.Processes['CMP2Wav'] = False
         self.Processes['CalMCD']  = False
 
 
-        # self.work_dir = "/home/dawna/tts/mw545/TorchDV/debug"
         self.Processes['wavcmpCheck'] = False
         self.Processes['cmpwavCheck'] = False
         self.Processes['remakePML']   = False
 
+        
         prepare_file_path(self.work_dir)
 
         self.dv_dim = 8
 
-        self.python_script_name = os.path.join(self.work_dir, 'run_nn_iv_batch_TF_T3_DV.py')
+        self.python_script_name = os.path.join(self.work_dir, 'run_nn_iv_batch_T4_DV.py')
+        
         # self.data_dir = os.path.join(self.work_dir, 'data')
         self.data_dir = '/data/vectra2/tts/mw545/Data/data_voicebank'
         
@@ -354,10 +352,14 @@ def main_function(cfg):
 
 if __name__ == '__main__': 
        
-    cfg = configuration()
+    
 
     if len(sys.argv) == 2:
-        cfg.work_dir = sys.argv[1]
+        work_dir = sys.argv[1]
+    else:
+        work_dir = None
+
+    cfg = configuration(work_dir)
 
     main_function(cfg)
 
