@@ -57,11 +57,10 @@ class dv_y_configuration(object):
         self.frames_silence_to_keep = cfg.frames_silence_to_keep
         self.sil_pad = cfg.sil_pad
 
-        self.train_speaker_list   = cfg.train_speaker_list
-        self.num_train_speakers   = cfg.num_train_speakers
+        self.speaker_id_list_dict = cfg.speaker_id_list_dict
+        self.num_speaker_dict     = cfg.num_speaker_dict
 
         self.log_except_list = ['data_split_file_number']
-
 
 
     def auto_complete(self, cfg):
