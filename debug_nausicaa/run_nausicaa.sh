@@ -19,7 +19,7 @@ export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${CUDA_HOME}/lib64:${CUDA_HOME}/extras
 unset LD_PRELOAD
 
 source activate ${VENV}
+echo Working Directory $PWD
 #OMP_NUM_THREADS=30 python ./test.py
 #OMP_NUM_THREADS=30 python ./run_nn_iv_batch_T4_DV.py ${PWD}
-echo Working Directory $PWD
 python ./tests/pytorch_gpu_test.py
