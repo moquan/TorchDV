@@ -265,8 +265,6 @@ class DV_Y_CMP_model(object):
     def update_parameters(self, feed_dict):
         x = feed_dict['x']
         y = feed_dict['y']
-        # x = torch.tensor(x_val)#, dtype=torch.long)
-        # y = torch.tensor(y_val)#, dtype=torch.long)
         x = x.to(self.device_id)
         y = y.to(self.device_id)
 
@@ -311,10 +309,8 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
 
     model = torch_initialisation(dv_y_cfg)
     model.build_optimiser()
-    model.print_model_parameters(logger)
+    # model.print_model_parameters(logger)
     
-    # N is batch size; D_in is input dimension;
-    # H is hidden dimension; D_out is output dimension.
     S = dv_y_cfg.batch_num_spk
     B = dv_y_cfg.spk_num_seq
     T = dv_y_cfg.batch_seq_len
@@ -322,20 +318,16 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
     D_in  = T * D
     D_out = dv_y_cfg.num_speaker_dict['train']
     
-
     # Create random Tensors to hold inputs and outputs
-    x = torch.randn(S,B,D_in)
-    y = torch.ones(S*B, dtype=torch.long)
-    # x = numpy.random.rand(S,B,D_in)
-    # y = numpy.ones(S*B)#, dtype=torch.long)
-    feed_dict = {'x':x, 'y':y}
+    x_val = numpy.random.rand(S,B,D_in)
+    y_val = numpy.ones(S*B)
+    x = torch.tensor(x_val, dtype=torch.float)
+    y = torch.tensor(y_val, dtype=torch.long)
 
-    # Construct our loss function and an Optimizer. The call to model.parameters()
-    # in the SGD constructor will contain the learnable parameters of the two
-    # nn.Linear modules which are members of the model.
+
+    feed_dict = {'x':x, 'y':y}
     
     for t in range(1,501):
-        # Forward pass: Compute predicted y by passing x to the model
         model.update_parameters(feed_dict)
         if t % 100 == 0:
             logger.info('%i, %f' % (t, model.loss.item()))
