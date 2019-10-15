@@ -309,7 +309,11 @@ class DV_Y_CMP_model(object):
         self.loss = self.gen_loss(feed_dict)
         # perform a backward pass, and update the weights.
         self.loss.backward()
-        self.optimizer.step()          
+        self.optimizer.step()
+
+    def gen_loss_value(self, feed_dict):
+        self.loss = self.gen_loss(feed_dict)
+        return self.loss.item()
 
     def save_nn_model(self, nnets_file_name):
         save_dict = {'model_state_dict': self.nn_model.state_dict()}
@@ -401,8 +405,8 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
                 # Make feed_dict for evaluation
                 feed_dict, batch_size = make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, dv_y_model, batch_speaker_list, utter_tvt=utter_tvt_name)
                 dv_y_model.eval()
-                batch_mean_loss = dv_y_model.gen_loss(feed_dict=feed_dict).item()
-                correct, total, accuracy = dv_y_model.cal_accuracy(feed_dict=feed_dict)
+                batch_mean_loss = dv_y_model.gen_loss_value(feed_dict=feed_dict)
+                _c, _t, accuracy = dv_y_model.cal_accuracy(feed_dict=feed_dict)
                 total_batch_size += batch_size
                 total_loss       += batch_mean_loss
                 total_accuracy   += accuracy
