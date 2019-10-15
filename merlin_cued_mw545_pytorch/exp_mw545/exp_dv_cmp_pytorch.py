@@ -254,7 +254,7 @@ class DV_Y_CMP_model(object):
     def print_model_parameters(self, logger):
         logger.info('Print Parameter Sizes')
         for name, param in self.nn_model.named_parameters():
-            print(str(name)+'  '+str(param.size()))
+            print(str(name)+'  '+str(param.size())+'  '+str(param.type()))
 
     def build_optimiser(self):
         self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
@@ -262,7 +262,14 @@ class DV_Y_CMP_model(object):
         # Zero gradients
         self.optimizer.zero_grad()
 
-    def update_parameters(self, x, y):
+    def update_parameters(self, feed_dict):
+        x = feed_dict['x']
+        y = feed_dict['y']
+        # x = torch.tensor(x_val)#, dtype=torch.long)
+        # y = torch.tensor(y_val)#, dtype=torch.long)
+        x = x.to(self.device_id)
+        y = y.to(self.device_id)
+
         y_pred = self.nn_model(x)
         # Compute and print loss
         self.loss = self.criterion(y_pred, y)
@@ -319,8 +326,9 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
     # Create random Tensors to hold inputs and outputs
     x = torch.randn(S,B,D_in)
     y = torch.ones(S*B, dtype=torch.long)
-    x = x.to(model.device_id)
-    y = y.to(model.device_id)
+    # x = numpy.random.rand(S,B,D_in)
+    # y = numpy.ones(S*B)#, dtype=torch.long)
+    feed_dict = {'x':x, 'y':y}
 
     # Construct our loss function and an Optimizer. The call to model.parameters()
     # in the SGD constructor will contain the learnable parameters of the two
@@ -328,7 +336,7 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
     
     for t in range(1,501):
         # Forward pass: Compute predicted y by passing x to the model
-        model.update_parameters(x, y)
+        model.update_parameters(feed_dict)
         if t % 100 == 0:
             logger.info('%i, %f' % (t, model.loss.item()))
         
