@@ -81,7 +81,7 @@ class dv_y_configuration(object):
         prepare_file_path(file_dir=self.exp_dir, script_name=cfg.python_script_name)
         prepare_file_path(file_dir=self.exp_dir, script_name=self.python_script_name)
 
-        self.gpu_id = 0
+        self.gpu_id = 1
         self.gpu_per_process_gpu_memory_fraction = 0.8
 
     def change_to_debug_mode(self):
@@ -169,7 +169,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
-
 class ReLUDVMax(nn.Module):
     def __init__(self, input_dim, output_dim, num_channels):
         super().__init__()
@@ -177,64 +176,91 @@ class ReLUDVMax(nn.Module):
         self.output_dim   = output_dim
         self.num_channels = num_channels
 
-        self.fc_list   = []
-        self.relu_list = []
+        self.fc_list = []
+        self.relu_fn = nn.ReLU()
         for i in range(self.num_channels):
-            self.fc_list.append(nn.Linear(input_dim, output_dim))
-            self.relu_list.append(nn.ReLU())
-
+            fc_temp = nn.Linear(input_dim, output_dim)
+            self.fc_list.append(fc_temp)
+            self.add_module('fc_%i' % i, fc_temp)
 
     def forward(self, x):
         h_list = []
         for i in range(self.num_channels):
-            # Linear + ReLU
-            h_i = self.relu_list[i](self.fc_list[i](x))
+            # Linear
+            h_i = self.fc_list[i](x)
+            # ReLU
+            h_i = self.relu_fn(h_i)
             h_list.append(h_i)
 
         h_stack = torch.stack(h_list, dim=0)
         # MaxOut
-        h_max = torch.max(h_stack, dim=0, keepdim=False)
+        h_max, _indices = torch.max(h_stack, dim=0, keepdim=False)
         return h_max
 
-
-
-class dv_y_cmp_model(nn.Module):
+class DV_Y_CMP_NN_model(nn.Module):
     def __init__(self, dv_y_cfg):
-        super(Net, self).__init__()
+        super().__init__()
         self.input_dim = dv_y_cfg.batch_seq_len * dv_y_cfg.feat_dim
         prev_output_dim = self.input_dim
+        self.num_nn_layers = dv_y_cfg.num_nn_layers
 
         # Hidden layers
         # The last is bottleneck, output_dim is lambda_dim
         self.layer_list = []
-        for i in range(dv_y_cmp_model.num_nn_layers):
-            layer_config = dv_y_cmp_model.nn_layer_config_list[i]
+        for i in range(self.num_nn_layers):
+            layer_config = dv_y_cfg.nn_layer_config_list[i]
             layer_type = layer_config['type']
-                input_dim  = prev_output_dim
-                output_dim = layer_config['size']
-                prev_output_dim = output_dim
+            input_dim  = prev_output_dim
+            output_dim = layer_config['size']
+            prev_output_dim = output_dim
             if layer_type == 'ReLUDVMax':
                 num_channels = layer_config['num_channels']
                 layer_temp = ReLUDVMax(input_dim, output_dim, num_channels)
             elif layer_type == 'LinDV':
                 layer_temp = nn.Linear(input_dim, output_dim)
+            self.add_module('h_layer_%i' % i, layer_temp)
             self.layer_list.append(layer_temp)
 
         # Expansion layer
         input_dim  = prev_output_dim
-        output_dim = dv_y_cfg.num_speaker_dict['train']
-        self.expansion_layer = nn.Linear(input_dim, output_dim)
+        self.output_dim = dv_y_cfg.num_speaker_dict['train']
+        self.expansion_layer = nn.Linear(input_dim, self.output_dim)
 
     def gen_lambda_SBD(self, x):
-        for i in range(dv_y_cmp_model.num_nn_layers):
+        for i in range(self.num_nn_layers):
             layer_temp = self.layer_list[i]
-            x = layer_temp[x]
+            x = layer_temp(x)
         return x
 
     def forward(self, x):
         lambda_SBD = self.gen_lambda_SBD(x)
         logit_SBD  = self.expansion_layer(lambda_SBD)
-        return logit_SBD
+        # Flatten to 2D for cross-entropy
+        logit_SB_D = logit_SBD.view(-1, self.output_dim)
+        return logit_SB_D
+
+class DV_Y_CMP_model(object):
+    def __init__(self, dv_y_cfg):
+        self.nn_model = DV_Y_CMP_NN_model(dv_y_cfg)
+
+    def to_device(self, device_id):
+        self.nn_model.to(device_id)
+        # for nn_layer in self.nn_model.layer_list:
+        #     nn_layer.to(device_id)
+        #     try:
+        #         for fc_layer in nn_layer.fc_list:
+        #             print(fc_layer)
+        #             # fc_layer.to(device_id)
+        #     except:
+        #         pass
+
+    def forward(self, x):
+        return self.nn_model(x)
+
+    def print_model_parameters(self, logger):
+        logger.info('Print Parameter Sizes')
+        for name, param in self.nn_model.named_parameters():
+            print(str(name)+'  '+str(param.size()))
 
 def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
 
@@ -254,6 +280,7 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
 
     
     if torch.cuda.is_available():
+    # if False:
         logger.info('Using GPU cuda:%i' % dv_y_cfg.gpu_id)
         device_id = torch.device("cuda:%i" % dv_y_cfg.gpu_id)
     else:
@@ -263,47 +290,40 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
 
     # N is batch size; D_in is input dimension;
     # H is hidden dimension; D_out is output dimension.
-    N, D_in, H, D_out = 64, 1000, 100, 10
+    S = dv_y_cfg.batch_num_spk
+    B = dv_y_cfg.spk_num_seq
+    D_in  = dv_y_cfg.batch_seq_len * dv_y_cfg.feat_dim
+    D_out = dv_y_cfg.num_speaker_dict['train']
+    
 
     # Create random Tensors to hold inputs and outputs
-    x = torch.randn(N, D_in)
-    y = torch.randn(N, D_out)
+    x = torch.randn(S,B,D_in)
+    y = torch.ones(S*B, dtype=torch.long)
+    x = x.to(device_id)
+    y = y.to(device_id)
 
     # Construct our model by instantiating the class defined above
-    model = TwoLayerNet(D_in, H, D_out)
-    model.to(torch.device(device_id))
+    model = DV_Y_CMP_model(dv_y_cfg)
+    model.to_device(device_id)
     # Construct our loss function and an Optimizer. The call to model.parameters()
     # in the SGD constructor will contain the learnable parameters of the two
     # nn.Linear modules which are members of the model.
-    criterion = torch.nn.MSELoss(reduction='sum')
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-4)
-    for t in range(50000):
+    criterion = torch.nn.CrossEntropyLoss(reduction='mean')
+    optimizer = torch.optim.Adam(model.nn_model.parameters(), lr=1e-4)
+    # model.print_model_parameters(logger)
+    
+    # Zero gradients
+    optimizer.zero_grad()
+    for t in range(1,501):
         # Forward pass: Compute predicted y by passing x to the model
-        x = x.to(device_id)
-        y = y.to(device_id)
 
-        y_pred = model(x)
-
+        y_pred = model.forward(x)
         # Compute and print loss
         loss = criterion(y_pred, y)
-        if t % 100 == 99:
-            print(t, loss.item())
+        if t % 100 == 0:
+            logger.info('%i, %f' % (t, loss.item()))
 
-        # Zero gradients, perform a backward pass, and update the weights.
-        optimizer.zero_grad()
+        # perform a backward pass, and update the weights.
         loss.backward()
         optimizer.step()
-
-
-    
-
-
-
-
-
-
-
-
-
-
 
