@@ -1,7 +1,8 @@
-import os, sys, cPickle, time, shutil, logging, copy
+import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy
-
+numpy.random.seed(545)
 import torch
+torch.manual_seed(545)
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
