@@ -1,5 +1,7 @@
 cp /home/dawna/tts/mw545/TorchDV/debug_nausicaa/*.sh .
 # Remember to change workdir
+# TODO: Better: write ${PWD} to run_nausicaa.sh directly
+
 
 mkdir log
 ln -s /data/vectra2/tts/mw545/Data/data_voicebank data
