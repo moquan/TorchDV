@@ -176,12 +176,8 @@ class ReLUDVMax(nn.Module):
         self.output_dim   = output_dim
         self.num_channels = num_channels
 
-        self.fc_list = []
+        self.fc_list = nn.ModuleList([nn.Linear(input_dim, output_dim) for i in range(self.num_channels)])
         self.relu_fn = nn.ReLU()
-        for i in range(self.num_channels):
-            fc_temp = nn.Linear(input_dim, output_dim)
-            self.fc_list.append(fc_temp)
-            self.add_module('fc_%i' % i, fc_temp)
 
     def forward(self, x):
         h_list = []
@@ -206,7 +202,7 @@ class DV_Y_CMP_NN_model(nn.Module):
 
         # Hidden layers
         # The last is bottleneck, output_dim is lambda_dim
-        self.layer_list = []
+        self.layer_list = nn.ModuleList()
         for i in range(self.num_nn_layers):
             layer_config = dv_y_cfg.nn_layer_config_list[i]
             layer_type = layer_config['type']
@@ -218,10 +214,9 @@ class DV_Y_CMP_NN_model(nn.Module):
                 layer_temp = ReLUDVMax(input_dim, output_dim, num_channels)
             elif layer_type == 'LinDV':
                 layer_temp = nn.Linear(input_dim, output_dim)
-            self.add_module('h_layer_%i' % i, layer_temp)
             self.layer_list.append(layer_temp)
 
-        # Expansion layer
+        # Expansion layer, from lambda to logit
         input_dim  = prev_output_dim
         self.output_dim = dv_y_cfg.num_speaker_dict['train']
         self.expansion_layer = nn.Linear(input_dim, self.output_dim)
@@ -232,9 +227,13 @@ class DV_Y_CMP_NN_model(nn.Module):
             x = layer_temp(x)
         return x
 
-    def forward(self, x):
+    def gen_logit_SBD(self, x):
         lambda_SBD = self.gen_lambda_SBD(x)
         logit_SBD  = self.expansion_layer(lambda_SBD)
+        return logit_SBD
+
+    def forward(self, x):
+        logit_SBD = self.gen_logit_SBD(x)
         # Flatten to 2D for cross-entropy
         logit_SB_D = logit_SBD.view(-1, self.output_dim)
         return logit_SB_D
@@ -243,24 +242,49 @@ class DV_Y_CMP_model(object):
     def __init__(self, dv_y_cfg):
         self.nn_model = DV_Y_CMP_NN_model(dv_y_cfg)
 
-    def to_device(self, device_id):
-        self.nn_model.to(device_id)
-        # for nn_layer in self.nn_model.layer_list:
-        #     nn_layer.to(device_id)
-        #     try:
-        #         for fc_layer in nn_layer.fc_list:
-        #             print(fc_layer)
-        #             # fc_layer.to(device_id)
-        #     except:
-        #         pass
-
-    def forward(self, x):
+    def __call__(self, x):
+        ''' Simulate PyTorch forward() method '''
+        ''' Note that x could be feed_dict '''
         return self.nn_model(x)
+
+    def to_device(self, device_id):
+        self.device_id = device_id
+        self.nn_model.to(device_id)
 
     def print_model_parameters(self, logger):
         logger.info('Print Parameter Sizes')
         for name, param in self.nn_model.named_parameters():
             print(str(name)+'  '+str(param.size()))
+
+    def build_optimiser(self):
+        self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
+        self.optimizer = torch.optim.Adam(self.nn_model.parameters(), lr=1e-4)
+        # Zero gradients
+        self.optimizer.zero_grad()
+
+    def update_parameters(self, x, y):
+        y_pred = self.nn_model(x)
+        # Compute and print loss
+        self.loss = self.criterion(y_pred, y)
+        # perform a backward pass, and update the weights.
+        self.loss.backward()
+        self.optimizer.step()
+
+
+def torch_initialisation(dv_y_cfg):
+    logger = make_logger("torch initialisation")
+    if torch.cuda.is_available():
+    # if False:
+        logger.info('Using GPU cuda:%i' % dv_y_cfg.gpu_id)
+        device_id = torch.device("cuda:%i" % dv_y_cfg.gpu_id)
+    else:
+        logger.info('Using CPU; No GPU')
+        device_id = torch.device("cpu")
+
+    # Construct our model by instantiating the class defined above
+    model = DV_Y_CMP_model(dv_y_cfg)
+    model.to_device(device_id)
+    return model
 
 def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
 
@@ -278,52 +302,34 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
     file_id_list    = read_file_list(cfg.file_id_list_file)
     file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
 
+    model = torch_initialisation(dv_y_cfg)
+    model.build_optimiser()
+    model.print_model_parameters(logger)
     
-    if torch.cuda.is_available():
-    # if False:
-        logger.info('Using GPU cuda:%i' % dv_y_cfg.gpu_id)
-        device_id = torch.device("cuda:%i" % dv_y_cfg.gpu_id)
-    else:
-        logger.info('Using CPU; No GPU')
-        device_id = torch.device("cpu")
-    # First model: 2D CNN-based
-
     # N is batch size; D_in is input dimension;
     # H is hidden dimension; D_out is output dimension.
     S = dv_y_cfg.batch_num_spk
     B = dv_y_cfg.spk_num_seq
-    D_in  = dv_y_cfg.batch_seq_len * dv_y_cfg.feat_dim
+    T = dv_y_cfg.batch_seq_len
+    D = dv_y_cfg.feat_dim
+    D_in  = T * D
     D_out = dv_y_cfg.num_speaker_dict['train']
     
 
     # Create random Tensors to hold inputs and outputs
     x = torch.randn(S,B,D_in)
     y = torch.ones(S*B, dtype=torch.long)
-    x = x.to(device_id)
-    y = y.to(device_id)
+    x = x.to(model.device_id)
+    y = y.to(model.device_id)
 
-    # Construct our model by instantiating the class defined above
-    model = DV_Y_CMP_model(dv_y_cfg)
-    model.to_device(device_id)
     # Construct our loss function and an Optimizer. The call to model.parameters()
     # in the SGD constructor will contain the learnable parameters of the two
     # nn.Linear modules which are members of the model.
-    criterion = torch.nn.CrossEntropyLoss(reduction='mean')
-    optimizer = torch.optim.Adam(model.nn_model.parameters(), lr=1e-4)
-    # model.print_model_parameters(logger)
     
-    # Zero gradients
-    optimizer.zero_grad()
     for t in range(1,501):
         # Forward pass: Compute predicted y by passing x to the model
-
-        y_pred = model.forward(x)
-        # Compute and print loss
-        loss = criterion(y_pred, y)
+        model.update_parameters(x, y)
         if t % 100 == 0:
-            logger.info('%i, %f' % (t, loss.item()))
-
-        # perform a backward pass, and update the weights.
-        loss.backward()
-        optimizer.step()
+            logger.info('%i, %f' % (t, model.loss.item()))
+        
 
