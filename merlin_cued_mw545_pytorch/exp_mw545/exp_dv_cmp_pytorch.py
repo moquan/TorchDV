@@ -199,6 +199,7 @@ class DV_Y_CMP_NN_model(nn.Module):
         self.input_dim = dv_y_cfg.batch_seq_len * dv_y_cfg.feat_dim
         prev_output_dim = self.input_dim
         self.num_nn_layers = dv_y_cfg.num_nn_layers
+        self.train_by_window = dv_y_cfg.train_by_window
 
         # Hidden layers
         # The last is bottleneck, output_dim is lambda_dim
@@ -234,18 +235,66 @@ class DV_Y_CMP_NN_model(nn.Module):
 
     def forward(self, x):
         logit_SBD = self.gen_logit_SBD(x)
-        # Flatten to 2D for cross-entropy
-        logit_SB_D = logit_SBD.view(-1, self.output_dim)
-        return logit_SB_D
+        if self.train_by_window:
+            # Flatten to 2D for cross-entropy
+            logit_SB_D = logit_SBD.view(-1, self.output_dim)
+            return logit_SB_D
+        else:
+            # Average over B
+            logit_S_D = torch.mean(logit_SBD, dim=1, keepdim=False)
 
 class DV_Y_CMP_model(object):
     def __init__(self, dv_y_cfg):
         self.nn_model = DV_Y_CMP_NN_model(dv_y_cfg)
 
+    def build_optimiser(self):
+        self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
+        self.optimizer = torch.optim.Adam(self.nn_model.parameters(), lr=1e-4)
+        # Zero gradients
+        self.optimizer.zero_grad()
+
+    def gen_loss(self, feed_dict):
+        x, y = self.numpy_to_tensor(feed_dict)
+        y_pred = self.nn_model(x)
+        # Compute and print loss
+        self.loss = self.criterion(y_pred, y)
+        return self.loss
+
+    def cal_accuracy(self, feed_dict):
+        x, y = self.numpy_to_tensor(feed_dict)
+        outputs = self.nn_model(x)
+        _, predicted = torch.max(outputs.data, 1)
+        total = y.size(0)
+        correct = (predicted == y).sum().item()
+        accuracy = correct/total
+        return correct, total, accuracy
+
+    def numpy_to_tensor(self, feed_dict):
+        x_val = feed_dict['x']
+        y_val = feed_dict['y']
+        x = torch.tensor(x_val, dtype=torch.float)
+        y = torch.tensor(y_val, dtype=torch.long)
+        x = x.to(self.device_id)
+        y = y.to(self.device_id)
+        return (x, y)
+
+
+
+
+    
+
     def __call__(self, x):
         ''' Simulate PyTorch forward() method '''
         ''' Note that x could be feed_dict '''
         return self.nn_model(x)
+
+    def eval(self):
+        ''' Simulate PyTorch eval() method '''
+        self.nn_model.eval()
+
+    def train(self):
+        ''' Simulate PyTorch train() method '''
+        self.nn_model.train()
 
     def to_device(self, device_id):
         self.device_id = device_id
@@ -256,24 +305,29 @@ class DV_Y_CMP_model(object):
         for name, param in self.nn_model.named_parameters():
             print(str(name)+'  '+str(param.size())+'  '+str(param.type()))
 
-    def build_optimiser(self):
-        self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
-        self.optimizer = torch.optim.Adam(self.nn_model.parameters(), lr=1e-4)
-        # Zero gradients
-        self.optimizer.zero_grad()
-
     def update_parameters(self, feed_dict):
-        x = feed_dict['x']
-        y = feed_dict['y']
-        x = x.to(self.device_id)
-        y = y.to(self.device_id)
-
-        y_pred = self.nn_model(x)
-        # Compute and print loss
-        self.loss = self.criterion(y_pred, y)
+        self.loss = self.gen_loss(feed_dict)
         # perform a backward pass, and update the weights.
         self.loss.backward()
-        self.optimizer.step()
+        self.optimizer.step()          
+
+    def save_nn_model(self, nnets_file_name):
+        save_dict = {'model_state_dict': self.nn_model.state_dict()}
+        torch.save(save_dict, nnets_file_name)
+
+    def load_nn_model(self, nnets_file_name):
+        checkpoint = torch.load(nnets_file_name)
+        self.nn_model.load_state_dict(checkpoint['model_state_dict'])
+
+    def save_nn_model_optim(self, nnets_file_name):
+        save_dict = {'model_state_dict': self.nn_model.state_dict(), 'optimizer_state_dict': self.optimizer.state_dict()}
+        torch.save(save_dict, nnets_file_name)
+
+    def load_nn_model_optim(self, nnets_file_name):
+        checkpoint = torch.load(nnets_file_name)
+        self.nn_model.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
 
 
 def torch_initialisation(dv_y_cfg):
@@ -307,10 +361,158 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
     file_id_list    = read_file_list(cfg.file_id_list_file)
     file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
 
-    model = torch_initialisation(dv_y_cfg)
-    model.build_optimiser()
+    dv_y_model = torch_initialisation(dv_y_cfg)
+    dv_y_model.build_optimiser()
     # model.print_model_parameters(logger)
+
+    epoch      = 0
+    early_stop = 0
+    num_decay  = 0    
+    best_valid_loss  = sys.float_info.max
+    num_train_epoch  = dv_y_cfg.num_train_epoch
+    early_stop_epoch = dv_y_cfg.early_stop_epoch
+    max_num_decay    = dv_y_cfg.max_num_decay
+
+    while (epoch < num_train_epoch):
+        epoch = epoch + 1
+
+        logger.info('start training Epoch '+str(epoch))
+        epoch_start_time = time.time()
+
+        for batch_idx in range(dv_y_cfg.epoch_num_batch['train']):
+            # Draw random speakers
+            batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk)
+            # Make feed_dict for training
+            feed_dict, batch_size = make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, dv_y_model, batch_speaker_list,  utter_tvt='train')
+            dv_y_model.nn_model.train()
+            dv_y_model.update_parameters(feed_dict=feed_dict)
+        epoch_train_time = time.time()
+
+        logger.info('start evaluating Epoch '+str(epoch))
+        output_string_1 = 'epoch '+str(epoch)
+        output_string_2 = 'epoch '+str(epoch)
+        for utter_tvt_name in ['train', 'valid', 'test']:
+            total_batch_size = 0.
+            total_loss       = 0.
+            total_accuracy   = 0.
+            for batch_idx in range(dv_y_cfg.epoch_num_batch['valid']):
+                # Draw random speakers
+                batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk)
+                # Make feed_dict for evaluation
+                feed_dict, batch_size = make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, dv_y_model, batch_speaker_list, utter_tvt=utter_tvt_name)
+                dv_y_model.eval()
+                batch_mean_loss = dv_y_model.gen_loss(feed_dict=feed_dict).item()
+                correct, total, accuracy = dv_y_model.cal_accuracy(feed_dict=feed_dict)
+                total_batch_size += batch_size
+                total_loss       += batch_mean_loss
+                total_accuracy   += accuracy
+            average_loss = total_loss/float(dv_y_cfg.epoch_num_batch['valid'])
+            average_accu = total_accuracy/float(dv_y_cfg.epoch_num_batch['valid'])
+            output_string_1 = output_string_1 + '; '+utter_tvt_name+' loss '+str(average_loss)
+            output_string_2 = output_string_2 + '; '+utter_tvt_name+' accuracy '+str(average_accu)
+
+            if utter_tvt_name == 'valid':
+                nnets_file_name = dv_y_cfg.nnets_file_name
+                # Compare validation error
+                valid_error = average_loss
+                if valid_error < best_valid_loss:
+                    early_stop = 0
+                    logger.info('valid error reduced, saving model, '+nnets_file_name)
+                    dv_y_model.save_nn_model_optim(nnets_file_name)
+                    best_valid_loss = valid_error
+                elif valid_error > previous_valid_loss:
+                    early_stop = early_stop + 1
+                    new_learning_rate = dv_y_model.learning_rate*0.5
+                    logger.info('reduce learning rate to '+str(new_learning_rate))
+                    dv_y_model.update_learning_rate(new_learning_rate)
+                if (early_stop > early_stop_epoch) and (epoch > dv_y_cfg.warmup_epoch):
+                    early_stop = 0
+                    num_decay = num_decay + 1
+                    if num_decay > max_num_decay:
+                        logger.info('stopping early, best model, '+nnets_file_name+', best valid error '+str(best_valid_loss))
+                        return best_valid_loss
+                    logger.info('loading previous best model, '+nnets_file_name)
+                    dv_y_model.load_nn_model_optim(nnets_file_name)
+                    # logger.info('reduce learning rate to '+str(new_learning_rate))
+                    # dv_y_model.update_learning_rate(new_learning_rate)
+                previous_valid_loss = valid_error
+
+        epoch_valid_time = time.time()
+        output_string_3 = 'epoch '+str(epoch) + '; train time is %.2f, valid time is  %.2f' %((epoch_train_time - epoch_start_time), (epoch_valid_time - epoch_train_time))
+        logger.info(output_string_1)
+        logger.info(output_string_2)
+        logger.info(output_string_3)
+
+    return best_valid_loss
+
+
+
+
+def make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, file_dir_dict, dv_y_model, batch_speaker_list, utter_tvt, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
+    feat_name = dv_y_cfg.y_feat_name # Hard-coded here for now
+    # Make i/o shape arrays
+    y  = numpy.zeros((dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
+    dv = numpy.zeros((dv_y_cfg.batch_num_spk))
+
+    # Do not use silence frames at the beginning or the end
+    total_sil_one_side = dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad
+    min_file_len = dv_y_cfg.batch_seq_total_len + 2 * total_sil_one_side
+
+    file_name_list = []
+    start_frame_index_list = []
+    for speaker_idx in range(dv_y_cfg.batch_num_spk):
+        speaker_id = batch_speaker_list[speaker_idx]
+
+        # Make dv 1-hot output
+        try: true_speaker_index = dv_y_cfg.train_speaker_list.index(speaker_id)
+        except: true_speaker_index = 0 # At generation time, since dv is not used, a non-train speaker is given an arbituary speaker index
+        dv[speaker_idx] = true_speaker_index
+
+        # Draw multiple utterances per speaker: dv_y_cfg.spk_num_utter
+        # Draw multiple windows per utterance:  dv_y_cfg.utter_num_seq
+        # Stack them along B
+        speaker_file_name_list, speaker_utter_len_list, speaker_utter_list = get_utters_from_binary_dict(dv_y_cfg.spk_num_utter, file_list_dict[(speaker_id, utter_tvt)], file_dir_dict, feat_name_list=[feat_name], feat_dim_list=[dv_y_cfg.feat_dim], min_file_len=min_file_len, random_seed=None)
+        file_name_list.append(speaker_file_name_list)
+
+        speaker_start_frame_index_list = []
+        for utter_idx in range(dv_y_cfg.spk_num_utter):
+            y_stack = speaker_utter_list[feat_name][utter_idx][:,dv_y_cfg.feat_index]
+            frame_number   = speaker_utter_len_list[utter_idx]
+            extra_file_len = frame_number - (min_file_len)
+            start_frame_index = numpy.random.choice(range(total_sil_one_side, total_sil_one_side+extra_file_len+1))
+            speaker_start_frame_index_list.append(start_frame_index)
+            for seq_idx in range(dv_y_cfg.utter_num_seq):
+                y[speaker_idx, utter_idx*dv_y_cfg.utter_num_seq+seq_idx, :, :] = y_stack[start_frame_index:start_frame_index+dv_y_cfg.batch_seq_len, :]
+                start_frame_index = start_frame_index + dv_y_cfg.batch_seq_shift
+        start_frame_index_list.append(speaker_start_frame_index_list)
+
+
+    # S,B,T,D --> S,B,T*D
+    x_val = numpy.reshape(y, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
+    if dv_y_cfg.train_by_window:
+        # S --> S*B
+        y_val = numpy.repeat(dv, dv_y_cfg.spk_num_seq)
+        batch_size = dv_y_cfg.batch_num_spk * dv_y_cfg.spk_num_seq
+    else:
+        batch_size = dv_y_cfg.batch_num_spk
+
+    feed_dict = {'x':x_val, 'y':y_val}
+    return_list = [feed_dict, batch_size]
     
+    if return_dv:
+        return_list.append(dv)
+    if return_y:
+        return_list.append(y)
+    if return_frame_index:
+        return_list.append(start_frame_index_list)
+    if return_file_name:
+        return_list.append(file_name_list)
+    return return_list
+
+
+
+def data_format_test(dv_y_cfg, dv_y_model):
+    logger = make_logger("data_format_test")
     S = dv_y_cfg.batch_num_spk
     B = dv_y_cfg.spk_num_seq
     T = dv_y_cfg.batch_seq_len
@@ -324,12 +526,14 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
     x = torch.tensor(x_val, dtype=torch.float)
     y = torch.tensor(y_val, dtype=torch.long)
 
-
-    feed_dict = {'x':x, 'y':y}
+    feed_dict = {'x':x_val, 'y':y_val}
     
     for t in range(1,501):
-        model.update_parameters(feed_dict)
+        dv_y_model.nn_model.train()
+        dv_y_model.update_parameters(feed_dict)
         if t % 100 == 0:
-            logger.info('%i, %f' % (t, model.loss.item()))
+            dv_y_model.nn_model.eval()
+            loss = dv_y_model.gen_loss(feed_dict)
+            logger.info('%i, %f' % (t, loss.item()))
         
 
