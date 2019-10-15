@@ -4,6 +4,7 @@
 
 import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy
+numpy.random.seed(545)
 from modules import make_logger, read_file_list, prepare_file_path, prepare_file_path_list, make_held_out_file_number, copy_to_scratch
 from modules import keep_by_speaker, remove_by_speaker, keep_by_file_number, remove_by_file_number, keep_by_min_max_file_number, check_and_change_to_list
 from modules_2 import compute_feat_dim, log_class_attri, resil_nn_file_list, norm_nn_file_list, get_utters_from_binary_dict, count_male_female_class_errors
@@ -11,10 +12,6 @@ from modules_2 import compute_feat_dim, log_class_attri, resil_nn_file_list, nor
 from io_funcs.binary_io import BinaryIOCollection
 io_fun = BinaryIOCollection()
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 
 
 class dv_y_configuration(object):
@@ -92,8 +89,8 @@ class dv_y_configuration(object):
         if '_smallbatch' not in self.exp_dir:
             self.exp_dir = self.exp_dir + '_smallbatch'
         self.num_train_epoch = 5
-        self.num_speaker_dict['train'] = 10
-        self.speaker_id_list_dict['train'] = self.speaker_id_list_dict['train'][:self.num_speaker_dict['train']]
+        # self.num_speaker_dict['train'] = 10
+        # self.speaker_id_list_dict['train'] = self.speaker_id_list_dict['train'][:self.num_speaker_dict['train']]
 
     def change_to_test_mode(self):
         self.epoch_num_batch  = {'train': 0, 'valid':4000}
@@ -137,7 +134,6 @@ def make_dv_file_list(file_id_list, speaker_id_list, data_split_file_number):
     return file_list
 
 
-
 class dv_y_cmp_configuration(dv_y_configuration):
     """docstring for ClassName"""
     def __init__(self, cfg):
@@ -166,7 +162,85 @@ class dv_y_cmp_configuration(dv_y_configuration):
         self.auto_complete(cfg)
 
 
+import torch
+torch.manual_seed(545)
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+
+
+
+class ReLUDVMax(nn.Module):
+    def __init__(self, input_dim, output_dim, num_channels):
+        super().__init__()
+        self.input_dim    = input_dim
+        self.output_dim   = output_dim
+        self.num_channels = num_channels
+
+        self.fc_list   = []
+        self.relu_list = []
+        for i in range(self.num_channels):
+            self.fc_list.append(nn.Linear(input_dim, output_dim))
+            self.relu_list.append(nn.ReLU())
+
+
+    def forward(self, x):
+        h_list = []
+        for i in range(self.num_channels):
+            # Linear + ReLU
+            h_i = self.relu_list[i](self.fc_list[i](x))
+            h_list.append(h_i)
+
+        h_stack = torch.stack(h_list, dim=0)
+        # MaxOut
+        h_max = torch.max(h_stack, dim=0, keepdim=False)
+        return h_max
+
+
+
+class dv_y_cmp_model(nn.Module):
+    def __init__(self, dv_y_cfg):
+        super(Net, self).__init__()
+        self.input_dim = dv_y_cfg.batch_seq_len * dv_y_cfg.feat_dim
+        prev_output_dim = self.input_dim
+
+        # Hidden layers
+        # The last is bottleneck, output_dim is lambda_dim
+        self.layer_list = []
+        for i in range(dv_y_cmp_model.num_nn_layers):
+            layer_config = dv_y_cmp_model.nn_layer_config_list[i]
+            layer_type = layer_config['type']
+                input_dim  = prev_output_dim
+                output_dim = layer_config['size']
+                prev_output_dim = output_dim
+            if layer_type == 'ReLUDVMax':
+                num_channels = layer_config['num_channels']
+                layer_temp = ReLUDVMax(input_dim, output_dim, num_channels)
+            elif layer_type == 'LinDV':
+                layer_temp = nn.Linear(input_dim, output_dim)
+            self.layer_list.append(layer_temp)
+
+        # Expansion layer
+        input_dim  = prev_output_dim
+        output_dim = dv_y_cfg.num_speaker_dict['train']
+        self.expansion_layer = nn.Linear(input_dim, output_dim)
+
+    def gen_lambda_SBD(self, x):
+        for i in range(dv_y_cmp_model.num_nn_layers):
+            layer_temp = self.layer_list[i]
+            x = layer_temp[x]
+        return x
+
+    def forward(self, x):
+        lambda_SBD = self.gen_lambda_SBD(x)
+        logit_SBD  = self.expansion_layer(lambda_SBD)
+        return logit_SBD
+
 def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
+
+    # First attempt: 3 layers of ReLUMax
+    # Also, feed data use feed_dict style
+
     if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
 
     logger = make_logger("dv_y_config")
@@ -178,8 +252,49 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
     file_id_list    = read_file_list(cfg.file_id_list_file)
     file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
 
-
     
+    if torch.cuda.is_available():
+        logger.info('Using GPU cuda:%i' % dv_y_cfg.gpu_id)
+        device_id = torch.device("cuda:%i" % dv_y_cfg.gpu_id)
+    else:
+        logger.info('Using CPU; No GPU')
+        device_id = torch.device("cpu")
+    # First model: 2D CNN-based
+
+    # N is batch size; D_in is input dimension;
+    # H is hidden dimension; D_out is output dimension.
+    N, D_in, H, D_out = 64, 1000, 100, 10
+
+    # Create random Tensors to hold inputs and outputs
+    x = torch.randn(N, D_in)
+    y = torch.randn(N, D_out)
+
+    # Construct our model by instantiating the class defined above
+    model = TwoLayerNet(D_in, H, D_out)
+    model.to(torch.device(device_id))
+    # Construct our loss function and an Optimizer. The call to model.parameters()
+    # in the SGD constructor will contain the learnable parameters of the two
+    # nn.Linear modules which are members of the model.
+    criterion = torch.nn.MSELoss(reduction='sum')
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-4)
+    for t in range(50000):
+        # Forward pass: Compute predicted y by passing x to the model
+        x = x.to(device_id)
+        y = y.to(device_id)
+
+        y_pred = model(x)
+
+        # Compute and print loss
+        loss = criterion(y_pred, y)
+        if t % 100 == 99:
+            print(t, loss.item())
+
+        # Zero gradients, perform a backward pass, and update the weights.
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+
     
 
 

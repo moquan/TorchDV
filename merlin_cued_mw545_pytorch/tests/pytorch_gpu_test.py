@@ -2,7 +2,13 @@
 
 import torch
 
-gpu_id = 0
+use_cuda  = torch.cuda.is_available()
+if use_cuda:
+    device_id = torch.device("cuda:0")
+else:
+    print('No cuda device available!!!')
+    print('Using CPU')
+    device_id = torch.device("cpu")
 
 
 class TwoLayerNet(torch.nn.Module):
@@ -36,7 +42,7 @@ y = torch.randn(N, D_out)
 
 # Construct our model by instantiating the class defined above
 model = TwoLayerNet(D_in, H, D_out)
-model.to(torch.device('cuda:%i' % gpu_id))
+model.to(device_id)
 # Construct our loss function and an Optimizer. The call to model.parameters()
 # in the SGD constructor will contain the learnable parameters of the two
 # nn.Linear modules which are members of the model.
@@ -44,8 +50,8 @@ criterion = torch.nn.MSELoss(reduction='sum')
 optimizer = torch.optim.SGD(model.parameters(), lr=1e-4)
 for t in range(50000):
     # Forward pass: Compute predicted y by passing x to the model
-    x = x.to(torch.device('cuda:%i' % gpu_id))
-    y = y.to(torch.device('cuda:%i' % gpu_id))
+    x = x.to(device_id)
+    y = y.to(device_id)
 
     y_pred = model(x)
 
