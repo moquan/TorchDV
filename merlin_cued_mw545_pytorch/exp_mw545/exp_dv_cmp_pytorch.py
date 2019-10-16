@@ -28,10 +28,10 @@ class dv_y_configuration(object):
         
         # Things no need to change
         self.tf_scope_name = 'dv_y_model'
-        self.learning_rate    = 0.001
+        self.learning_rate    = 0.0001
         self.num_train_epoch  = 100
         self.warmup_epoch     = 10
-        self.early_stop_epoch = 5    # After this number of non-improvement, roll-back to best previous model and decay learning rate
+        self.early_stop_epoch = 2    # After this number of non-improvement, roll-back to best previous model and decay learning rate
         self.max_num_decay    = 10
         self.epoch_num_batch  = {'train': 400, 'valid':400}
 
@@ -81,14 +81,14 @@ class dv_y_configuration(object):
         prepare_file_path(file_dir=self.exp_dir, script_name=cfg.python_script_name)
         prepare_file_path(file_dir=self.exp_dir, script_name=self.python_script_name)
 
-        self.gpu_id = 1
+        self.gpu_id = 0
         self.gpu_per_process_gpu_memory_fraction = 0.8
 
     def change_to_debug_mode(self):
         self.epoch_num_batch  = {'train': 10, 'valid':10}
         if '_smallbatch' not in self.exp_dir:
             self.exp_dir = self.exp_dir + '_smallbatch'
-        self.num_train_epoch = 5
+        self.num_train_epoch = 500
         # self.num_speaker_dict['train'] = 10
         # self.speaker_id_list_dict['train'] = self.speaker_id_list_dict['train'][:self.num_speaker_dict['train']]
 
@@ -114,10 +114,15 @@ class dv_y_configuration(object):
 def make_dv_y_exp_dir_name(model_cfg, cfg):
     exp_dir = cfg.work_dir + '/dv_y_%s_lr_%f_' %(model_cfg.y_feat_name, model_cfg.learning_rate)
     for nn_layer_config in model_cfg.nn_layer_config_list:
-        exp_dir = exp_dir + str(nn_layer_config['type'])[:3] + str(nn_layer_config['size']) + "_"
+        layer_str = '%s%i' % (nn_layer_config['type'][:3], nn_layer_config['size'])
+        # exp_dir = exp_dir + str(nn_layer_config['type'])[:3] + str(nn_layer_config['size'])
         if 'batch_norm' in nn_layer_config and nn_layer_config['batch_norm']:
-            exp_dir = exp_dir + 'BN_'
-    exp_dir = exp_dir + "DV"+str(model_cfg.dv_dim)+"_S"+str(model_cfg.batch_num_spk)+"_B"+str(model_cfg.spk_num_seq)+"_T"+str(model_cfg.batch_seq_len)
+            layer_str = layer_str + 'BN'
+        if 'dropout_p' in nn_layer_config and nn_layer_config['dropout_p'] > 0:
+            layer_str = layer_str + 'DR'
+        exp_dir = exp_dir + layer_str + "_"
+    exp_dir = exp_dir + "DV%iS%iB%iT%iD%i" %(model_cfg.dv_dim, model_cfg.batch_num_spk, model_cfg.spk_num_seq, model_cfg.batch_seq_len, model_cfg.feat_dim)
+    # exp_dir + "DV"+str(model_cfg.dv_dim)+"_S"+str(model_cfg.batch_num_spk)+"_B"+str(model_cfg.spk_num_seq)+"_T"+str(model_cfg.batch_seq_len)
     # if cfg.exp_type_switch == 'wav_sine_attention':
     #     exp_dir = exp_dir + "_SineSize_"+str(model_cfg.nn_layer_config_list[0]['Sine_filter_size'])
     # elif cfg.exp_type_switch == 'dv_y_wav_cnn_attention':
@@ -133,12 +138,12 @@ def make_dv_file_list(file_id_list, speaker_id_list, data_split_file_number):
             file_list[(speaker_id, utter_tvt_name)] = keep_by_file_number(file_list[speaker_id], data_split_file_number[utter_tvt_name])
     return file_list
 
-
 class dv_y_cmp_configuration(dv_y_configuration):
     """docstring for ClassName"""
     def __init__(self, cfg):
         super(dv_y_cmp_configuration, self).__init__(cfg)
-        self.train_by_window  = True # Optimise lambda_w; False: optimise speaker level lambda
+        self.train_by_window = True # Optimise lambda_w; False: optimise speaker level lambda
+        self.classify_in_training = True # Compute classification accuracy after validation errors during training
         self.batch_output_form = 'mean' # Method to convert from SBD to SD
         self.retrain_model = False
         self.previous_model_name = ''
@@ -152,7 +157,7 @@ class dv_y_cmp_configuration(dv_y_configuration):
             {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
             {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
             {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
-            # {'type':'ReLUDVMaxDrop', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
+            # {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
             {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0}
         ]
 
@@ -164,20 +169,91 @@ class dv_y_cmp_configuration(dv_y_configuration):
 
 import torch
 torch.manual_seed(545)
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
+
+########################
+# PyTorch-based Layers #
+########################
+
+class Build_S_B_TD_Input_Layer(object):
+    ''' This layer has only parameters, no torch.nn.module '''
+    def __init__(self, dv_y_cfg):
+        self.input_dim = dv_y_cfg.batch_seq_len * dv_y_cfg.feat_dim
+        self.params = {}
+        self.params["output_dim_seq"]      = ['S', 'B', 'D']
+        self.params["output_dim_values"]   = {'S':dv_y_cfg.batch_num_spk, 'B':dv_y_cfg.spk_num_seq, 'D':self.input_dim}
+        v = self.params["output_dim_values"]
+        self.params["output_shape_values"] = [v['S'], v['B'], v['D']]
+
+def Build_S_B_D_Output_Layer(object):
+    ''' This layer has only parameters, no torch.nn.module '''
+    def __init__(self, model, dv_y_cfg):
+        self.input_dim  = dv_y_cfg.dv_dim
+        self.output_dim = dv_y_cfg.num_speaker_dict['train']
+        self.nn_layer = torch.nn.Linear(self.input_dim, self.output_dim)
 
 
-class ReLUDVMax(nn.Module):
+    def __call__(self, x):
+        ''' Simulate PyTorch forward() method '''
+        return self.nn_layer(x)
+
+class Tensor_Reshape(torch.nn.Module):
+    def __init__(self, current_layer_params):
+        super().__init__()
+        self.params = current_layer_params
+
+    def update_layer_params(self):
+        input_dim_seq = self.params['input_dim_seq']
+        input_dim_values = self.params['input_dim_values']
+        expect_input_dim_seq = self.params['expect_input_dim_seq']
+
+        # First, check if change is needed at all; pass on if not
+        if input_dim_seq == expect_input_dim_seq:
+            self.params['expect_input_dim_values'] = input_dim_values
+            return self.params
+        else:
+            # Make anything into ['S', 'B', 'T', 'D']
+            if input_dim_seq == ['S', 'B', 'T', 'D']:
+                # Do nothing, pass on
+                temp_input_dim_values = input_dim_values
+
+        # Then, make from ['S', 'B', 'T', 'D']
+        if expect_input_dim_seq == ['S', 'B', 'D']:
+            # So basically, stack and remove T; last dimension D -> T * D
+            expect_input_shape_values = [temp_input_dim_values['S'], temp_input_dim_values['B'], temp_input_dim_values['T']*temp_input_dim_values['D']]
+            self.params['expect_input_dim_values'] = {'S':temp_input_dim_values['S'], 'B':temp_input_dim_values['B'], 'T':0, 'D':temp_input_dim_values['T']*temp_input_dim_values['D'] }
+        return self.params
+
+    def forward(self, x):
+        input_dim_seq = self.params['input_dim_seq']
+        input_dim_values = self.params['input_dim_values']
+        expect_input_dim_seq = self.params['expect_input_dim_seq']
+        expect_input_dim_values = self.params['expect_input_dim_values']
+
+        # First, check if change is needed at all; pass on if not
+        if input_dim_seq == expect_input_dim_seq:
+            return x
+        else:
+            # Make anything into ['S', 'B', 'T', 'D']
+            if input_dim_seq == ['S', 'B', 'T', 'D']:
+                # Do nothing, pass on
+                temp_input = x
+
+        # Then, make from ['S', 'B', 'T', 'D']
+        if expect_input_dim_seq == ['S', 'B', 'D']:
+            # So basically, stack and remove T; last dimension D -> T * D
+            expect_input_shape_values = [expect_input_dim_values['S'], expect_input_dim_values['B'], expect_input_dim_values['D']]
+            expect_input = temp_input.view(expect_input_shape_values)
+        return expect_input
+
+class ReLUDVMaxLayer(torch.nn.Module):
     def __init__(self, input_dim, output_dim, num_channels):
         super().__init__()
         self.input_dim    = input_dim
         self.output_dim   = output_dim
         self.num_channels = num_channels
 
-        self.fc_list = nn.ModuleList([nn.Linear(input_dim, output_dim) for i in range(self.num_channels)])
-        self.relu_fn = nn.ReLU()
+        self.fc_list = torch.nn.ModuleList([torch.nn.Linear(input_dim, output_dim) for i in range(self.num_channels)])
+        self.relu_fn = torch.nn.ReLU()
 
     def forward(self, x):
         h_list = []
@@ -193,34 +269,101 @@ class ReLUDVMax(nn.Module):
         h_max, _indices = torch.max(h_stack, dim=0, keepdim=False)
         return h_max
 
-class DV_Y_CMP_NN_model(nn.Module):
+class Build_NN_Layer(torch.nn.Module):
+    def __init__(self, layer_config, prev_layer):
+        super().__init__()
+        self.params = {}
+        self.params["layer_config"] = layer_config
+        self.params["type"] = layer_config['type']
+        self.params["size"] = layer_config['size']
+
+        self.params["input_dim_seq"]    = prev_layer.params["output_dim_seq"]
+        self.params["input_dim_values"] = prev_layer.params["output_dim_values"]
+
+        # To be set per layer type; mostly for definition of h
+        self.params["expect_input_dim_seq"]    = []
+        self.params["expect_input_dim_values"] = {}
+        self.params["output_dim_seq"]          = []
+        self.params["output_dim_values"]       = {}
+
+        construct_layer = getattr(self, self.params["layer_config"]["type"])
+        construct_layer()
+
+        ''' Dropout '''
+        try: 
+            self.params["dropout_p"] = self.params["layer_config"]['dropout_p']
+        except KeyError: 
+            self.params["dropout_p"] = 0.
+            return dropout_input
+        if self.params["dropout_p"] > 0:
+            self.dropout_fn = torch.nn.Dropout(p=self.params["dropout_p"])
+        else:
+            self.dropout_fn = lambda a: a # Do nothing, just return same tensor
+
+    def forward(self, x):
+        x = self.reshape_fn(x)
+        x = self.layer_fn(x)
+        x = self.dropout_fn(x)
+        return x
+
+    def ReLUDVMax(self):
+        self.params["expect_input_dim_seq"] = ['S','B','D']
+        self.reshape_fn = Tensor_Reshape(self.params)
+        self.params = self.reshape_fn.update_layer_params()
+
+        self.params["output_dim_seq"]       = ['S', 'B', 'D']
+        v = self.params["expect_input_dim_values"]
+        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]}
+
+        input_dim  = self.params['expect_input_dim_values']['D']
+        output_dim = self.params['output_dim_values']['D']
+        num_channels = self.params["layer_config"]["num_channels"]
+        self.layer_fn = ReLUDVMaxLayer(input_dim, output_dim, num_channels)
+
+    def LinDV(self):
+        self.params["expect_input_dim_seq"] = ['S','B','D']
+        self.reshape_fn = Tensor_Reshape(self.params)
+        self.params = self.reshape_fn.update_layer_params()
+
+        self.params["output_dim_seq"]       = ['S', 'B', 'D']
+        v = self.params["expect_input_dim_values"]
+        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]}
+
+        input_dim  = self.params['expect_input_dim_values']['D']
+        output_dim = self.params['output_dim_values']['D']
+        self.layer_fn = torch.nn.Linear(input_dim, output_dim)
+
+
+########################
+# PyTorch-based Models #
+########################
+
+class DV_Y_CMP_NN_model(torch.nn.Module):
+
     def __init__(self, dv_y_cfg):
         super().__init__()
-        self.input_dim = dv_y_cfg.batch_seq_len * dv_y_cfg.feat_dim
-        prev_output_dim = self.input_dim
+        
         self.num_nn_layers = dv_y_cfg.num_nn_layers
         self.train_by_window = dv_y_cfg.train_by_window
 
+        self.input_layer = Build_S_B_TD_Input_Layer(dv_y_cfg)
+        self.input_dim   = self.input_layer.input_dim
+        prev_layer = self.input_layer
+
         # Hidden layers
         # The last is bottleneck, output_dim is lambda_dim
-        self.layer_list = nn.ModuleList()
+        self.layer_list = torch.nn.ModuleList()
         for i in range(self.num_nn_layers):
             layer_config = dv_y_cfg.nn_layer_config_list[i]
-            layer_type = layer_config['type']
-            input_dim  = prev_output_dim
-            output_dim = layer_config['size']
-            prev_output_dim = output_dim
-            if layer_type == 'ReLUDVMax':
-                num_channels = layer_config['num_channels']
-                layer_temp = ReLUDVMax(input_dim, output_dim, num_channels)
-            elif layer_type == 'LinDV':
-                layer_temp = nn.Linear(input_dim, output_dim)
+
+            layer_temp = Build_NN_Layer(layer_config, prev_layer)
+            prev_layer = layer_temp
             self.layer_list.append(layer_temp)
 
         # Expansion layer, from lambda to logit
-        input_dim  = prev_output_dim
+        self.dv_dim  = dv_y_cfg.dv_dim
         self.output_dim = dv_y_cfg.num_speaker_dict['train']
-        self.expansion_layer = nn.Linear(input_dim, self.output_dim)
+        self.expansion_layer = torch.nn.Linear(self.dv_dim, self.output_dim)
 
     def gen_lambda_SBD(self, x):
         for i in range(self.num_nn_layers):
@@ -243,47 +386,10 @@ class DV_Y_CMP_NN_model(nn.Module):
             # Average over B
             logit_S_D = torch.mean(logit_SBD, dim=1, keepdim=False)
 
-class DV_Y_CMP_model(object):
-    def __init__(self, dv_y_cfg):
-        self.nn_model = DV_Y_CMP_NN_model(dv_y_cfg)
-        self.learning_rate = dv_y_cfg.learning_rate
+class General_Model(object):
 
-    def build_optimiser(self):
-        self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
-        self.optimiser = torch.optim.Adam(self.nn_model.parameters(), lr=self.learning_rate)
-        # Zero gradients
-        self.optimiser.zero_grad()
-
-    def gen_loss(self, feed_dict):
-        ''' Returns Tensor, not value! For value, use gen_loss_value '''
-        x, y = self.numpy_to_tensor(feed_dict)
-        y_pred = self.nn_model(x)
-        # Compute and print loss
-        self.loss = self.criterion(y_pred, y)
-        return self.loss
-
-    def cal_accuracy(self, feed_dict):
-        x, y = self.numpy_to_tensor(feed_dict)
-        outputs = self.nn_model(x)
-        _, predicted = torch.max(outputs.data, 1)
-        total = y.size(0)
-        correct = (predicted == y).sum().item()
-        accuracy = correct/total
-        return correct, total, accuracy
-
-    def numpy_to_tensor(self, feed_dict):
-        x_val = feed_dict['x']
-        y_val = feed_dict['y']
-        x = torch.tensor(x_val, dtype=torch.float)
-        y = torch.tensor(y_val, dtype=torch.long)
-        x = x.to(self.device_id)
-        y = y.to(self.device_id)
-        return (x, y)
-
-
-
-
-    
+    def __init__(self):
+        self.nn_model = None
 
     def __call__(self, x):
         ''' Simulate PyTorch forward() method '''
@@ -340,6 +446,43 @@ class DV_Y_CMP_model(object):
         self.nn_model.load_state_dict(checkpoint['model_state_dict'])
         self.optimiser.load_state_dict(checkpoint['optimiser_state_dict'])
 
+class DV_Y_CMP_model(General_Model):
+    def __init__(self, dv_y_cfg):
+        super().__init__()
+        self.nn_model = DV_Y_CMP_NN_model(dv_y_cfg)
+        self.learning_rate = dv_y_cfg.learning_rate
+
+    def build_optimiser(self):
+        self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
+        self.optimiser = torch.optim.Adam(self.nn_model.parameters(), lr=self.learning_rate)
+        # Zero gradients
+        self.optimiser.zero_grad()
+
+    def gen_loss(self, feed_dict):
+        ''' Returns Tensor, not value! For value, use gen_loss_value '''
+        x, y = self.numpy_to_tensor(feed_dict)
+        y_pred = self.nn_model(x)
+        # Compute and print loss
+        self.loss = self.criterion(y_pred, y)
+        return self.loss
+
+    def cal_accuracy(self, feed_dict):
+        x, y = self.numpy_to_tensor(feed_dict)
+        outputs = self.nn_model(x)
+        _, predicted = torch.max(outputs.data, 1)
+        total = y.size(0)
+        correct = (predicted == y).sum().item()
+        accuracy = correct/total
+        return correct, total, accuracy
+
+    def numpy_to_tensor(self, feed_dict):
+        x_val = feed_dict['x']
+        y_val = feed_dict['y']
+        x = torch.tensor(x_val, dtype=torch.float)
+        y = torch.tensor(y_val, dtype=torch.long)
+        x = x.to(self.device_id)
+        y = y.to(self.device_id)
+        return (x, y)
 
 
 def torch_initialisation(dv_y_cfg):
@@ -357,110 +500,14 @@ def torch_initialisation(dv_y_cfg):
     model.to_device(device_id)
     return model
 
-def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
-
-    # First attempt: 3 layers of ReLUMax
-    # Also, feed data use feed_dict style
-
-    if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
-
-    logger = make_logger("dv_y_config")
-    log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
-
-    logger = make_logger("train_dv_y_model")
-    logger.info('Creating data lists')
-    speaker_id_list = dv_y_cfg.speaker_id_list_dict['train'] # For DV training and evaluation, use train speakers only
-    file_id_list    = read_file_list(cfg.file_id_list_file)
-    file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
-
-    dv_y_model = torch_initialisation(dv_y_cfg)
-    dv_y_model.build_optimiser()
-    # model.print_model_parameters(logger)
-
-    epoch      = 0
-    early_stop = 0
-    num_decay  = 0    
-    best_valid_loss  = sys.float_info.max
-    num_train_epoch  = dv_y_cfg.num_train_epoch
-    early_stop_epoch = dv_y_cfg.early_stop_epoch
-    max_num_decay    = dv_y_cfg.max_num_decay
-
-    while (epoch < num_train_epoch):
-        epoch = epoch + 1
-
-        logger.info('start training Epoch '+str(epoch))
-        epoch_start_time = time.time()
-
-        for batch_idx in range(dv_y_cfg.epoch_num_batch['train']):
-            # Draw random speakers
-            batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk)
-            # Make feed_dict for training
-            feed_dict, batch_size = make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, dv_y_model, batch_speaker_list,  utter_tvt='train')
-            dv_y_model.nn_model.train()
-            dv_y_model.update_parameters(feed_dict=feed_dict)
-        epoch_train_time = time.time()
-
-        logger.info('start evaluating Epoch '+str(epoch))
-        output_string_1 = 'epoch '+str(epoch)
-        output_string_2 = 'epoch '+str(epoch)
-        for utter_tvt_name in ['train', 'valid', 'test']:
-            total_batch_size = 0.
-            total_loss       = 0.
-            total_accuracy   = 0.
-            for batch_idx in range(dv_y_cfg.epoch_num_batch['valid']):
-                # Draw random speakers
-                batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk)
-                # Make feed_dict for evaluation
-                feed_dict, batch_size = make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, dv_y_model, batch_speaker_list, utter_tvt=utter_tvt_name)
-                dv_y_model.eval()
-                batch_mean_loss = dv_y_model.gen_loss_value(feed_dict=feed_dict)
-                _c, _t, accuracy = dv_y_model.cal_accuracy(feed_dict=feed_dict)
-                total_batch_size += batch_size
-                total_loss       += batch_mean_loss
-                total_accuracy   += accuracy
-            average_loss = total_loss/float(dv_y_cfg.epoch_num_batch['valid'])
-            average_accu = total_accuracy/float(dv_y_cfg.epoch_num_batch['valid'])
-            output_string_1 = output_string_1 + '; '+utter_tvt_name+' loss '+str(average_loss)
-            output_string_2 = output_string_2 + '; '+utter_tvt_name+' accuracy '+str(average_accu)
-
-            if utter_tvt_name == 'valid':
-                nnets_file_name = dv_y_cfg.nnets_file_name
-                # Compare validation error
-                valid_error = average_loss
-                if valid_error < best_valid_loss:
-                    early_stop = 0
-                    logger.info('valid error reduced, saving model, '+nnets_file_name)
-                    dv_y_model.save_nn_model_optim(nnets_file_name)
-                    best_valid_loss = valid_error
-                elif valid_error > previous_valid_loss:
-                    early_stop = early_stop + 1
-                    new_learning_rate = dv_y_model.learning_rate*0.5
-                    logger.info('reduce learning rate to '+str(new_learning_rate))
-                    dv_y_model.update_learning_rate(new_learning_rate)
-                if (early_stop > early_stop_epoch) and (epoch > dv_y_cfg.warmup_epoch):
-                    early_stop = 0
-                    num_decay = num_decay + 1
-                    if num_decay > max_num_decay:
-                        logger.info('stopping early, best model, '+nnets_file_name+', best valid error '+str(best_valid_loss))
-                        return best_valid_loss
-                    logger.info('loading previous best model, '+nnets_file_name)
-                    dv_y_model.load_nn_model_optim(nnets_file_name)
-                    # logger.info('reduce learning rate to '+str(new_learning_rate))
-                    # dv_y_model.update_learning_rate(new_learning_rate)
-                previous_valid_loss = valid_error
-
-        epoch_valid_time = time.time()
-        output_string_3 = 'epoch '+str(epoch) + '; train time is %.2f, valid time is  %.2f' %((epoch_train_time - epoch_start_time), (epoch_valid_time - epoch_train_time))
-        logger.info(output_string_1)
-        logger.info(output_string_2)
-        logger.info(output_string_3)
-
-    return best_valid_loss
-
+#############
+# Processes #
+#############
 
 def make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, file_dir_dict, dv_y_model, batch_speaker_list, utter_tvt, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
     feat_name = dv_y_cfg.y_feat_name # Hard-coded here for now
     # Make i/o shape arrays
+    # This is numpy shape, not Tensor shape!
     y  = numpy.zeros((dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
     dv = numpy.zeros((dv_y_cfg.batch_num_spk))
 
@@ -508,8 +555,6 @@ def make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, file_dir_dict, dv_y_model, ba
 
     feed_dict = {'x':x_val, 'y':y_val}
     return_list = [feed_dict, batch_size]
-    # print(dv)
-    # print(y_val)
     
     if return_dv:
         return_list.append(dv)
@@ -520,6 +565,112 @@ def make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, file_dir_dict, dv_y_model, ba
     if return_file_name:
         return_list.append(file_name_list)
     return return_list
+
+def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
+
+    # First attempt: 3 layers of ReLUMax
+    # Also, feed data use feed_dict style
+
+    if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
+
+    logger = make_logger("dv_y_config")
+    log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
+
+    logger = make_logger("train_dv_y_model")
+    logger.info('Creating data lists')
+    speaker_id_list = dv_y_cfg.speaker_id_list_dict['train'] # For DV training and evaluation, use train speakers only
+    file_id_list    = read_file_list(cfg.file_id_list_file)
+    file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
+
+    dv_y_model = torch_initialisation(dv_y_cfg)
+    dv_y_model.build_optimiser()
+    # model.print_model_parameters(logger)
+
+    epoch      = 0
+    early_stop = 0
+    num_decay  = 0    
+    best_valid_loss  = sys.float_info.max
+    num_train_epoch  = dv_y_cfg.num_train_epoch
+    early_stop_epoch = dv_y_cfg.early_stop_epoch
+    max_num_decay    = dv_y_cfg.max_num_decay
+
+    while (epoch < num_train_epoch):
+        epoch = epoch + 1
+
+        logger.info('start training Epoch '+str(epoch))
+        epoch_start_time = time.time()
+
+        for batch_idx in range(dv_y_cfg.epoch_num_batch['train']):
+            # Draw random speakers
+            batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk)
+            # Make feed_dict for training
+            feed_dict, batch_size = make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, dv_y_model, batch_speaker_list,  utter_tvt='train')
+            dv_y_model.nn_model.train()
+            dv_y_model.update_parameters(feed_dict=feed_dict)
+        epoch_train_time = time.time()
+
+        logger.info('start evaluating Epoch '+str(epoch))
+        output_string = {'loss':'epoch %i' % epoch, 'accuracy':'epoch %i' % epoch, 'time':'epoch %i' % epoch}
+        for utter_tvt_name in ['train', 'valid', 'test']:
+            total_batch_size = 0.
+            total_loss       = 0.
+            total_accuracy   = 0.
+            for batch_idx in range(dv_y_cfg.epoch_num_batch['valid']):
+                # Draw random speakers
+                batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk)
+                # Make feed_dict for evaluation
+                feed_dict, batch_size = make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, dv_y_model, batch_speaker_list, utter_tvt=utter_tvt_name)
+                dv_y_model.eval()
+                batch_mean_loss = dv_y_model.gen_loss_value(feed_dict=feed_dict)
+                total_batch_size += batch_size
+                total_loss       += batch_mean_loss
+                if dv_y_cfg.classify_in_training:
+                    _c, _t, accuracy = dv_y_model.cal_accuracy(feed_dict=feed_dict)
+                    total_accuracy   += accuracy
+            average_loss = total_loss/float(dv_y_cfg.epoch_num_batch['valid'])
+            output_string['loss'] = output_string['loss'] + '; '+utter_tvt_name+' loss '+str(average_loss)
+
+            if dv_y_cfg.classify_in_training:
+                average_accu = total_accuracy/float(dv_y_cfg.epoch_num_batch['valid'])
+                output_string['accuracy'] = output_string['accuracy'] + '; %s accuracy %.2f' % (utter_tvt_name, average_accu*100.)
+
+            if utter_tvt_name == 'valid':
+                nnets_file_name = dv_y_cfg.nnets_file_name
+                # Compare validation error
+                valid_error = average_loss
+                if valid_error < best_valid_loss:
+                    early_stop = 0
+                    logger.info('valid error reduced, saving model, %s' % nnets_file_name)
+                    dv_y_model.save_nn_model_optim(nnets_file_name)
+                    best_valid_loss = valid_error
+                elif valid_error > previous_valid_loss:
+                    early_stop = early_stop + 1
+                    logger.info('valid error increased, early stop %i' % early_stop)
+                if (early_stop > early_stop_epoch) and (epoch > dv_y_cfg.warmup_epoch):
+                    early_stop = 0
+                    num_decay = num_decay + 1
+                    if num_decay > max_num_decay:
+                        logger.info('stopping early, best model, %s, best valid error %.2f' % (nnets_file_name, best_valid_loss))
+                        return best_valid_loss
+                    else:
+                        new_learning_rate = dv_y_model.learning_rate*0.5
+                        logger.info('reduce learning rate to '+str(new_learning_rate)) # Use str(lr) for full length
+                        dv_y_model.update_learning_rate(new_learning_rate)
+                    logger.info('loading previous best model, %s ' % nnets_file_name)
+                    dv_y_model.load_nn_model_optim(nnets_file_name)
+                    # logger.info('reduce learning rate to '+str(new_learning_rate))
+                    # dv_y_model.update_learning_rate(new_learning_rate)
+                previous_valid_loss = valid_error
+
+        epoch_valid_time = time.time()
+        output_string['time'] = output_string['time'] + '; train time is %.2f, valid time is %.2f' %((epoch_train_time - epoch_start_time), (epoch_valid_time - epoch_train_time))
+        logger.info(output_string['loss'])
+        if dv_y_cfg.classify_in_training:
+            logger.info(output_string['accuracy'])
+        logger.info(output_string['time'])
+
+    return best_valid_loss
+
 
 
 
