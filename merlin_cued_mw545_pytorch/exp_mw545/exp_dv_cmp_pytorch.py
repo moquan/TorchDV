@@ -254,6 +254,7 @@ class DV_Y_CMP_model(object):
         self.optimizer.zero_grad()
 
     def gen_loss(self, feed_dict):
+        ''' Returns Tensor, not value! For value, use gen_loss_value '''
         x, y = self.numpy_to_tensor(feed_dict)
         y_pred = self.nn_model(x)
         # Compute and print loss
@@ -450,8 +451,6 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
     return best_valid_loss
 
 
-
-
 def make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, file_dir_dict, dv_y_model, batch_speaker_list, utter_tvt, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
     feat_name = dv_y_cfg.y_feat_name # Hard-coded here for now
     # Make i/o shape arrays
@@ -468,8 +467,8 @@ def make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, file_dir_dict, dv_y_model, ba
         speaker_id = batch_speaker_list[speaker_idx]
 
         # Make dv 1-hot output
-        try: true_speaker_index = dv_y_cfg.train_speaker_list.index(speaker_id)
-        except: true_speaker_index = 0 # At generation time, since dv is not used, a non-train speaker is given an arbituary speaker index
+        try: true_speaker_index = dv_y_cfg.speaker_id_list_dict['train'].index(speaker_id)
+        except ValueError: true_speaker_index = 0 # At generation time, since dv is not used, a non-train speaker is given an arbituary speaker index
         dv[speaker_idx] = true_speaker_index
 
         # Draw multiple utterances per speaker: dv_y_cfg.spk_num_utter
@@ -502,6 +501,8 @@ def make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, file_dir_dict, dv_y_model, ba
 
     feed_dict = {'x':x_val, 'y':y_val}
     return_list = [feed_dict, batch_size]
+    # print(dv)
+    # print(y_val)
     
     if return_dv:
         return_list.append(dv)
@@ -537,7 +538,7 @@ def data_format_test(dv_y_cfg, dv_y_model):
         dv_y_model.update_parameters(feed_dict)
         if t % 100 == 0:
             dv_y_model.nn_model.eval()
-            loss = dv_y_model.gen_loss(feed_dict)
-            logger.info('%i, %f' % (t, loss.item()))
+            loss = dv_y_model.gen_loss_value(feed_dict)
+            logger.info('%i, %f' % (t, loss))
         
 
