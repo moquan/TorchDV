@@ -156,8 +156,8 @@ class dv_y_cmp_configuration(dv_y_configuration):
             # {'type':'CNNAttenCNNWav', 'size':1024, 'num_channels':1, 'dropout_p':1, 'CNN_kernel_size':[1,3200], 'CNN_stride':[1,80], 'CNN_activation':'ReLU'},
             {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
             {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
-            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
-            # {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
+            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
+            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
             {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0}
         ]
 
@@ -339,7 +339,7 @@ class Build_NN_Layer(torch.nn.Module):
 ########################
 
 class DV_Y_CMP_NN_model(torch.nn.Module):
-
+    ''' S_B_D input, SB_D logit output '''
     def __init__(self, dv_y_cfg):
         super().__init__()
         
@@ -387,7 +387,7 @@ class DV_Y_CMP_NN_model(torch.nn.Module):
             logit_S_D = torch.mean(logit_SBD, dim=1, keepdim=False)
 
 class General_Model(object):
-
+    ''' Model Wrapper, handy between Python and PyTorch '''
     def __init__(self):
         self.nn_model = None
 
@@ -447,6 +447,7 @@ class General_Model(object):
         self.optimiser.load_state_dict(checkpoint['optimiser_state_dict'])
 
 class DV_Y_CMP_model(General_Model):
+    ''' S_B_D input, SB_D logit output, classification, cross-entropy '''
     def __init__(self, dv_y_cfg):
         super().__init__()
         self.nn_model = DV_Y_CMP_NN_model(dv_y_cfg)
