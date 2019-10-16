@@ -367,7 +367,6 @@ def main_function(cfg):
 
 if __name__ == '__main__': 
        
-    
 
     if len(sys.argv) == 2:
         work_dir = sys.argv[1]
@@ -375,6 +374,10 @@ if __name__ == '__main__':
         work_dir = None
 
     cfg = configuration(work_dir)
+
+    logger = make_logger("PID")
+    logger.info('PID is %i' % os.getpid())
+    
 
     main_function(cfg)
 
