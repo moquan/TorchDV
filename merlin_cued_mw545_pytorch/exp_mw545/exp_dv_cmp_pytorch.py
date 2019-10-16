@@ -246,12 +246,13 @@ class DV_Y_CMP_NN_model(nn.Module):
 class DV_Y_CMP_model(object):
     def __init__(self, dv_y_cfg):
         self.nn_model = DV_Y_CMP_NN_model(dv_y_cfg)
+        self.learning_rate = dv_y_cfg.learning_rate
 
     def build_optimiser(self):
         self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
-        self.optimizer = torch.optim.Adam(self.nn_model.parameters(), lr=1e-4)
+        self.optimiser = torch.optim.Adam(self.nn_model.parameters(), lr=self.learning_rate)
         # Zero gradients
-        self.optimizer.zero_grad()
+        self.optimiser.zero_grad()
 
     def gen_loss(self, feed_dict):
         ''' Returns Tensor, not value! For value, use gen_loss_value '''
@@ -310,7 +311,13 @@ class DV_Y_CMP_model(object):
         self.loss = self.gen_loss(feed_dict)
         # perform a backward pass, and update the weights.
         self.loss.backward()
-        self.optimizer.step()
+        self.optimiser.step()
+
+    def update_learning_rate(self, learning_rate):
+        self.learning_rate = learning_rate
+        # Re-build an optimiser, use new learning rate, and reset gradients
+        self.build_optimiser()
+
 
     def gen_loss_value(self, feed_dict):
         self.loss = self.gen_loss(feed_dict)
@@ -325,13 +332,13 @@ class DV_Y_CMP_model(object):
         self.nn_model.load_state_dict(checkpoint['model_state_dict'])
 
     def save_nn_model_optim(self, nnets_file_name):
-        save_dict = {'model_state_dict': self.nn_model.state_dict(), 'optimizer_state_dict': self.optimizer.state_dict()}
+        save_dict = {'model_state_dict': self.nn_model.state_dict(), 'optimiser_state_dict': self.optimiser.state_dict()}
         torch.save(save_dict, nnets_file_name)
 
     def load_nn_model_optim(self, nnets_file_name):
         checkpoint = torch.load(nnets_file_name)
         self.nn_model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.optimiser.load_state_dict(checkpoint['optimiser_state_dict'])
 
 
 
