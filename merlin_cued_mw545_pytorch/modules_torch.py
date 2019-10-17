@@ -305,6 +305,9 @@ class General_Model(object):
         self.nn_model.load_state_dict(checkpoint['model_state_dict'])
         self.optimiser.load_state_dict(checkpoint['optimiser_state_dict'])
 
+    def count_parameters(self):
+        return sum(p.numel() for p in self.nn_model.parameters() if p.requires_grad)
+
 class DV_Y_CMP_model(General_Model):
     ''' S_B_D input, SB_D logit output, classification, cross-entropy '''
     def __init__(self, dv_y_cfg):
