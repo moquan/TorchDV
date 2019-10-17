@@ -1,5 +1,6 @@
 import os, sys, pickle, time, shutil, logging
 import math, numpy, scipy, scipy.io.wavfile #, sigproc, sigproc.pystraight
+numpy.random.seed(545)
 
 '''
 This file contains handy modules of using Merlin

@@ -2,6 +2,7 @@
 
 import os, sys, pickle, time, shutil, logging
 import math, numpy, scipy
+numpy.random.seed(545)
 from io_funcs.binary_io import BinaryIOCollection
 io_fun = BinaryIOCollection()
 
