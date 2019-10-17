@@ -27,7 +27,6 @@ class dv_y_configuration(object):
         self.nn_layer_config_list = None
         
         # Things no need to change
-        self.tf_scope_name = 'dv_y_model'
         self.learning_rate    = 0.0001
         self.num_train_epoch  = 100
         self.warmup_epoch     = 10
