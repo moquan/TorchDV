@@ -24,7 +24,8 @@ class configuration(object):
         # self.Processes['MuLawWav'] = False
         self.Processes['ResilPitch']   = False
 
-        self.Processes['TrainCMPTorch'] = True
+        self.Processes['TrainCMPTorch'] = False
+        self.Processes['TestCMPTorch']  = True
 
         self.Processes['TrainCMPDVY'] = False
         self.Processes['TestCMPDVY']  = False
@@ -253,6 +254,12 @@ def main_function(cfg):
     if cfg.Processes['TrainCMPTorch']:
         from exp_mw545.exp_dv_cmp_pytorch import train_dv_y_cmp_model
         train_dv_y_cmp_model(cfg)
+
+    if cfg.Processes['TestCMPTorch']:
+        from exp_mw545.exp_dv_cmp_pytorch import test_dv_y_cmp_model
+        test_dv_y_cmp_model(cfg)
+
+
 
     if cfg.Processes['TrainCMPDVY']:
         from exp_mw545.exp_dv_cmp_baseline import train_dv_y_cmp_model
