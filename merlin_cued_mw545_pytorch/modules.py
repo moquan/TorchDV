@@ -51,7 +51,7 @@ def read_file_list(file_name):
             continue
         file_lists.append(line)
     fid.close()
-    logger.debug('Read file list from %s' % file_name)
+    logger.info('Read file list from %s' % file_name)
     return  file_lists
 
 def get_iv_values_from_file(iv_file_name, file_type='text'):
