@@ -336,24 +336,37 @@ class DV_Y_CMP_model(General_Model):
     def gen_lambda_SBD_value(self, feed_dict):
         x, y = self.numpy_to_tensor(feed_dict)
         self.lambda_SBD = self.nn_model.gen_lambda_SBD(x)
-        return self.lambda_SBD.item()
+        return self.lambda_SBD.cpu().detach().numpy()
+
+    def lambda_to_indices(self, feed_dict):
+        x, _y = self.numpy_to_tensor(feed_dict) # Here x is lambda_SBD!
+        logit_SBD  = self.expansion_layer(x)
+        _values, predict_idx_list = torch.max(logit_SBD.data, 1)
+        print(predict_idx_list)
+        return predict_idx_list
 
     def cal_accuracy(self, feed_dict):
-        x, y = self.numpy_to_tensor(feed_dict)
+        x, _y = self.numpy_to_tensor(feed_dict)
         outputs = self.nn_model(x)
-        _, predicted = torch.max(outputs.data, 1)
+        _values, predict_idx_list = torch.max(outputs.data, 1)
         total = y.size(0)
-        correct = (predicted == y).sum().item()
+        correct = (predict_idx_list == y).sum().item()
         accuracy = correct/total
         return correct, total, accuracy
 
     def numpy_to_tensor(self, feed_dict):
-        x_val = feed_dict['x']
-        y_val = feed_dict['y']
-        x = torch.tensor(x_val, dtype=torch.float)
-        y = torch.tensor(y_val, dtype=torch.long)
-        x = x.to(self.device_id)
-        y = y.to(self.device_id)
+        if 'x' in feed_dict:
+            x_val = feed_dict['x']
+            x = torch.tensor(x_val, dtype=torch.float)
+            x = x.to(self.device_id)
+        else:
+            x = None
+        if 'y' in feed_dict:
+            y_val = feed_dict['y']
+            y = torch.tensor(y_val, dtype=torch.long)
+            y = y.to(self.device_id)
+        else:
+            y = None
         return (x, y)
 
 
