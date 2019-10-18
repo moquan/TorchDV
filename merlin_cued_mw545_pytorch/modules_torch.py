@@ -236,6 +236,9 @@ class General_Model(object):
     def gen_loss(self, feed_dict):
         pass
 
+    def gen_lambda_SBD(self, feed_dict):
+        pass
+
     def cal_accuracy(self, feed_dict):
         pass
 
@@ -329,6 +332,11 @@ class DV_Y_CMP_model(General_Model):
         # Compute and print loss
         self.loss = self.criterion(y_pred, y)
         return self.loss
+
+    def gen_lambda_SBD_value(self, feed_dict):
+        x, y = self.numpy_to_tensor(feed_dict)
+        self.lambda_SBD = self.nn_model.gen_lambda_SBD(x)
+        return self.lambda_SBD.item()
 
     def cal_accuracy(self, feed_dict):
         x, y = self.numpy_to_tensor(feed_dict)
