@@ -63,7 +63,8 @@ class configuration(object):
 
         self.dv_dim = 8
 
-        self.python_script_name = os.path.join(self.work_dir, 'run_nn_iv_batch_T4_DV.py')
+        # self.python_script_name = os.path.join(self.work_dir, 'run_nn_iv_batch_T4_DV.py')
+        self.python_script_name = os.path.realpath(__file__)
         
         # self.data_dir = os.path.join(self.work_dir, 'data')
         self.data_dir = '/data/vectra2/tts/mw545/Data/data_voicebank'
