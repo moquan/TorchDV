@@ -26,7 +26,7 @@ class list_random_loader(object):
             if n_remain > n_need:
                 # Enough, draw a subset
                 list_draw = numpy.random.choice(self.list_remain, n_need, replace=False)
-                for f in draw_file_list:
+                for f in list_draw:
                     list_return.append(f)
                     self.list_remain.remove(f)
                 n_need = 0
@@ -37,6 +37,7 @@ class list_random_loader(object):
                 self.list_remain = copy.deepcopy(self.list_total)
                 n_need -= n_remain
                 n_remain = len(self.list_remain)
+        return list_return
 
 
 class dv_y_configuration(object):
@@ -329,39 +330,12 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
         logger.info('Testing with %i utterances per speaker' % spk_num_utter)
         accuracy_list = []
         for speaker_id in speaker_id_list:
-            file_list = file_list_dict[(speaker_id, 'test')]
-            file_list_remain = copy.deepcopy(file_list)
-            num_file_remain = len(file_list_remain)
             logger.info('testing speaker %s' % speaker_id)
             speaker_lambda_list = []
+            speaker_file_loader = list_random_loader(file_list_dict[(speaker_id, 'test')])
             for batch_idx in range(dv_y_cfg.epoch_num_batch['test']):
-                batch_file_list = []
                 logger.info('batch %i' % batch_idx)
-                num_utter_need = spk_num_utter
-                while num_utter_need > 0:
-                    num_file_remain = len(file_list_remain)
-                    if num_file_remain > num_utter_need:
-                        # Enough, draw a subset
-                        draw_file_list = numpy.random.choice(file_list_remain, num_utter_need, replace=False)
-                        for f in draw_file_list:
-                            batch_file_list.append(f)
-                            try:
-                                file_list_remain.remove(f)
-                            except:
-                                print(f)
-                                print(draw_file_list)
-                                print(batch_file_list)
-                                print(file_list_remain)
-                        num_file_remain -= num_utter_need
-                        num_utter_need = 0
-                    else:
-                        # Use them all
-                        batch_file_list.extend(file_list_remain)
-                        # Reset the list
-                        file_list_remain = copy.deepcopy(file_list)
-                        num_utter_need -= num_file_remain
-                        num_file_remain = len(file_list_remain)
-                assert len(batch_file_list) == spk_num_utter
+                batch_file_list = speaker_file_loader.draw_n_samples(spk_num_utter)
 
                 # Weighted average of lambda_u
                 batch_lambda = numpy.zeros(dv_y_cfg.dv_dim)
