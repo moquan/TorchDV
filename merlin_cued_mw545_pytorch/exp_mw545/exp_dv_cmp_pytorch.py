@@ -13,6 +13,31 @@ from modules_torch import torch_initialisation
 from io_funcs.binary_io import BinaryIOCollection
 io_fun = BinaryIOCollection()
 
+class list_random_loader(object):
+    def __init__(self, list_to_draw):
+        self.list_total  = list_to_draw
+        self.list_remain = copy.deepcopy(self.list_total)
+
+    def draw_n_samples(self, n):
+        list_return = []
+        n_remain = len(self.list_remain)
+        n_need   = n
+        while n_need > 0:
+            if n_remain > n_need:
+                # Enough, draw a subset
+                list_draw = numpy.random.choice(self.list_remain, n_need, replace=False)
+                for f in list_draw:
+                    list_return.append(f)
+                    self.list_remain.remove(f)
+                n_need = 0
+            else:
+                # Use them all
+                list_return.extend(self.list_remain)
+                # Reset the list
+                self.list_remain = copy.deepcopy(self.list_total)
+                n_need -= n_remain
+                n_remain = len(self.list_remain)
+        return list_return
 
 
 class dv_y_configuration(object):
@@ -161,6 +186,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
     logger = make_logger("train_dvy")
     logger.info('Creating data lists')
     speaker_id_list = dv_y_cfg.speaker_id_list_dict['train'] # For DV training and evaluation, use train speakers only
+    speaker_loader  = list_random_loader(speaker_id_list)
     file_id_list    = read_file_list(cfg.file_id_list_file)
     file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
     make_feed_dict_method_train = dv_y_cfg.make_feed_dict_method_train
@@ -185,7 +211,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
 
         for batch_idx in range(dv_y_cfg.epoch_num_batch['train']):
             # Draw random speakers
-            batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk)
+            batch_speaker_list = speaker_loader.draw_n_samples(dv_y_cfg.batch_num_spk)
             # Make feed_dict for training
             feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list,  utter_tvt='train')
             dv_y_model.nn_model.train()
@@ -200,7 +226,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
             total_accuracy   = 0.
             for batch_idx in range(dv_y_cfg.epoch_num_batch['valid']):
                 # Draw random speakers
-                batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk)
+                batch_speaker_list = speaker_loader.draw_n_samples(dv_y_cfg.batch_num_spk)
                 # Make feed_dict for evaluation
                 feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list, utter_tvt=utter_tvt_name)
                 dv_y_model.eval()
@@ -305,39 +331,12 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
         logger.info('Testing with %i utterances per speaker' % spk_num_utter)
         accuracy_list = []
         for speaker_id in speaker_id_list:
-            file_list = file_list_dict[(speaker_id, 'test')]
-            file_list_remain = copy.deepcopy(file_list)
-            num_file_remain = len(file_list_remain)
             logger.info('testing speaker %s' % speaker_id)
             speaker_lambda_list = []
+            speaker_file_loader = list_random_loader(file_list_dict[(speaker_id, 'test')])
             for batch_idx in range(dv_y_cfg.epoch_num_batch['test']):
-                batch_file_list = []
                 logger.info('batch %i' % batch_idx)
-                num_utter_need = spk_num_utter
-                while num_utter_need > 0:
-                    num_file_remain = len(file_list_remain)
-                    if num_file_remain > num_utter_need:
-                        # Enough, draw a subset
-                        draw_file_list = numpy.random.choice(file_list_remain, num_utter_need)
-                        for f in draw_file_list:
-                            batch_file_list.append(f)
-                            try:
-                                file_list_remain.remove(f)
-                            except:
-                                print(f)
-                                print(draw_file_list)
-                                print(batch_file_list)
-                                print(file_list_remain)
-                        num_file_remain -= num_utter_need
-                        num_utter_need = 0
-                    else:
-                        # Use them all
-                        batch_file_list.extend(file_list_remain)
-                        # Reset the list
-                        file_list_remain = copy.deepcopy(file_list)
-                        num_utter_need -= num_file_remain
-                        num_file_remain = len(file_list_remain)
-                assert len(batch_file_list) == spk_num_utter
+                batch_file_list = speaker_file_loader.draw_n_samples(spk_num_utter)
 
                 # Weighted average of lambda_u
                 batch_lambda = numpy.zeros(dv_y_cfg.dv_dim)
@@ -522,7 +521,8 @@ class dv_y_cmp_configuration(dv_y_configuration):
         self.batch_output_form = 'mean' # Method to convert from SBD to SD
         self.retrain_model = False
         self.previous_model_name = ''
-        self.python_script_name = '/home/dawna/tts/mw545/tools/merlin/merlin_cued_mw545_pytorch/debug_nausicaa/exp_dv_cmp_pytorch.py'
+        # self.python_script_name = '/home/dawna/tts/mw545/tools/merlin/merlin_cued_mw545_pytorch/exp_mw545/exp_dv_cmp_pytorch.py'
+        self.python_script_name = os.path.realpath(__file__)
         self.y_feat_name   = 'cmp'
         self.out_feat_list = ['mgc', 'lf0', 'bap']
         self.nn_layer_config_list = [
@@ -548,7 +548,7 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
 
 def test_dv_y_cmp_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
-    for s in [545,54,5]:
-        numpy.random.seed(s)
-        class_test_dv_y_model(cfg, dv_y_cfg)
+    # for s in [545,54,5]:
+        # numpy.random.seed(s)
+    class_test_dv_y_model(cfg, dv_y_cfg)
 
