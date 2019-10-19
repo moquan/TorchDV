@@ -521,7 +521,8 @@ class dv_y_cmp_configuration(dv_y_configuration):
         self.batch_output_form = 'mean' # Method to convert from SBD to SD
         self.retrain_model = False
         self.previous_model_name = ''
-        self.python_script_name = '/home/dawna/tts/mw545/tools/merlin/merlin_cued_mw545_pytorch/debug_nausicaa/exp_dv_cmp_pytorch.py'
+        # self.python_script_name = '/home/dawna/tts/mw545/tools/merlin/merlin_cued_mw545_pytorch/exp_mw545/exp_dv_cmp_pytorch.py'
+        self.python_script_name = os.path.realpath(__file__)
         self.y_feat_name   = 'cmp'
         self.out_feat_list = ['mgc', 'lf0', 'bap']
         self.nn_layer_config_list = [
