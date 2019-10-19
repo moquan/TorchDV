@@ -347,11 +347,11 @@ class DV_Y_CMP_model(General_Model):
         ''' lambda_S_B_D to indices_S_B '''
         x, _y = self.numpy_to_tensor(feed_dict) # Here x is lambda_S_B_D! _y is useless
         logit_SBD  = self.nn_model.lambda_to_logits_SBD(x)
-        _values, predict_idx_list = torch.max(logit_SBD.data, 2)
+        _values, predict_idx_list = torch.max(logit_SBD.data, -1)
         return predict_idx_list.cpu().detach().numpy()
 
     def cal_accuracy(self, feed_dict):
-        x, _y = self.numpy_to_tensor(feed_dict)
+        x, y = self.numpy_to_tensor(feed_dict)
         outputs = self.nn_model(x)
         _values, predict_idx_list = torch.max(outputs.data, 1)
         total = y.size(0)
