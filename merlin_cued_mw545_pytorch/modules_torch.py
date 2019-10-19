@@ -1,10 +1,10 @@
+# modules_torch.py
+
 import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy
 numpy.random.seed(545)
 import torch
 torch.manual_seed(545)
-
-
 
 from modules import make_logger
 
@@ -12,392 +12,419 @@ from modules import make_logger
 This file contains handy modules of using PyTorch
 '''
 
+########################
+# PyTorch-based Layers #
+########################
 
+class Tensor_Reshape(torch.nn.Module):
+    def __init__(self, current_layer_params):
+        super().__init__()
+        self.params = current_layer_params
 
+    def update_layer_params(self):
+        input_dim_seq = self.params['input_dim_seq']
+        input_dim_values = self.params['input_dim_values']
+        expect_input_dim_seq = self.params['expect_input_dim_seq']
 
-
-
-
-
-
-
-class dv_y_model(object):
-    """general dv_y_model"""
-    def __init__(self, dv_y_cfg):
-        self.dv_y_cfg = dv_y_cfg
-        self.nn_layers     = []
-        self.train_scope   = []
-        self.learning_rate = dv_y_cfg.learning_rate
-        # This is necessary for tensorflow session operations
-        # self.sess = None
-        self.CE_SB_cost = None
-        self.CE_S_cost  = None
-        self.logger = make_logger("dv_y_model")
-
-    def build_layers(self):
-        pass
-
-    def build_train_step(self, train_scope):
-        dv_y_cfg = self.dv_y_cfg
-        # if train_scope is None:
-            # train_scope = self.train_scope
-        # Select optimisation criterion
-        if dv_y_cfg.train_by_window:
-            self.train_loss = self.CE_SB_cost
+        # First, check if change is needed at all; pass on if not
+        if input_dim_seq == expect_input_dim_seq:
+            self.params['expect_input_dim_values'] = input_dim_values
+            return self.params
         else:
-            self.train_loss = self.CE_S_cost
-        # Collect all trainable parameters
-        self.train_vars    = []
-        for i in train_scope:
-            vars_i = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, i)
-            self.train_vars.extend(vars_i)
-        scope_name = dv_y_cfg.tf_scope_name + '/dv_y_optimiser'
-        with tf.variable_scope(scope_name, reuse=tf.AUTO_REUSE):
-            self.train_step = tf.train.AdamOptimizer(learning_rate=self.learning_rate_holder,epsilon=1.e-06).minimize(self.train_loss, var_list=self.train_vars)
-
-    def update_learning_rate(self, learning_rate):
-        self.learning_rate = learning_rate
-
-    def train_model_param(self, feed_dict):
-        self.sess.run(self.train_step, feed_dict=feed_dict)
-
-    def return_train_loss(self, feed_dict):
-        return self.sess.run(self.train_loss, feed_dict=feed_dict)
-
-    def gen_logit_SBD(self, feed_dict):
-        return self.sess.run(self.logit_SBD, feed_dict=feed_dict)
-
-    def gen_logit_SD(self, feed_dict):
-        return self.sess.run(self.logit_SD, feed_dict=feed_dict)
-
-    def gen_lambda_SBD(self, feed_dict):
-        return self.sess.run(self.lambda_SBD, feed_dict=feed_dict)
-
-    def gen_lambda_SD(self, feed_dict):
-        return self.sess.run(self.lambda_SD, feed_dict=feed_dict)
-
-    def load_prev_model(self, previous_model_name=None):
-        if previous_model_name is None: previous_model_name = self.dv_y_cfg.previous_model_name
-        self.logger.info('restore previous dv_y_model, '+previous_model_name)
-        try:
-            self.saver.restore(self.sess, previous_model_name)
-            # logger.info('use TF saver')
-        except:
-            self.logger.info('cannot use TF saver, use cPickle')
-            self = cPickle.load(open(nnets_file_name, 'rb'))
-
-    def save_current_model(self, nnets_file_name=None):
-        if nnets_file_name is None: nnets_file_name=self.dv_y_cfg.nnets_file_name
-        self.logger.info('saving model, '+nnets_file_name)
-        try:
-            # Use TF saver
-            save_path = self.saver.save(self.sess, nnets_file_name)
-        except:
-            self.logger.info('cannot use TF saver, use cPickle')
-            cPickle.dump(self, open(nnets_file_name, 'wb'))
-
-    def close_tf_session_and_reset(self):
-        self.sess.close()
-        tf.reset_default_graph() 
-            
-
-class dv_y_cmp_model(dv_y_model):
-    """ baseline, SBTD input """
-
-    def __init__(self, dv_y_cfg):
-        super(dv_y_cmp_model, self).__init__(dv_y_cfg)
-
-        with tf.device('/device:GPU:'+str(dv_y_cfg.gpu_id)):
-            self.learning_rate_holder = tf.placeholder(dtype=tf.float32, name='dv_y_learning_rate_holder')
-            self.is_train_bool = tf.placeholder(dtype=tf.bool, name="is_train")
-            self.train_scope = self.build_layers()
-            self.build_train_step(self.train_scope)
-
-            self.init  = tf.global_variables_initializer()
-            self.saver = tf.train.Saver()
-
-    def build_layers(self):
-        train_scope = []
-        dv_y_cfg = self.dv_y_cfg
-        # Input Layer
-        scope_name = dv_y_cfg.tf_scope_name+'/SBTD_input_layer'
-        train_scope.append(scope_name)
-        self.input_layer = build_SBTD_input_layer(scope_name, dv_y_cfg)
-        prev_layer = self.input_layer
-        # Hidden Layers
-        for i in range(dv_y_cfg.num_nn_layers):
-            scope_name = dv_y_cfg.tf_scope_name + '/dv_y_layer_'+str(i)
-            self.train_scope.append(scope_name)
-            new_layer = build_nn_layer(scope_name, dv_y_cfg.nn_layer_config_list[i], prev_layer, self)
-            # Setting up for the next layer
-            prev_layer = new_layer
-            self.nn_layers.append(new_layer)
-        # Output Layer
-        scope_name = dv_y_cfg.tf_scope_name+'/SBD_output_layer'
-        train_scope.append(scope_name)
-        self.output_layer = build_SBD_output_layer(scope_name, dv_y_cfg, prev_layer)
-        self.lambda_SBD = self.output_layer.tensor_outputs['h_input_reshape_SBD']
-        self.lambda_SD  = self.output_layer.tensor_outputs['h_input_reshape_SD']
-        self.logit_SBD  = self.output_layer.tensor_outputs['h_SBD']
-        self.logit_SD   = self.output_layer.tensor_outputs['h_SD']
-        self.CE_SB_cost = self.output_layer.tensor_outputs['loss_SB']
-        self.CE_S_cost  = self.output_layer.tensor_outputs['loss_S']
-
-        self.train_scope = train_scope
-        return train_scope
-
-def config_torch(dv_y_cfg):
-    pass
-    # tf_config = tf.ConfigProto()
-    # tf_config.gpu_options.allow_growth = True
-    # tf_config.gpu_options.per_process_gpu_memory_fraction = dv_y_cfg.gpu_per_process_gpu_memory_fraction
-    # tf_config.allow_soft_placement = True
-    # tf_config.log_device_placement = False
-    # return tf_config
-
-def tensor_reshape(layer_input, input_dim_seq, input_dim_values, expect_input_dim_seq, expect_input_dim_values=None, downsample=1):
-    # First, check if change is needed at all; pass on if not
-    if (input_dim_seq == expect_input_dim_seq) and (downsample == 1):
-        return layer_input, input_dim_values
-    else:
-        # Make anything into ['S', 'B', 'T', 'D']
-        if input_dim_seq == ['S', 'B', 'T', 'D']:
-            # Do nothing, pass on
-            temp_input_dim_values = input_dim_values
-            temp_input = layer_input
-        elif input_dim_seq == ['S', 'B', 'D']:
-            # Expand to 4D tensor and T=1
-            temp_input_dim_values = {'S':input_dim_values['S'], 'B':input_dim_values['B'], 'T':1, 'D':input_dim_values['D'] }
-            temp_input_shape_values = [temp_input_dim_values['S'], temp_input_dim_values['B'], temp_input_dim_values['T'], temp_input_dim_values['D']]
-            temp_input = layer_input.view(temp_input_shape_values)
-        elif input_dim_seq == ['T', 'SB', 'D']:
-            # 1. Transpose to make ['SB', 'T', 'D']
-            temp_input = torch.transpose(layer_input, 0, 1)
-            # 2. Reshape to make ['S', 'B', 'T', 'D']
-            temp_input_dim_values = input_dim_values
-            temp_input_shape_values = [temp_input_dim_values['S'], temp_input_dim_values['B'], temp_input_dim_values['T'], temp_input_dim_values['D']]
-            temp_input = temp_input.view(temp_input_shape_values)
-        else:
-            print "Input dimension sequence not recognised"
-
-        # Downsampling by stacking
-        # TODO: Upsampling by?
-        if downsample > 1:
-            temp_input_dim_values['T'] = temp_input_dim_values['T'] / downsample
-            temp_input_dim_values['D'] = temp_input_dim_values['D'] * downsample
-            temp_input_shape_values = [temp_input_dim_values['S'], temp_input_dim_values['B'], temp_input_dim_values['T'], temp_input_dim_values['D']]
-            temp_input = temp_input.view(temp_input_shape_values)
-        elif downsample < 1:
-            print "Upsampling not implemented yet"
+            # Make anything into ['S', 'B', 'T', 'D']
+            if input_dim_seq == ['S', 'B', 'T', 'D']:
+                # Do nothing, pass on
+                temp_input_dim_values = input_dim_values
 
         # Then, make from ['S', 'B', 'T', 'D']
         if expect_input_dim_seq == ['S', 'B', 'D']:
             # So basically, stack and remove T; last dimension D -> T * D
             expect_input_shape_values = [temp_input_dim_values['S'], temp_input_dim_values['B'], temp_input_dim_values['T']*temp_input_dim_values['D']]
-            expect_input = temp_input.view(expect_input_shape_values)
-            expect_input_dim_values = {'S':temp_input_dim_values['S'], 'B':temp_input_dim_values['B'], 'T':0, 'D':temp_input_dim_values['T']*temp_input_dim_values['D'] }
-        elif expect_input_dim_seq == ['SB', 'D']:
+            self.params['expect_input_dim_values'] = {'S':temp_input_dim_values['S'], 'B':temp_input_dim_values['B'], 'T':0, 'D':temp_input_dim_values['T']*temp_input_dim_values['D'] }
+        return self.params
+
+    def forward(self, x):
+        input_dim_seq = self.params['input_dim_seq']
+        input_dim_values = self.params['input_dim_values']
+        expect_input_dim_seq = self.params['expect_input_dim_seq']
+        expect_input_dim_values = self.params['expect_input_dim_values']
+
+        # First, check if change is needed at all; pass on if not
+        if input_dim_seq == expect_input_dim_seq:
+            return x
+        else:
+            # Make anything into ['S', 'B', 'T', 'D']
+            if input_dim_seq == ['S', 'B', 'T', 'D']:
+                # Do nothing, pass on
+                temp_input = x
+
+        # Then, make from ['S', 'B', 'T', 'D']
+        if expect_input_dim_seq == ['S', 'B', 'D']:
             # So basically, stack and remove T; last dimension D -> T * D
-            expect_input_shape_values = [temp_input_dim_values['S']*temp_input_dim_values['B'], temp_input_dim_values['T']*temp_input_dim_values['D']]
+            expect_input_shape_values = [expect_input_dim_values['S'], expect_input_dim_values['B'], expect_input_dim_values['D']]
             expect_input = temp_input.view(expect_input_shape_values)
-            expect_input_dim_values = {'S':temp_input_dim_values['S'], 'B':temp_input_dim_values['B'], 'T':0, 'D':temp_input_dim_values['T']*temp_input_dim_values['D'] }
-        elif expect_input_dim_seq == ['S', 'B', 'T', '1']:
-            # So basically, stack and remove D; second-last dimension T -> T * D
-            expect_input_shape_values = [temp_input_dim_values['S'], temp_input_dim_values['B'], temp_input_dim_values['T']*temp_input_dim_values['D'], 1]
-            expect_input = temp_input.view(expect_input_shape_values)
-            expect_input_dim_values = {'S':temp_input_dim_values['S'], 'B':temp_input_dim_values['B'], 'T':temp_input_dim_values['T']*temp_input_dim_values['D'] , 'D':1}
-        elif expect_input_dim_seq == ['TD', 'SB', '1']:
-            # 1. make ['SB', 'TD', 1]
-            expect_input_shape_values = [temp_input_dim_values['S']*temp_input_dim_values['B'], temp_input_dim_values['T']*temp_input_dim_values['D'], 1]
-            expect_input = temp_input.view(expect_input_shape_values)
-            # 2. Transpose to make ['TD', 'SB', 1]
-            expect_input = torch.transpose(expect_input, 0, 1)
-            expect_input_dim_values = temp_input_dim_values
-        elif expect_input_dim_seq == ['T', 'SB', 'D']:
-            # 1. make ['SB', 'T', 'D']
-            expect_input_shape_values = [temp_input_dim_values['S']*temp_input_dim_values['B'], temp_input_dim_values['T'], temp_input_dim_values['D']]
-            expect_input = temp_input.view(expect_input_shape_values)
-            # 2. Transpose to make ['T', 'SB', 'D']
-            expect_input = torch.transpose(expect_input, 0, 1)
-            expect_input_dim_values = temp_input_dim_values
+        return expect_input
 
-        return expect_input, expect_input_dim_values
-
-class build_SBTD_input_layer(object):
-    ''' This layer has only "output" to the next layer, no input '''
-    def __init__(self, scope_name, dv_y_cfg, tensor_input_h=None):
+class Build_S_B_TD_Input_Layer(object):
+    ''' This layer has only parameters, no torch.nn.module '''
+    ''' Mainly for the prev_layer argument '''
+    def __init__(self, dv_y_cfg):
+        self.input_dim = dv_y_cfg.batch_seq_len * dv_y_cfg.feat_dim
         self.params = {}
-        self.params["scope_name"] = scope_name
-        self.params["output_dim_seq"]      = ['S', 'B', 'T', 'D']
-        self.params["output_dim_values"]   = {'S':dv_y_cfg.batch_num_spk, 'B':dv_y_cfg.spk_num_seq, 'T':dv_y_cfg.batch_seq_len, 'D':dv_y_cfg.feat_dim}
+        self.params["output_dim_seq"]      = ['S', 'B', 'D']
+        self.params["output_dim_values"]   = {'S':dv_y_cfg.batch_num_spk, 'B':dv_y_cfg.spk_num_seq, 'D':self.input_dim}
         v = self.params["output_dim_values"]
-        self.params["output_shape_values"] = [v['S'], v['B'], v['T'], v['D']]
-        
-        if tensor_input_h is None:
-            self.tensor_outputs = {'h': tf.placeholder(tf.float32, shape=self.params["output_shape_values"])}
-        else:
-            self.tensor_outputs = {'h': tensor_input_h}
+        self.params["output_shape_values"] = [v['S'], v['B'], v['D']]
 
-class build_SBD_output_layer(object):
-    ''' This layer gets input from previous layer '''
-    ''' It also includes training loss '''
-    def __init__(self, scope_name, dv_y_cfg, prev_layer):
+class Build_NN_Layer(torch.nn.Module):
+    def __init__(self, layer_config, prev_layer):
+        super().__init__()
         self.params = {}
-        self.params["scope_name"] = scope_name
-        self.params["input_dim_seq"]           = prev_layer.params["output_dim_seq"]
-        self.params["input_dim_values"]        = prev_layer.params["output_dim_values"]
-        self.params["expect_input_dim_seq"]    = ['S', 'B', 'D']
-        self.params["expect_input_dim_values"] = {'S':dv_y_cfg.batch_num_spk, 'B':dv_y_cfg.spk_num_seq, 'D':dv_y_cfg.dv_dim}
-        self.params["output_dim_seq"]          = ['S', 'B', 'D']
-        self.params["output_dim_values"]       = {'S':dv_y_cfg.batch_num_spk, 'B':dv_y_cfg.spk_num_seq, 'D':dv_y_cfg.num_train_speakers}
-        self.params["target_shape_values"]     = [self.params["output_dim_values"]['S'], self.params["output_dim_values"]['D']]
-
-        with tf.variable_scope(self.params["scope_name"], reuse=tf.AUTO_REUSE):
-            self.tensor_inputs  = {'h': prev_layer.tensor_outputs['h'], 'target_SD': tf.placeholder(tf.float32, shape=self.params["target_shape_values"])}
-            self.tensor_outputs = {'h_SBD': None, 'h_SD': None} # These are logits, need to run softmax over them; still can use argmax on them for classification
-            self.tensor_outputs['h_input_reshape_SBD'], self.params["expect_input_dim_values"] = tensor_reshape(self.tensor_inputs['h'], self.params["input_dim_seq"], self.params["input_dim_values"], self.params["expect_input_dim_seq"])
-            self.make_SBD_output()
-            self.make_SD_output(batch_output_form=dv_y_cfg.batch_output_form)
-
-    def make_SBD_output(self):
-        self.tensor_outputs['target_SBD'] = tf.tile(tf.expand_dims(self.tensor_inputs['target_SD'], axis=1), [1, self.params["output_dim_values"]['B'], 1])
-        self.tensor_outputs['h_SBD']      = tf.contrib.layers.fully_connected(self.tensor_outputs['h_input_reshape_SBD'], self.params["output_dim_values"]['D'], activation_fn=None)
-        # This part needs reshape, as tf.losses.softmax_cross_entropy handles 3D tensors wrong, use [1] rather than [-1]
-        # so reshape to 2D by stacking [S,B,D] to [SB,D]
-        expect_SB_D_dim_seq = ['SB', 'D']
-        self.tensor_outputs['h_SB_D'], _ = tensor_reshape(self.tensor_outputs['h_SBD'], self.params["output_dim_seq"], self.params["output_dim_values"], expect_SB_D_dim_seq)
-        self.tensor_outputs['target_SB_D'], _ = tensor_reshape(self.tensor_outputs['target_SBD'], self.params["output_dim_seq"], self.params["output_dim_values"], expect_SB_D_dim_seq)
-        self.tensor_outputs['loss_SB']    = tf.reduce_mean(tf.losses.softmax_cross_entropy(onehot_labels=self.tensor_outputs['target_SB_D'], logits=self.tensor_outputs['h_SB_D']))#, reduction=MEAN)
-
-    def make_SD_output(self, batch_output_form):
-        B = self.params["output_dim_values"]['B']
-        if B > 1:
-            if batch_output_form == 'mean':
-                self.tensor_outputs['h_input_reshape_SD'] = tf.scalar_mul(tf.constant(float(1./B), name="1/batch", dtype=tf.float32), tf.reduce_sum(self.tensor_outputs['h_input_reshape_SBD'], 1))
-        else:
-            self.tensor_outputs['h_input_reshape_SD'] = tf.squeeze(self.tensor_outputs['h_input_reshape_SBD'], 1)
-        self.tensor_outputs['h_SD'] = tf.contrib.layers.fully_connected(self.tensor_outputs['h_input_reshape_SD'], self.params["output_dim_values"]['D'], activation_fn=None)
-        self.tensor_outputs['loss_S'] = tf.reduce_mean(tf.losses.softmax_cross_entropy(onehot_labels=self.tensor_inputs['target_SD'], logits=self.tensor_outputs['h_SD']))#, reduction=MEAN)
-       
-      
-class build_nn_layer(object):
-    '''
-    Just a general layer, with expected attribute and method names
-    '''
-    def __init__(self, scope_name, layer_config, prev_layer, model):
-        self.params = {}
-        self.params["scope_name"] = scope_name
         self.params["layer_config"] = layer_config
-        self.params["type"]   = layer_config['type']
-        self.params["size"]   = layer_config['size']
+        self.params["type"] = layer_config['type']
+        self.params["size"] = layer_config['size']
 
-        self.params["input_dim_seq"]           = prev_layer.params["output_dim_seq"]
-        self.params["input_dim_values"]        = prev_layer.params["output_dim_values"]
+        self.params["input_dim_seq"]    = prev_layer.params["output_dim_seq"]
+        self.params["input_dim_values"] = prev_layer.params["output_dim_values"]
 
         # To be set per layer type; mostly for definition of h
         self.params["expect_input_dim_seq"]    = []
         self.params["expect_input_dim_values"] = {}
         self.params["output_dim_seq"]          = []
         self.params["output_dim_values"]       = {}
-        
-        with tf.variable_scope(self.params["scope_name"], reuse=tf.AUTO_REUSE):
-            self.tensor_inputs  = {'h': prev_layer.tensor_outputs['h'], 'is_train': model.is_train_bool}
-            self.tensor_outputs = {'h': None}
-            self.tensor_params  = {} # Not necessary for most layers
 
-            construct_layer = getattr(self, self.params["layer_config"]["type"])
-            construct_layer()
+        construct_layer = getattr(self, self.params["layer_config"]["type"])
+        construct_layer()
 
-            self.tensor_outputs['h'] = self.apply_dropout(self.tensor_outputs['h'])
-
-    def apply_dropout(self, dropout_input):
-        # Apply dropout to self.tensor_outputs['h']
+        ''' Dropout '''
         try: 
             self.params["dropout_p"] = self.params["layer_config"]['dropout_p']
         except KeyError: 
             self.params["dropout_p"] = 0.
             return dropout_input
-
         if self.params["dropout_p"] > 0:
-            layer_output = tf.layers.dropout(dropout_input, rate=1.-self.params["dropout_p"], seed=numpy.random.randint(0, 545), training=self.tensor_inputs['is_train'])
-            return layer_output
+            self.dropout_fn = torch.nn.Dropout(p=self.params["dropout_p"])
         else:
-            return dropout_input
+            self.dropout_fn = lambda a: a # Do nothing, just return same tensor
 
-    def input_tensor_reshape(self):
-        # returns tensor_outputs['h_input_reshape'] and params["expect_input_dim_values"]
-        self.tensor_outputs['h_input_reshape'], self.params["expect_input_dim_values"] = tensor_reshape(self.tensor_inputs['h'], self.params["input_dim_seq"], self.params["input_dim_values"], self.params["expect_input_dim_seq"])
+    def forward(self, x):
+        x = self.reshape_fn(x)
+        x = self.layer_fn(x)
+        x = self.dropout_fn(x)
+        return x
 
-    def ReLUDVMax(self, layer_config=None):
-        if layer_config is None: layer_config=self.params["layer_config"]
-        self.params["expect_input_dim_seq"] = ['S', 'B', 'D']
+    def ReLUDVMax(self):
+        self.params["expect_input_dim_seq"] = ['S','B','D']
+        self.reshape_fn = Tensor_Reshape(self.params)
+        self.params = self.reshape_fn.update_layer_params()
+
         self.params["output_dim_seq"]       = ['S', 'B', 'D']
-        self.input_tensor_reshape()
         v = self.params["expect_input_dim_values"]
         self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]}
 
-        # 1. ReLU 
-        self.tensor_outputs['h_list'] = []
-        for i in range(self.params["layer_config"]['num_channels']):
-            # No need to give variable_scope for each channel; they are auto named fully_connected and fully_connected_1 in tensorflow
-            h = tf.contrib.layers.fully_connected(self.tensor_outputs['h_input_reshape'], self.params["size"], activation_fn=tf.nn.relu)
-            self.tensor_outputs['h_list'].append(h)
-        # 2. Maxout 
-        self.tensor_outputs['h'] = tf.squeeze(tf.contrib.layers.maxout(self.tensor_outputs["h_list"], 1, axis=0, name='maxout'), axis=0)
+        input_dim  = self.params['expect_input_dim_values']['D']
+        output_dim = self.params['output_dim_values']['D']
+        num_channels = self.params["layer_config"]["num_channels"]
+        self.layer_fn = ReLUDVMaxLayer(input_dim, output_dim, num_channels)
 
+    def LinDV(self):
+        self.params["expect_input_dim_seq"] = ['S','B','D']
+        self.reshape_fn = Tensor_Reshape(self.params)
+        self.params = self.reshape_fn.update_layer_params()
 
-    def ReLUDV(self, layer_config=None):
-        if layer_config is None: layer_config=self.params["layer_config"]
-        self.params["expect_input_dim_seq"] = ['S', 'B', 'D']
         self.params["output_dim_seq"]       = ['S', 'B', 'D']
-        self.input_tensor_reshape()
         v = self.params["expect_input_dim_values"]
         self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]}
-        self.tensor_outputs['h'] = tf.contrib.layers.fully_connected(self.tensor_outputs['h_input_reshape'], self.params["size"], activation_fn=tf.nn.relu)
 
-    def LinDV(self, layer_config=None):
-        if layer_config is None: layer_config=self.params["layer_config"]
-        self.params["expect_input_dim_seq"] = ['S', 'B', 'D']
-        self.params["output_dim_seq"]       = ['S', 'B', 'D']
-        self.input_tensor_reshape()
-        v = self.params["expect_input_dim_values"]
-        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]}
-        self.tensor_outputs['h'] = tf.contrib.layers.fully_connected(self.tensor_outputs['h_input_reshape'], self.params["size"], activation_fn=None)
+        input_dim  = self.params['expect_input_dim_values']['D']
+        output_dim = self.params['output_dim_values']['D']
+        self.layer_fn = torch.nn.Linear(input_dim, output_dim)
 
-    def Wav1DCNN(self, layer_config=None):
-        if layer_config is None: layer_config=self.params["layer_config"]
-        self.params["expect_input_dim_seq"] = ['S', 'B', 'T', 'D']
-        self.params["output_dim_seq"]       = ['S', 'B', 'T', 'D']
-        self.input_tensor_reshape()
-        v = self.params["expect_input_dim_values"]
-        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'T':int((self.expect_input_dim_values['T']-layer_config['CNN_kernel_size'][1])/layer_config['CNN_stride'][1])+1, 'D': self.params["size"]} # No padding, shorter output!
+class ReLUDVMaxLayer(torch.nn.Module):
+    def __init__(self, input_dim, output_dim, num_channels):
+        super().__init__()
+        self.input_dim    = input_dim
+        self.output_dim   = output_dim
+        self.num_channels = num_channels
 
-        if layer_config['CNN_activation'] == 'ReLU':
-            self.activation_fn = tf.nn.relu
-        else:
-            self.activation_fn = None
-        # ['S', 'B', 'T', '1'] --> ['S', 'B', 'T', 'D']; T_new = T_old
-        self.tensor_outputs['h'] = tf.layers.conv2d(self.tensor_outputs['h_input_reshape'], filters=layer_config['size'], kernel_size=layer_config['CNN_kernel_size'], strides=layer_config['CNN_stride'], activation=self.activation_fn) # No padding, shorter output!
+        self.fc_list = torch.nn.ModuleList([torch.nn.Linear(input_dim, output_dim) for i in range(self.num_channels)])
+        self.relu_fn = torch.nn.ReLU()
 
-    def Wav1DSineNet(self, layer_config=None):
-        if layer_config is None: layer_config=self.params["layer_config"]
-        # TODO: a lot to be done
-        self.params["expect_input_dim_seq"] = ['S', 'B', 'T', 'D']
-        self.params["output_dim_seq"]       = ['S', 'B', 'D']
-        self.input_tensor_reshape()
-        v = self.params["expect_input_dim_values"]
-        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'T':int((self.expect_input_dim_values['T']-layer_config['CNN_kernel_size'][1])/layer_config['CNN_stride'][1])+1, 'D': self.params["size"]}
-        self.params["f_tau_shape"] = [v['S'], v['B'], v['T'], 1]  # S,B,T,1
-        self.tensor_inputs['f']   = tf.placeholder(tf.float32, shape = self.params["f_tau_shape"])   # S,B,T,1
-        self.tensor_inputs['tau'] = tf.placeholder(tf.float32, shape = self.params["f_tau_shape"])   # S,B,T,1
+    def forward(self, x):
+        h_list = []
+        for i in range(self.num_channels):
+            # Linear
+            h_i = self.fc_list[i](x)
+            # ReLU
+            h_i = self.relu_fn(h_i)
+            h_list.append(h_i)
 
+        h_stack = torch.stack(h_list, dim=0)
+        # MaxOut
+        h_max, _indices = torch.max(h_stack, dim=0, keepdim=False)
+        return h_max
 
-        self.tensor_params = {}
+########################
+# PyTorch-based Models #
+########################
+
+class DV_Y_CMP_NN_model(torch.nn.Module):
+    ''' S_B_D input, SB_D/S_D logit output if train_by_window '''
+    def __init__(self, dv_y_cfg):
+        super().__init__()
         
+        self.num_nn_layers = dv_y_cfg.num_nn_layers
+        self.train_by_window = dv_y_cfg.train_by_window
+
+        self.input_layer = Build_S_B_TD_Input_Layer(dv_y_cfg)
+        self.input_dim   = self.input_layer.input_dim
+        prev_layer = self.input_layer
+
+        # Hidden layers
+        # The last is bottleneck, output_dim is lambda_dim
+        self.layer_list = torch.nn.ModuleList()
+        for i in range(self.num_nn_layers):
+            layer_config = dv_y_cfg.nn_layer_config_list[i]
+
+            layer_temp = Build_NN_Layer(layer_config, prev_layer)
+            prev_layer = layer_temp
+            self.layer_list.append(layer_temp)
+
+        # Expansion layer, from lambda to logit
+        self.dv_dim  = dv_y_cfg.dv_dim
+        self.output_dim = dv_y_cfg.num_speaker_dict['train']
+        self.expansion_layer = torch.nn.Linear(self.dv_dim, self.output_dim)
+
+    def gen_lambda_SBD(self, x):
+        ''' Simple sequential feed-forward '''
+        for i in range(self.num_nn_layers):
+            layer_temp = self.layer_list[i]
+            x = layer_temp(x)
+        return x
+
+    def gen_logit_SBD(self, x):
+        lambda_SBD = self.gen_lambda_SBD(x)
+        logit_SBD  = self.expansion_layer(lambda_SBD)
+        return logit_SBD
+
+    def forward(self, x):
+        logit_SBD = self.gen_logit_SBD(x)
+        # Choose which logit to use for cross-entropy
+        if self.train_by_window:
+            # Flatten to 2D for cross-entropy
+            logit_SB_D = logit_SBD.view(-1, self.output_dim)
+            return logit_SB_D
+        else:
+            # Average over B
+            logit_S_D = torch.mean(logit_SBD, dim=1, keepdim=False)
+
+    def lambda_to_logits_SBD(self, x):
+        ''' lambda_S_B_D to indices_S_B '''
+        logit_SBD = self.expansion_layer(x)
+        return logit_SBD
+
+##############################################
+# Model Wrappers, between Python and PyTorch #
+##############################################
+
+class General_Model(object):
+
+    ###################
+    # THings to build #
+    ###################
+    def __init__(self):
+        self.nn_model = None
+
+    def build_optimiser(self):
+        pass
+
+    def gen_loss(self, feed_dict):
+        pass
+
+    def gen_lambda_SBD(self, feed_dict):
+        pass
+
+    def cal_accuracy(self, feed_dict):
+        pass
+
+    def numpy_to_tensor(self, feed_dict):
+        pass
+
+    ###################
+    # Things can stay #
+    ###################
+
+    def __call__(self, x):
+        ''' Simulate PyTorch forward() method '''
+        ''' Note that x could be feed_dict '''
+        return self.nn_model(x)
+
+    def eval(self):
+        ''' Simulate PyTorch eval() method, change to eval mode '''
+        self.nn_model.eval()
+
+    def train(self):
+        ''' Simulate PyTorch train() method, change to train mode '''
+        self.nn_model.train()
+
+    def to_device(self, device_id):
+        self.device_id = device_id
+        self.nn_model.to(device_id)
+
+    def print_model_parameters(self, logger):
+        logger.info('Print Parameter Sizes')
+        for name, param in self.nn_model.named_parameters():
+            print(str(name)+'  '+str(param.size())+'  '+str(param.type()))
+
+    def update_parameters(self, feed_dict):
+        self.loss = self.gen_loss(feed_dict)
+        # perform a backward pass, and update the weights.
+        self.loss.backward()
+        self.optimiser.step()
+
+    def update_learning_rate(self, learning_rate):
+        self.learning_rate = learning_rate
+        # Re-build an optimiser, use new learning rate, and reset gradients
+        self.build_optimiser()
+
+    def gen_loss_value(self, feed_dict):
+        ''' Return the numpy value of self.loss '''
+        self.loss = self.gen_loss(feed_dict)
+        return self.loss.item()
+
+    def save_nn_model(self, nnets_file_name):
+        ''' Model Only '''
+        save_dict = {'model_state_dict': self.nn_model.state_dict()}
+        torch.save(save_dict, nnets_file_name)
+
+    def load_nn_model(self, nnets_file_name):
+        ''' Model Only '''
+        checkpoint = torch.load(nnets_file_name)
+        self.nn_model.load_state_dict(checkpoint['model_state_dict'])
+
+    def save_nn_model_optim(self, nnets_file_name):
+        ''' Model and Optimiser '''
+        save_dict = {'model_state_dict': self.nn_model.state_dict(), 'optimiser_state_dict': self.optimiser.state_dict()}
+        torch.save(save_dict, nnets_file_name)
+
+    def load_nn_model_optim(self, nnets_file_name):
+        ''' Model and Optimiser '''
+        checkpoint = torch.load(nnets_file_name)
+        self.nn_model.load_state_dict(checkpoint['model_state_dict'])
+        self.optimiser.load_state_dict(checkpoint['optimiser_state_dict'])
+
+    def count_parameters(self):
+        return sum(p.numel() for p in self.nn_model.parameters() if p.requires_grad)
+
+class DV_Y_CMP_model(General_Model):
+    ''' S_B_D input, SB_D logit output, classification, cross-entropy '''
+    def __init__(self, dv_y_cfg):
+        super().__init__()
+        self.nn_model = DV_Y_CMP_NN_model(dv_y_cfg)
+        self.learning_rate = dv_y_cfg.learning_rate
+
+    def build_optimiser(self):
+        self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
+        self.optimiser = torch.optim.Adam(self.nn_model.parameters(), lr=self.learning_rate)
+        # Zero gradients
+        self.optimiser.zero_grad()
+
+    def gen_loss(self, feed_dict):
+        ''' Returns Tensor, not value! For value, use gen_loss_value '''
+        x, y = self.numpy_to_tensor(feed_dict)
+        y_pred = self.nn_model(x)
+        # TODO: Add dimension check
+        # Compute and print loss
+        self.loss = self.criterion(y_pred, y)
+        return self.loss
+
+    def gen_lambda_SBD_value(self, feed_dict):
+        x, y = self.numpy_to_tensor(feed_dict)
+        self.lambda_SBD = self.nn_model.gen_lambda_SBD(x)
+        return self.lambda_SBD.cpu().detach().numpy()
+
+    def lambda_to_indices(self, feed_dict):
+        ''' lambda_S_B_D to indices_S_B '''
+        x, _y = self.numpy_to_tensor(feed_dict) # Here x is lambda_S_B_D! _y is useless
+        logit_SBD  = self.nn_model.lambda_to_logits_SBD(x)
+        _values, predict_idx_list = torch.max(logit_SBD.data, 2)
+        return predict_idx_list.cpu().detach().numpy()
+
+    def cal_accuracy(self, feed_dict):
+        x, _y = self.numpy_to_tensor(feed_dict)
+        outputs = self.nn_model(x)
+        _values, predict_idx_list = torch.max(outputs.data, 1)
+        total = y.size(0)
+        correct = (predict_idx_list == y).sum().item()
+        accuracy = correct/total
+        return correct, total, accuracy
+
+    def numpy_to_tensor(self, feed_dict):
+        if 'x' in feed_dict:
+            x_val = feed_dict['x']
+            x = torch.tensor(x_val, dtype=torch.float)
+            x = x.to(self.device_id)
+        else:
+            x = None
+        if 'y' in feed_dict:
+            y_val = feed_dict['y']
+            y = torch.tensor(y_val, dtype=torch.long)
+            y = y.to(self.device_id)
+        else:
+            y = None
+        return (x, y)
 
 
+def torch_initialisation(dv_y_cfg):
+    logger = make_logger("torch initialisation")
+    if torch.cuda.is_available():
+    # if False:
+        logger.info('Using GPU cuda:%i' % dv_y_cfg.gpu_id)
+        device_id = torch.device("cuda:%i" % dv_y_cfg.gpu_id)
+    else:
+        logger.info('Using CPU; No GPU')
+        device_id = torch.device("cpu")
 
-class build_am_model(object):
+    dv_y_model_class = dv_y_cfg.dv_y_model_class
+    model = dv_y_model_class(dv_y_cfg)
+    model.to_device(device_id)
+    return model
+
+#############################
+# PyTorch-based Simple Test #
+#############################
+
+def data_format_test(dv_y_cfg, dv_y_model):
+    logger = make_logger("data_format_test")
+    S = dv_y_cfg.batch_num_spk
+    B = dv_y_cfg.spk_num_seq
+    T = dv_y_cfg.batch_seq_len
+    D = dv_y_cfg.feat_dim
+    D_in  = T * D
+    D_out = dv_y_cfg.num_speaker_dict['train']
+    
+    # Create random Tensors to hold inputs and outputs
+    x_val = numpy.random.rand(S,B,D_in)
+    y_val = numpy.ones(S*B)
+    x = torch.tensor(x_val, dtype=torch.float)
+    y = torch.tensor(y_val, dtype=torch.long)
+
+    feed_dict = {'x':x_val, 'y':y_val}
+    
+    for t in range(1,501):
+        dv_y_model.nn_model.train()
+        dv_y_model.update_parameters(feed_dict)
+        if t % 100 == 0:
+            dv_y_model.nn_model.eval()
+            loss = dv_y_model.gen_loss_value(feed_dict)
+            logger.info('%i, %f' % (t, loss))
+
+###########################
+# Useless Tensorflow Code #
+#   Remember to clean up  #
+###########################
+
+class build_tf_am_model(object):
 
     def __init__(self, am_cfg, dv_tensor=None):
         # am_input_dim = am_cfg.iv_dim + am_cfg.input_dim

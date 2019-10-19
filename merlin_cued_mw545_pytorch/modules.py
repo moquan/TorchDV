@@ -1,5 +1,6 @@
 import os, sys, pickle, time, shutil, logging
 import math, numpy, scipy, scipy.io.wavfile #, sigproc, sigproc.pystraight
+numpy.random.seed(545)
 
 '''
 This file contains handy modules of using Merlin
@@ -50,7 +51,7 @@ def read_file_list(file_name):
             continue
         file_lists.append(line)
     fid.close()
-    logger.debug('Read file list from %s' % file_name)
+    logger.info('Read file list from %s' % file_name)
     return  file_lists
 
 def get_iv_values_from_file(iv_file_name, file_type='text'):

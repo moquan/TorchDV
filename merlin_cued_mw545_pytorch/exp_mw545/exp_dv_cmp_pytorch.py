@@ -7,7 +7,8 @@ import math, numpy, scipy
 numpy.random.seed(545)
 from modules import make_logger, read_file_list, prepare_file_path, prepare_file_path_list, make_held_out_file_number, copy_to_scratch
 from modules import keep_by_speaker, remove_by_speaker, keep_by_file_number, remove_by_file_number, keep_by_min_max_file_number, check_and_change_to_list
-from modules_2 import compute_feat_dim, log_class_attri, resil_nn_file_list, norm_nn_file_list, get_utters_from_binary_dict, count_male_female_class_errors
+from modules_2 import compute_feat_dim, log_class_attri, resil_nn_file_list, norm_nn_file_list, get_utters_from_binary_dict, get_one_utter_by_name, count_male_female_class_errors
+from modules_torch import torch_initialisation
 
 from io_funcs.binary_io import BinaryIOCollection
 io_fun = BinaryIOCollection()
@@ -21,7 +22,9 @@ class dv_y_configuration(object):
         # Things to be filled
         self.python_script_name = None
         self.dv_y_model_class = None
-        self.make_feed_dict_method = None
+        self.make_feed_dict_method_train = None
+        self.make_feed_dict_method_test  = None
+        self.make_feed_dict_method_gen   = None
         self.y_feat_name   = None
         self.out_feat_list = None
         self.nn_layer_config_list = None
@@ -80,27 +83,34 @@ class dv_y_configuration(object):
         prepare_file_path(file_dir=self.exp_dir, script_name=cfg.python_script_name)
         prepare_file_path(file_dir=self.exp_dir, script_name=self.python_script_name)
 
-        self.gpu_id = 0
+        self.gpu_id = 1
         self.gpu_per_process_gpu_memory_fraction = 0.8
 
-    def change_to_debug_mode(self):
-        self.epoch_num_batch  = {'train': 10, 'valid':10}
+    def change_to_debug_mode(self, process=None):
+        self.epoch_num_batch  = {'train': 10, 'valid':10, 'test':10}
         if '_smallbatch' not in self.exp_dir:
             self.exp_dir = self.exp_dir + '_smallbatch'
-        self.num_train_epoch = 500
-        # self.num_speaker_dict['train'] = 10
-        # self.speaker_id_list_dict['train'] = self.speaker_id_list_dict['train'][:self.num_speaker_dict['train']]
+        self.num_train_epoch = 50
+        
 
-    def change_to_test_mode(self):
-        self.epoch_num_batch  = {'train': 0, 'valid':4000}
-        self.batch_num_spk = 10
+        # Additional settings per process
+        # if process == "class_test":
+        #     self.num_speaker_dict['train'] = 10
+        #     self.speaker_id_list_dict['train'] = self.speaker_id_list_dict['train'][:self.num_speaker_dict['train']]
+
+    def change_to_class_test_mode(self):
+        self.epoch_num_batch = {'test':40}
+        self.batch_num_spk = 1
         self.spk_num_utter = 1
         spk_num_utter_list = [1,2,5,10]
         self.spk_num_utter_list = check_and_change_to_list(spk_num_utter_list)
+        lambda_u_dict_file_name = 'lambda_u_class_test.dat'
+        self.lambda_u_dict_file_name = os.path.join(self.exp_dir, lambda_u_dict_file_name)
+
         self.batch_seq_shift = 1
         self.utter_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1  # Outputs of each sequence is then averaged
         # self.spk_num_seq = self.spk_num_utter * self.utter_num_seq
-        if 'debug' in self.work_dir: self.change_to_debug_mode()
+        if 'debug' in self.work_dir: self.change_to_debug_mode(process="class_test")
 
     def change_to_gen_mode(self):
         self.batch_num_spk = 10
@@ -137,450 +147,23 @@ def make_dv_file_list(file_id_list, speaker_id_list, data_split_file_number):
             file_list[(speaker_id, utter_tvt_name)] = keep_by_file_number(file_list[speaker_id], data_split_file_number[utter_tvt_name])
     return file_list
 
-class dv_y_cmp_configuration(dv_y_configuration):
-    """docstring for ClassName"""
-    def __init__(self, cfg):
-        super(dv_y_cmp_configuration, self).__init__(cfg)
-        self.train_by_window = True # Optimise lambda_w; False: optimise speaker level lambda
-        self.classify_in_training = True # Compute classification accuracy after validation errors during training
-        self.batch_output_form = 'mean' # Method to convert from SBD to SD
-        self.retrain_model = False
-        self.previous_model_name = ''
-        self.python_script_name = '/home/dawna/tts/mw545/tools/merlin/merlin_cued_mw545_pytorch/debug_nausicaa/exp_dv_cmp_pytorch.py'
-        self.y_feat_name   = 'cmp'
-        self.out_feat_list = ['mgc', 'lf0', 'bap']
-        self.nn_layer_config_list = [
-            # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
-            # {'type':'SineAttenCNN', 'size':512, 'num_channels':1, 'dropout_p':1, 'CNN_filter_size':5, 'Sine_filter_size':200,'lf0_mean':5.04976, 'lf0_var':0.361811},
-            # {'type':'CNNAttenCNNWav', 'size':1024, 'num_channels':1, 'dropout_p':1, 'CNN_kernel_size':[1,3200], 'CNN_stride':[1,80], 'CNN_activation':'ReLU'},
-            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
-            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
-            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
-            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
-            {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0}
-        ]
-
-        # self.dv_y_model_class = dv_y_cmp_model
-        # self.make_feed_dict_method = make_feed_dict_y_cmp
-
-        self.auto_complete(cfg)
-
-
-import torch
-torch.manual_seed(545)
-
-########################
-# PyTorch-based Layers #
-########################
-
-class Build_S_B_TD_Input_Layer(object):
-    ''' This layer has only parameters, no torch.nn.module '''
-    def __init__(self, dv_y_cfg):
-        self.input_dim = dv_y_cfg.batch_seq_len * dv_y_cfg.feat_dim
-        self.params = {}
-        self.params["output_dim_seq"]      = ['S', 'B', 'D']
-        self.params["output_dim_values"]   = {'S':dv_y_cfg.batch_num_spk, 'B':dv_y_cfg.spk_num_seq, 'D':self.input_dim}
-        v = self.params["output_dim_values"]
-        self.params["output_shape_values"] = [v['S'], v['B'], v['D']]
-
-def Build_S_B_D_Output_Layer(object):
-    ''' This layer has only parameters, no torch.nn.module '''
-    def __init__(self, model, dv_y_cfg):
-        self.input_dim  = dv_y_cfg.dv_dim
-        self.output_dim = dv_y_cfg.num_speaker_dict['train']
-        self.nn_layer = torch.nn.Linear(self.input_dim, self.output_dim)
-
-
-    def __call__(self, x):
-        ''' Simulate PyTorch forward() method '''
-        return self.nn_layer(x)
-
-class Tensor_Reshape(torch.nn.Module):
-    def __init__(self, current_layer_params):
-        super().__init__()
-        self.params = current_layer_params
-
-    def update_layer_params(self):
-        input_dim_seq = self.params['input_dim_seq']
-        input_dim_values = self.params['input_dim_values']
-        expect_input_dim_seq = self.params['expect_input_dim_seq']
-
-        # First, check if change is needed at all; pass on if not
-        if input_dim_seq == expect_input_dim_seq:
-            self.params['expect_input_dim_values'] = input_dim_values
-            return self.params
-        else:
-            # Make anything into ['S', 'B', 'T', 'D']
-            if input_dim_seq == ['S', 'B', 'T', 'D']:
-                # Do nothing, pass on
-                temp_input_dim_values = input_dim_values
-
-        # Then, make from ['S', 'B', 'T', 'D']
-        if expect_input_dim_seq == ['S', 'B', 'D']:
-            # So basically, stack and remove T; last dimension D -> T * D
-            expect_input_shape_values = [temp_input_dim_values['S'], temp_input_dim_values['B'], temp_input_dim_values['T']*temp_input_dim_values['D']]
-            self.params['expect_input_dim_values'] = {'S':temp_input_dim_values['S'], 'B':temp_input_dim_values['B'], 'T':0, 'D':temp_input_dim_values['T']*temp_input_dim_values['D'] }
-        return self.params
-
-    def forward(self, x):
-        input_dim_seq = self.params['input_dim_seq']
-        input_dim_values = self.params['input_dim_values']
-        expect_input_dim_seq = self.params['expect_input_dim_seq']
-        expect_input_dim_values = self.params['expect_input_dim_values']
-
-        # First, check if change is needed at all; pass on if not
-        if input_dim_seq == expect_input_dim_seq:
-            return x
-        else:
-            # Make anything into ['S', 'B', 'T', 'D']
-            if input_dim_seq == ['S', 'B', 'T', 'D']:
-                # Do nothing, pass on
-                temp_input = x
-
-        # Then, make from ['S', 'B', 'T', 'D']
-        if expect_input_dim_seq == ['S', 'B', 'D']:
-            # So basically, stack and remove T; last dimension D -> T * D
-            expect_input_shape_values = [expect_input_dim_values['S'], expect_input_dim_values['B'], expect_input_dim_values['D']]
-            expect_input = temp_input.view(expect_input_shape_values)
-        return expect_input
-
-class ReLUDVMaxLayer(torch.nn.Module):
-    def __init__(self, input_dim, output_dim, num_channels):
-        super().__init__()
-        self.input_dim    = input_dim
-        self.output_dim   = output_dim
-        self.num_channels = num_channels
-
-        self.fc_list = torch.nn.ModuleList([torch.nn.Linear(input_dim, output_dim) for i in range(self.num_channels)])
-        self.relu_fn = torch.nn.ReLU()
-
-    def forward(self, x):
-        h_list = []
-        for i in range(self.num_channels):
-            # Linear
-            h_i = self.fc_list[i](x)
-            # ReLU
-            h_i = self.relu_fn(h_i)
-            h_list.append(h_i)
-
-        h_stack = torch.stack(h_list, dim=0)
-        # MaxOut
-        h_max, _indices = torch.max(h_stack, dim=0, keepdim=False)
-        return h_max
-
-class Build_NN_Layer(torch.nn.Module):
-    def __init__(self, layer_config, prev_layer):
-        super().__init__()
-        self.params = {}
-        self.params["layer_config"] = layer_config
-        self.params["type"] = layer_config['type']
-        self.params["size"] = layer_config['size']
-
-        self.params["input_dim_seq"]    = prev_layer.params["output_dim_seq"]
-        self.params["input_dim_values"] = prev_layer.params["output_dim_values"]
-
-        # To be set per layer type; mostly for definition of h
-        self.params["expect_input_dim_seq"]    = []
-        self.params["expect_input_dim_values"] = {}
-        self.params["output_dim_seq"]          = []
-        self.params["output_dim_values"]       = {}
-
-        construct_layer = getattr(self, self.params["layer_config"]["type"])
-        construct_layer()
-
-        ''' Dropout '''
-        try: 
-            self.params["dropout_p"] = self.params["layer_config"]['dropout_p']
-        except KeyError: 
-            self.params["dropout_p"] = 0.
-            return dropout_input
-        if self.params["dropout_p"] > 0:
-            self.dropout_fn = torch.nn.Dropout(p=self.params["dropout_p"])
-        else:
-            self.dropout_fn = lambda a: a # Do nothing, just return same tensor
-
-    def forward(self, x):
-        x = self.reshape_fn(x)
-        x = self.layer_fn(x)
-        x = self.dropout_fn(x)
-        return x
-
-    def ReLUDVMax(self):
-        self.params["expect_input_dim_seq"] = ['S','B','D']
-        self.reshape_fn = Tensor_Reshape(self.params)
-        self.params = self.reshape_fn.update_layer_params()
-
-        self.params["output_dim_seq"]       = ['S', 'B', 'D']
-        v = self.params["expect_input_dim_values"]
-        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]}
-
-        input_dim  = self.params['expect_input_dim_values']['D']
-        output_dim = self.params['output_dim_values']['D']
-        num_channels = self.params["layer_config"]["num_channels"]
-        self.layer_fn = ReLUDVMaxLayer(input_dim, output_dim, num_channels)
-
-    def LinDV(self):
-        self.params["expect_input_dim_seq"] = ['S','B','D']
-        self.reshape_fn = Tensor_Reshape(self.params)
-        self.params = self.reshape_fn.update_layer_params()
-
-        self.params["output_dim_seq"]       = ['S', 'B', 'D']
-        v = self.params["expect_input_dim_values"]
-        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]}
-
-        input_dim  = self.params['expect_input_dim_values']['D']
-        output_dim = self.params['output_dim_values']['D']
-        self.layer_fn = torch.nn.Linear(input_dim, output_dim)
-
-
-########################
-# PyTorch-based Models #
-########################
-
-class DV_Y_CMP_NN_model(torch.nn.Module):
-    ''' S_B_D input, SB_D logit output '''
-    def __init__(self, dv_y_cfg):
-        super().__init__()
-        
-        self.num_nn_layers = dv_y_cfg.num_nn_layers
-        self.train_by_window = dv_y_cfg.train_by_window
-
-        self.input_layer = Build_S_B_TD_Input_Layer(dv_y_cfg)
-        self.input_dim   = self.input_layer.input_dim
-        prev_layer = self.input_layer
-
-        # Hidden layers
-        # The last is bottleneck, output_dim is lambda_dim
-        self.layer_list = torch.nn.ModuleList()
-        for i in range(self.num_nn_layers):
-            layer_config = dv_y_cfg.nn_layer_config_list[i]
-
-            layer_temp = Build_NN_Layer(layer_config, prev_layer)
-            prev_layer = layer_temp
-            self.layer_list.append(layer_temp)
-
-        # Expansion layer, from lambda to logit
-        self.dv_dim  = dv_y_cfg.dv_dim
-        self.output_dim = dv_y_cfg.num_speaker_dict['train']
-        self.expansion_layer = torch.nn.Linear(self.dv_dim, self.output_dim)
-
-    def gen_lambda_SBD(self, x):
-        for i in range(self.num_nn_layers):
-            layer_temp = self.layer_list[i]
-            x = layer_temp(x)
-        return x
-
-    def gen_logit_SBD(self, x):
-        lambda_SBD = self.gen_lambda_SBD(x)
-        logit_SBD  = self.expansion_layer(lambda_SBD)
-        return logit_SBD
-
-    def forward(self, x):
-        logit_SBD = self.gen_logit_SBD(x)
-        if self.train_by_window:
-            # Flatten to 2D for cross-entropy
-            logit_SB_D = logit_SBD.view(-1, self.output_dim)
-            return logit_SB_D
-        else:
-            # Average over B
-            logit_S_D = torch.mean(logit_SBD, dim=1, keepdim=False)
-
-class General_Model(object):
-    ''' Model Wrapper, handy between Python and PyTorch '''
-    def __init__(self):
-        self.nn_model = None
-
-    def __call__(self, x):
-        ''' Simulate PyTorch forward() method '''
-        ''' Note that x could be feed_dict '''
-        return self.nn_model(x)
-
-    def eval(self):
-        ''' Simulate PyTorch eval() method '''
-        self.nn_model.eval()
-
-    def train(self):
-        ''' Simulate PyTorch train() method '''
-        self.nn_model.train()
-
-    def to_device(self, device_id):
-        self.device_id = device_id
-        self.nn_model.to(device_id)
-
-    def print_model_parameters(self, logger):
-        logger.info('Print Parameter Sizes')
-        for name, param in self.nn_model.named_parameters():
-            print(str(name)+'  '+str(param.size())+'  '+str(param.type()))
-
-    def update_parameters(self, feed_dict):
-        self.loss = self.gen_loss(feed_dict)
-        # perform a backward pass, and update the weights.
-        self.loss.backward()
-        self.optimiser.step()
-
-    def update_learning_rate(self, learning_rate):
-        self.learning_rate = learning_rate
-        # Re-build an optimiser, use new learning rate, and reset gradients
-        self.build_optimiser()
-
-
-    def gen_loss_value(self, feed_dict):
-        self.loss = self.gen_loss(feed_dict)
-        return self.loss.item()
-
-    def save_nn_model(self, nnets_file_name):
-        save_dict = {'model_state_dict': self.nn_model.state_dict()}
-        torch.save(save_dict, nnets_file_name)
-
-    def load_nn_model(self, nnets_file_name):
-        checkpoint = torch.load(nnets_file_name)
-        self.nn_model.load_state_dict(checkpoint['model_state_dict'])
-
-    def save_nn_model_optim(self, nnets_file_name):
-        save_dict = {'model_state_dict': self.nn_model.state_dict(), 'optimiser_state_dict': self.optimiser.state_dict()}
-        torch.save(save_dict, nnets_file_name)
-
-    def load_nn_model_optim(self, nnets_file_name):
-        checkpoint = torch.load(nnets_file_name)
-        self.nn_model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimiser.load_state_dict(checkpoint['optimiser_state_dict'])
-
-class DV_Y_CMP_model(General_Model):
-    ''' S_B_D input, SB_D logit output, classification, cross-entropy '''
-    def __init__(self, dv_y_cfg):
-        super().__init__()
-        self.nn_model = DV_Y_CMP_NN_model(dv_y_cfg)
-        self.learning_rate = dv_y_cfg.learning_rate
-
-    def build_optimiser(self):
-        self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
-        self.optimiser = torch.optim.Adam(self.nn_model.parameters(), lr=self.learning_rate)
-        # Zero gradients
-        self.optimiser.zero_grad()
-
-    def gen_loss(self, feed_dict):
-        ''' Returns Tensor, not value! For value, use gen_loss_value '''
-        x, y = self.numpy_to_tensor(feed_dict)
-        y_pred = self.nn_model(x)
-        # Compute and print loss
-        self.loss = self.criterion(y_pred, y)
-        return self.loss
-
-    def cal_accuracy(self, feed_dict):
-        x, y = self.numpy_to_tensor(feed_dict)
-        outputs = self.nn_model(x)
-        _, predicted = torch.max(outputs.data, 1)
-        total = y.size(0)
-        correct = (predicted == y).sum().item()
-        accuracy = correct/total
-        return correct, total, accuracy
-
-    def numpy_to_tensor(self, feed_dict):
-        x_val = feed_dict['x']
-        y_val = feed_dict['y']
-        x = torch.tensor(x_val, dtype=torch.float)
-        y = torch.tensor(y_val, dtype=torch.long)
-        x = x.to(self.device_id)
-        y = y.to(self.device_id)
-        return (x, y)
-
-
-def torch_initialisation(dv_y_cfg):
-    logger = make_logger("torch initialisation")
-    if torch.cuda.is_available():
-    # if False:
-        logger.info('Using GPU cuda:%i' % dv_y_cfg.gpu_id)
-        device_id = torch.device("cuda:%i" % dv_y_cfg.gpu_id)
-    else:
-        logger.info('Using CPU; No GPU')
-        device_id = torch.device("cpu")
-
-    # Construct our model by instantiating the class defined above
-    model = DV_Y_CMP_model(dv_y_cfg)
-    model.to_device(device_id)
-    return model
-
 #############
 # Processes #
 #############
 
-def make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, file_dir_dict, dv_y_model, batch_speaker_list, utter_tvt, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
-    feat_name = dv_y_cfg.y_feat_name # Hard-coded here for now
-    # Make i/o shape arrays
-    # This is numpy shape, not Tensor shape!
-    y  = numpy.zeros((dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
-    dv = numpy.zeros((dv_y_cfg.batch_num_spk))
+def train_dv_y_model(cfg, dv_y_cfg):
 
-    # Do not use silence frames at the beginning or the end
-    total_sil_one_side = dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad
-    min_file_len = dv_y_cfg.batch_seq_total_len + 2 * total_sil_one_side
-
-    file_name_list = []
-    start_frame_index_list = []
-    for speaker_idx in range(dv_y_cfg.batch_num_spk):
-        speaker_id = batch_speaker_list[speaker_idx]
-
-        # Make dv 1-hot output
-        try: true_speaker_index = dv_y_cfg.speaker_id_list_dict['train'].index(speaker_id)
-        except ValueError: true_speaker_index = 0 # At generation time, since dv is not used, a non-train speaker is given an arbituary speaker index
-        dv[speaker_idx] = true_speaker_index
-
-        # Draw multiple utterances per speaker: dv_y_cfg.spk_num_utter
-        # Draw multiple windows per utterance:  dv_y_cfg.utter_num_seq
-        # Stack them along B
-        speaker_file_name_list, speaker_utter_len_list, speaker_utter_list = get_utters_from_binary_dict(dv_y_cfg.spk_num_utter, file_list_dict[(speaker_id, utter_tvt)], file_dir_dict, feat_name_list=[feat_name], feat_dim_list=[dv_y_cfg.feat_dim], min_file_len=min_file_len, random_seed=None)
-        file_name_list.append(speaker_file_name_list)
-
-        speaker_start_frame_index_list = []
-        for utter_idx in range(dv_y_cfg.spk_num_utter):
-            y_stack = speaker_utter_list[feat_name][utter_idx][:,dv_y_cfg.feat_index]
-            frame_number   = speaker_utter_len_list[utter_idx]
-            extra_file_len = frame_number - (min_file_len)
-            start_frame_index = numpy.random.choice(range(total_sil_one_side, total_sil_one_side+extra_file_len+1))
-            speaker_start_frame_index_list.append(start_frame_index)
-            for seq_idx in range(dv_y_cfg.utter_num_seq):
-                y[speaker_idx, utter_idx*dv_y_cfg.utter_num_seq+seq_idx, :, :] = y_stack[start_frame_index:start_frame_index+dv_y_cfg.batch_seq_len, :]
-                start_frame_index = start_frame_index + dv_y_cfg.batch_seq_shift
-        start_frame_index_list.append(speaker_start_frame_index_list)
-
-
-    # S,B,T,D --> S,B,T*D
-    x_val = numpy.reshape(y, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
-    if dv_y_cfg.train_by_window:
-        # S --> S*B
-        y_val = numpy.repeat(dv, dv_y_cfg.spk_num_seq)
-        batch_size = dv_y_cfg.batch_num_spk * dv_y_cfg.spk_num_seq
-    else:
-        batch_size = dv_y_cfg.batch_num_spk
-
-    feed_dict = {'x':x_val, 'y':y_val}
-    return_list = [feed_dict, batch_size]
-    
-    if return_dv:
-        return_list.append(dv)
-    if return_y:
-        return_list.append(y)
-    if return_frame_index:
-        return_list.append(start_frame_index_list)
-    if return_file_name:
-        return_list.append(file_name_list)
-    return return_list
-
-def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
-
-    # First attempt: 3 layers of ReLUMax
-    # Also, feed data use feed_dict style
-
-    if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
+    # Feed data use feed_dict style
 
     logger = make_logger("dv_y_config")
     log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
 
-    logger = make_logger("train_dv_y_model")
+    logger = make_logger("train_dvy")
     logger.info('Creating data lists')
     speaker_id_list = dv_y_cfg.speaker_id_list_dict['train'] # For DV training and evaluation, use train speakers only
     file_id_list    = read_file_list(cfg.file_id_list_file)
     file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
+    make_feed_dict_method_train = dv_y_cfg.make_feed_dict_method_train
 
     dv_y_model = torch_initialisation(dv_y_cfg)
     dv_y_model.build_optimiser()
@@ -604,7 +187,7 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
             # Draw random speakers
             batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk)
             # Make feed_dict for training
-            feed_dict, batch_size = make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, dv_y_model, batch_speaker_list,  utter_tvt='train')
+            feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list,  utter_tvt='train')
             dv_y_model.nn_model.train()
             dv_y_model.update_parameters(feed_dict=feed_dict)
         epoch_train_time = time.time()
@@ -619,7 +202,7 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
                 # Draw random speakers
                 batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk)
                 # Make feed_dict for evaluation
-                feed_dict, batch_size = make_feed_dict_y_cmp(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, dv_y_model, batch_speaker_list, utter_tvt=utter_tvt_name)
+                feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list, utter_tvt=utter_tvt_name)
                 dv_y_model.eval()
                 batch_mean_loss = dv_y_model.gen_loss_value(feed_dict=feed_dict)
                 total_batch_size += batch_size
@@ -671,32 +254,301 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
 
     return best_valid_loss
 
+def class_test_dv_y_model(cfg, dv_y_cfg):
+
+    logger = make_logger("dv_y_config")
+    dv_y_cfg.change_to_class_test_mode()
+    log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
+
+    logger = make_logger("class_dvy")
+    logger.info('Creating data lists')
+    speaker_id_list = dv_y_cfg.speaker_id_list_dict['train'] # For classification, use train speakers only
+    file_id_list    = read_file_list(cfg.file_id_list_file)
+    file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
+    make_feed_dict_method_test = dv_y_cfg.make_feed_dict_method_test
+
+    dv_y_model = torch_initialisation(dv_y_cfg)
+    dv_y_model.load_nn_model(dv_y_cfg.nnets_file_name)
+
+    try: 
+        lambda_u_dict = pickle.load(open(dv_y_cfg.lambda_u_dict_file_name, 'rb'))
+        logger.info('Loaded lambda_u_dict from %s' % dv_y_cfg.lambda_u_dict_file_name)
+    # Generate for all utterances, all speakers
+    except:
+        logger.info('Cannot load from %s, generate instead' % dv_y_cfg.lambda_u_dict_file_name)
+        lambda_u_dict = {}   # lambda_u[file_name] = [lambda_speaker, total_batch_size]
+        for speaker_id in speaker_id_list:
+            logger.info('Generating %s' % speaker_id)
+            for file_name in file_list_dict[(speaker_id, 'test')]:
+                lambda_temp_list = []
+                batch_size_list  = []
+                gen_finish = False
+                start_frame_index = 0
+                BTD_feat_remain = None
+                while not (gen_finish):
+                    feed_dict, gen_finish, batch_size, BTD_feat_remain = make_feed_dict_method_test(dv_y_cfg, cfg.nn_feat_scratch_dirs, speaker_id, file_name, start_frame_index, BTD_feat_remain)
+                    dv_y_model.eval()
+                    lambda_temp = dv_y_model.gen_lambda_SBD_value(feed_dict=feed_dict)
+                    lambda_temp_list.append(lambda_temp)
+                    batch_size_list.append(batch_size)
+                B_u = numpy.sum(batch_size_list)
+                lambda_u = numpy.zeros(dv_y_cfg.dv_dim)
+                for lambda_temp, batch_size in zip(lambda_temp_list, batch_size_list):
+                    for b in range(batch_size):
+                        lambda_u += lambda_temp[0,b]
+                lambda_u /= float(B_u)
+                lambda_u_dict[file_name] = [lambda_u, B_u]
+        logger.info('Saving lambda_u_dict to %s' % dv_y_cfg.lambda_u_dict_file_name)
+        pickle.dump(lambda_u_dict, open(dv_y_cfg.lambda_u_dict_file_name, 'wb'))
+
+    for spk_num_utter in dv_y_cfg.spk_num_utter_list:
+        logger.info('Testing with %i utterances per speaker' % spk_num_utter)
+        accuracy_list = []
+        for speaker_id in speaker_id_list:
+            file_list = file_list_dict[(speaker_id, 'test')]
+            file_list_remain = copy.deepcopy(file_list)
+            num_file_remain = len(file_list_remain)
+            logger.info('testing speaker %s' % speaker_id)
+            speaker_lambda_list = []
+            for batch_idx in range(dv_y_cfg.epoch_num_batch['test']):
+                batch_file_list = []
+                logger.info('batch %i' % batch_idx)
+                num_utter_need = spk_num_utter
+                while num_utter_need > 0:
+                    num_file_remain = len(file_list_remain)
+                    if num_file_remain > num_utter_need:
+                        # Enough, draw a subset
+                        draw_file_list = numpy.random.choice(file_list_remain, num_utter_need)
+                        for f in draw_file_list:
+                            batch_file_list.append(f)
+                            try:
+                                file_list_remain.remove(f)
+                            except:
+                                print(f)
+                                print(draw_file_list)
+                                print(batch_file_list)
+                                print(file_list_remain)
+                        num_file_remain -= num_utter_need
+                        num_utter_need = 0
+                    else:
+                        # Use them all
+                        batch_file_list.extend(file_list_remain)
+                        # Reset the list
+                        file_list_remain = copy.deepcopy(file_list)
+                        num_utter_need -= num_file_remain
+                        num_file_remain = len(file_list_remain)
+                assert len(batch_file_list) == spk_num_utter
+
+                # Weighted average of lambda_u
+                batch_lambda = numpy.zeros(dv_y_cfg.dv_dim)
+                B_total = 0
+                for file_name in batch_file_list:
+                    lambda_u, B_u = lambda_u_dict[file_name]
+                    batch_lambda += lambda_u * B_u
+                    B_total += B_u
+                batch_lambda /= B_total
+                speaker_lambda_list.append(batch_lambda)
+
+            true_speaker_index = dv_y_cfg.speaker_id_list_dict['train'].index(speaker_id)
+            lambda_list_remain = speaker_lambda_list
+            B_remain = len(speaker_lambda_list)
+            b_index = 0 # Track counter, instead of removing elements
+            correct_counter = 0.
+            while B_remain > 0:
+                lambda_val = numpy.zeros((dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.dv_dim))
+                if B_remain > dv_y_cfg.spk_num_seq:
+                    # Fill all dv_y_cfg.spk_num_seq, keep remain for later
+                    B_actual = dv_y_cfg.spk_num_seq
+                    B_remain -= dv_y_cfg.spk_num_seq
+                    b_index += dv_y_cfg.spk_num_seq
+                else:
+                    # No more remain
+                    B_actual = B_remain
+                    B_remain = 0
+
+                for b in range(B_actual):
+                    lambda_val[0, b] = lambda_list_remain[b_index + b]
+
+                feed_dict = {'x': lambda_val}
+                idx_list_S_B = dv_y_model.lambda_to_indices(feed_dict=feed_dict)
+                print(idx_list_S_B)
+                for b in range(B_actual):
+                    if idx_list_S_B[0, b] == true_speaker_index: 
+                        correct_counter += 1.
+            speaker_accuracy = correct_counter/float(dv_y_cfg.epoch_num_batch['test'])
+            logger.info('speaker %s accuracy is %f' % (speaker_id, speaker_accuracy))
+            accuracy_list.append(speaker_accuracy)
+        mean_accuracy = numpy.mean(accuracy_list)
+        logger.info('Accuracy with %i utterances per speaker is %f' % (spk_num_utter, mean_accuracy))
+
+############
+# dv y cmp #
+############
+
+def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_speaker_list, utter_tvt, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
+    feat_name = dv_y_cfg.y_feat_name # Hard-coded here for now
+    # Make i/o shape arrays
+    # This is numpy shape, not Tensor shape!
+    y  = numpy.zeros((dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
+    dv = numpy.zeros((dv_y_cfg.batch_num_spk))
+
+    # Do not use silence frames at the beginning or the end
+    total_sil_one_side = dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad
+    min_file_len = dv_y_cfg.batch_seq_total_len + 2 * total_sil_one_side
+
+    file_name_list = []
+    start_frame_index_list = []
+    for speaker_idx in range(dv_y_cfg.batch_num_spk):
+        speaker_id = batch_speaker_list[speaker_idx]
+
+        # Make classification targets, index sequence
+        true_speaker_index = dv_y_cfg.speaker_id_list_dict['train'].index(speaker_id)
+        dv[speaker_idx] = true_speaker_index
+
+        # Draw multiple utterances per speaker: dv_y_cfg.spk_num_utter
+        # Draw multiple windows per utterance:  dv_y_cfg.utter_num_seq
+        # Stack them along B
+        speaker_file_name_list, speaker_utter_len_list, speaker_utter_list = get_utters_from_binary_dict(dv_y_cfg.spk_num_utter, file_list_dict[(speaker_id, utter_tvt)], file_dir_dict, feat_name_list=[feat_name], feat_dim_list=[dv_y_cfg.feat_dim], min_file_len=min_file_len, random_seed=None)
+        file_name_list.append(speaker_file_name_list)
+
+        speaker_start_frame_index_list = []
+        for utter_idx in range(dv_y_cfg.spk_num_utter):
+            y_stack = speaker_utter_list[feat_name][utter_idx][:,dv_y_cfg.feat_index]
+            frame_number   = speaker_utter_len_list[utter_idx]
+            extra_file_len = frame_number - (min_file_len)
+            start_frame_index = numpy.random.choice(range(total_sil_one_side, total_sil_one_side+extra_file_len+1))
+            speaker_start_frame_index_list.append(start_frame_index)
+            for seq_idx in range(dv_y_cfg.utter_num_seq):
+                y[speaker_idx, utter_idx*dv_y_cfg.utter_num_seq+seq_idx, :, :] = y_stack[start_frame_index:start_frame_index+dv_y_cfg.batch_seq_len, :]
+                start_frame_index = start_frame_index + dv_y_cfg.batch_seq_shift
+        start_frame_index_list.append(speaker_start_frame_index_list)
 
 
-
-def data_format_test(dv_y_cfg, dv_y_model):
-    logger = make_logger("data_format_test")
-    S = dv_y_cfg.batch_num_spk
-    B = dv_y_cfg.spk_num_seq
-    T = dv_y_cfg.batch_seq_len
-    D = dv_y_cfg.feat_dim
-    D_in  = T * D
-    D_out = dv_y_cfg.num_speaker_dict['train']
-    
-    # Create random Tensors to hold inputs and outputs
-    x_val = numpy.random.rand(S,B,D_in)
-    y_val = numpy.ones(S*B)
-    x = torch.tensor(x_val, dtype=torch.float)
-    y = torch.tensor(y_val, dtype=torch.long)
+    # S,B,T,D --> S,B,T*D
+    x_val = numpy.reshape(y, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
+    if dv_y_cfg.train_by_window:
+        # S --> S*B
+        y_val = numpy.repeat(dv, dv_y_cfg.spk_num_seq)
+        batch_size = dv_y_cfg.batch_num_spk * dv_y_cfg.spk_num_seq
+    else:
+        y_val = dv
+        batch_size = dv_y_cfg.batch_num_spk
 
     feed_dict = {'x':x_val, 'y':y_val}
+    return_list = [feed_dict, batch_size]
     
-    for t in range(1,501):
-        dv_y_model.nn_model.train()
-        dv_y_model.update_parameters(feed_dict)
-        if t % 100 == 0:
-            dv_y_model.nn_model.eval()
-            loss = dv_y_model.gen_loss_value(feed_dict)
-            logger.info('%i, %f' % (t, loss))
-        
+    if return_dv:
+        return_list.append(dv)
+    if return_y:
+        return_list.append(y)
+    if return_frame_index:
+        return_list.append(start_frame_index_list)
+    if return_file_name:
+        return_list.append(file_name_list)
+    return return_list
+
+def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, start_frame_index, BTD_feat_remain):
+    feat_name = dv_y_cfg.y_feat_name # Hard-coded here for now
+    assert dv_y_cfg.batch_num_spk == 1
+    # Make i/o shape arrays
+    # This is numpy shape, not Tensor shape!
+    # No speaker index here! Will add it to Tensor later
+    y  = numpy.zeros((dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
+    dv = numpy.zeros((dv_y_cfg.batch_num_spk))
+
+    # Do not use silence frames at the beginning or the end
+    total_sil_one_side = dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad
+
+    # Make classification targets, index sequence
+    try: true_speaker_index = dv_y_cfg.speaker_id_list_dict['train'].index(speaker_id)
+    except ValueError: true_speaker_index = 0 # At generation time, since dv is not used, a non-train speaker is given an arbituary speaker index
+    dv[0] = true_speaker_index
+
+    if BTD_feat_remain is None:
+        # Get new file, make BD
+        _min_len, features = get_one_utter_by_name(file_name, file_dir_dict, feat_name_list=[feat_name], feat_dim_list=[dv_y_cfg.feat_dim])
+        y_features = features[feat_name]
+        l = y_features.shape[0]
+        l_no_sil = l - total_sil_one_side * 2
+        features = y_features[total_sil_one_side:total_sil_one_side+l_no_sil]
+        B_total  = int((l_no_sil - dv_y_cfg.batch_seq_len) / dv_y_cfg.batch_seq_shift) + 1
+        BTD_features = numpy.zeros((B_total, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
+        for b in range(B_total):
+            start_i = dv_y_cfg.batch_seq_shift * b
+            BTD_features[b] = features[start_i:start_i+dv_y_cfg.batch_seq_len]
+    else:
+        BTD_features = BTD_feat_remain
+        B_total = BTD_features.shape[0]
+
+    if B_total > dv_y_cfg.batch_seq_len:
+        B_actual = dv_y_cfg.batch_seq_len
+        B_remain = B_total - B_actual
+        gen_finish = False
+    else:
+        B_actual = B_total
+        B_remain = 0
+        gen_finish = True
+
+    for b in range(B_actual):
+        y[b] = BTD_features[b]
+
+    if B_remain > 0:
+        BTD_feat_remain = numpy.zeros((B_remain, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
+        for b in range(B_remain):
+            BTD_feat_remain[b] = BTD_features[b + B_actual]
+    else:
+        BTD_feat_remain = None
+
+    batch_size = B_actual
+
+    # B,T,D --> S(1),B,T*D
+    x_val = numpy.reshape(y, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
+    if dv_y_cfg.train_by_window:
+        # S --> S*B
+        y_val = numpy.repeat(dv, dv_y_cfg.spk_num_seq)
+    else:
+        y_val = dv
+
+    feed_dict = {'x':x_val, 'y':y_val}
+    return_list = [feed_dict, gen_finish, batch_size, BTD_feat_remain]
+    return return_list
+
+class dv_y_cmp_configuration(dv_y_configuration):
+    """docstring for ClassName"""
+    def __init__(self, cfg):
+        super(dv_y_cmp_configuration, self).__init__(cfg)
+        self.train_by_window = True # Optimise lambda_w; False: optimise speaker level lambda
+        self.classify_in_training = True # Compute classification accuracy after validation errors during training
+        self.batch_output_form = 'mean' # Method to convert from SBD to SD
+        self.retrain_model = False
+        self.previous_model_name = ''
+        self.python_script_name = '/home/dawna/tts/mw545/tools/merlin/merlin_cued_mw545_pytorch/debug_nausicaa/exp_dv_cmp_pytorch.py'
+        self.y_feat_name   = 'cmp'
+        self.out_feat_list = ['mgc', 'lf0', 'bap']
+        self.nn_layer_config_list = [
+            # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
+            # {'type':'SineAttenCNN', 'size':512, 'num_channels':1, 'dropout_p':1, 'CNN_filter_size':5, 'Sine_filter_size':200,'lf0_mean':5.04976, 'lf0_var':0.361811},
+            # {'type':'CNNAttenCNNWav', 'size':1024, 'num_channels':1, 'dropout_p':1, 'CNN_kernel_size':[1,3200], 'CNN_stride':[1,80], 'CNN_activation':'ReLU'},
+            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
+            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
+            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
+            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
+            {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0}
+        ]
+
+        from modules_torch import DV_Y_CMP_model
+        self.dv_y_model_class = DV_Y_CMP_model
+        self.make_feed_dict_method_train = make_feed_dict_y_cmp_train
+        self.make_feed_dict_method_test  = make_feed_dict_y_cmp_test
+        self.auto_complete(cfg)
+
+def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
+    if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
+    train_dv_y_model(cfg, dv_y_cfg)
+
+def test_dv_y_cmp_model(cfg, dv_y_cfg=None):
+    if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
+    for s in [545,54,5]:
+        numpy.random.seed(s)
+        class_test_dv_y_model(cfg, dv_y_cfg)
 
