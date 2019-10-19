@@ -13,6 +13,30 @@ from modules_torch import torch_initialisation
 from io_funcs.binary_io import BinaryIOCollection
 io_fun = BinaryIOCollection()
 
+class list_random_loader(object):
+    def __init__(self, list_to_draw):
+        self.list_total  = list_to_draw
+        self.list_remain = copy.deepcopy(self.list_total)
+
+    def draw_n_samples(self, n):
+        list_return = []
+        n_remain = len(self.list_remain)
+        n_need   = n
+        while n_need > 0:
+            if n_remain > n_need:
+                # Enough, draw a subset
+                list_draw = numpy.random.choice(self.list_remain, n_need, replace=False)
+                for f in draw_file_list:
+                    list_return.append(f)
+                    self.list_remain.remove(f)
+                n_need = 0
+            else:
+                # Use them all
+                list_return.extend(self.list_remain)
+                # Reset the list
+                self.list_remain = copy.deepcopy(self.list_total)
+                n_need -= n_remain
+                n_remain = len(self.list_remain)
 
 
 class dv_y_configuration(object):
@@ -184,8 +208,8 @@ def train_dv_y_model(cfg, dv_y_cfg):
         epoch_start_time = time.time()
 
         for batch_idx in range(dv_y_cfg.epoch_num_batch['train']):
-            # Draw random speakers
-            batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk)
+            # Draw random speakers; replace=False assumes len(speaker_id_list) > dv_y_cfg.batch_num_spk
+            batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk, replace=False)
             # Make feed_dict for training
             feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list,  utter_tvt='train')
             dv_y_model.nn_model.train()
@@ -200,7 +224,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
             total_accuracy   = 0.
             for batch_idx in range(dv_y_cfg.epoch_num_batch['valid']):
                 # Draw random speakers
-                batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk)
+                batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk, replace=False)
                 # Make feed_dict for evaluation
                 feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list, utter_tvt=utter_tvt_name)
                 dv_y_model.eval()
@@ -318,7 +342,7 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
                     num_file_remain = len(file_list_remain)
                     if num_file_remain > num_utter_need:
                         # Enough, draw a subset
-                        draw_file_list = numpy.random.choice(file_list_remain, num_utter_need)
+                        draw_file_list = numpy.random.choice(file_list_remain, num_utter_need, replace=False)
                         for f in draw_file_list:
                             batch_file_list.append(f)
                             try:
@@ -548,7 +572,7 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
 
 def test_dv_y_cmp_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
-    for s in [545,54,5]:
-        numpy.random.seed(s)
-        class_test_dv_y_model(cfg, dv_y_cfg)
+    # for s in [545,54,5]:
+        # numpy.random.seed(s)
+    class_test_dv_y_model(cfg, dv_y_cfg)
 
