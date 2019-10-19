@@ -24,7 +24,7 @@ class configuration(object):
         # self.Processes['MuLawWav'] = False
         self.Processes['ResilPitch']   = False
 
-        self.Processes['TrainCMPTorch'] = False
+        self.Processes['TrainCMPTorch'] = True
         self.Processes['TestCMPTorch']  = True
 
         self.Processes['TrainCMPDVY'] = False
