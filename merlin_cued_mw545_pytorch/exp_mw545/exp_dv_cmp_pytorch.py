@@ -186,6 +186,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
     logger = make_logger("train_dvy")
     logger.info('Creating data lists')
     speaker_id_list = dv_y_cfg.speaker_id_list_dict['train'] # For DV training and evaluation, use train speakers only
+    speaker_loader  = list_random_loader(speaker_id_list)
     file_id_list    = read_file_list(cfg.file_id_list_file)
     file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
     make_feed_dict_method_train = dv_y_cfg.make_feed_dict_method_train
@@ -209,8 +210,8 @@ def train_dv_y_model(cfg, dv_y_cfg):
         epoch_start_time = time.time()
 
         for batch_idx in range(dv_y_cfg.epoch_num_batch['train']):
-            # Draw random speakers; replace=False assumes len(speaker_id_list) > dv_y_cfg.batch_num_spk
-            batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk, replace=False)
+            # Draw random speakers
+            batch_speaker_list = speaker_loader.draw_n_samples(dv_y_cfg.batch_num_spk)
             # Make feed_dict for training
             feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list,  utter_tvt='train')
             dv_y_model.nn_model.train()
@@ -225,7 +226,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
             total_accuracy   = 0.
             for batch_idx in range(dv_y_cfg.epoch_num_batch['valid']):
                 # Draw random speakers
-                batch_speaker_list = numpy.random.choice(speaker_id_list, dv_y_cfg.batch_num_spk, replace=False)
+                batch_speaker_list = speaker_loader.draw_n_samples(dv_y_cfg.batch_num_spk)
                 # Make feed_dict for evaluation
                 feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list, utter_tvt=utter_tvt_name)
                 dv_y_model.eval()
