@@ -11,7 +11,8 @@ def make_logger(logger_name):
     logger = logging.getLogger(logger_name)
     logger.setLevel(logging.DEBUG)
     # create console handler and set level to debug
-    ch = logging.StreamHandler(sys.stdout)
+    if not logger.handlers:
+        ch = logging.StreamHandler(sys.stdout)
     # ch.setLevel(logging.DEBUG)
     # create formatter
     formatter = logging.Formatter('%(asctime)s %(levelname)8s%(name)15s: %(message)s')
