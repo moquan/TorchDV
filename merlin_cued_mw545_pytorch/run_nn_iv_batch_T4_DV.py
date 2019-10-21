@@ -61,7 +61,7 @@ class configuration(object):
         
         prepare_file_path(self.work_dir)
 
-        self.dv_dim = 8
+        self.dv_dim = 256
 
         # self.python_script_name = os.path.join(self.work_dir, 'run_nn_iv_batch_T4_DV.py')
         self.python_script_name = os.path.realpath(__file__)
@@ -253,11 +253,11 @@ def main_function(cfg):
     #     perform_mu_law_list(nn_resil_norm_file_list[feat_name], nn_resil_norm_file_list[feat_name+'_mu'], mu_value=255.)
 
     if cfg.Processes['TrainCMPTorch']:
-        from exp_mw545.exp_dv_cmp_pytorch import train_dv_y_cmp_model
+        from exp_mw545.exp_dv_cmp_baseline import train_dv_y_cmp_model
         train_dv_y_cmp_model(cfg)
 
     if cfg.Processes['TestCMPTorch']:
-        from exp_mw545.exp_dv_cmp_pytorch import test_dv_y_cmp_model
+        from exp_mw545.exp_dv_cmp_baseline import test_dv_y_cmp_model
         test_dv_y_cmp_model(cfg)
 
 
