@@ -24,11 +24,11 @@ class configuration(object):
         # self.Processes['MuLawWav'] = False
         self.Processes['ResilPitch']   = False
 
-        self.Processes['TrainCMPTorch'] = True
-        self.Processes['TestCMPTorch']  = True
+        # self.Processes['TrainCMPTorch'] = True
+        # self.Processes['TestCMPTorch']  = True
 
-        self.Processes['TrainCMPDVY'] = False
-        self.Processes['TestCMPDVY']  = False
+        self.Processes['TrainCMPDVY'] = True
+        self.Processes['TestCMPDVY']  = True
         self.Processes['GenCMPDVY']   = False
 
 
@@ -252,13 +252,13 @@ def main_function(cfg):
     #     nn_resil_norm_file_list[feat_name+'_mu'] = prepare_file_path_list(file_id_list, cfg.nn_feat_resil_norm_dirs[feat_name], '.mu.'+feat_name)
     #     perform_mu_law_list(nn_resil_norm_file_list[feat_name], nn_resil_norm_file_list[feat_name+'_mu'], mu_value=255.)
 
-    if cfg.Processes['TrainCMPTorch']:
-        from exp_mw545.exp_dv_cmp_baseline import train_dv_y_cmp_model
-        train_dv_y_cmp_model(cfg)
+    # if cfg.Processes['TrainCMPTorch']:
+    #     from exp_mw545.exp_dv_cmp_baseline import train_dv_y_cmp_model
+    #     train_dv_y_cmp_model(cfg)
 
-    if cfg.Processes['TestCMPTorch']:
-        from exp_mw545.exp_dv_cmp_baseline import test_dv_y_cmp_model
-        test_dv_y_cmp_model(cfg)
+    # if cfg.Processes['TestCMPTorch']:
+    #     from exp_mw545.exp_dv_cmp_baseline import test_dv_y_cmp_model
+    #     test_dv_y_cmp_model(cfg)
 
 
 
