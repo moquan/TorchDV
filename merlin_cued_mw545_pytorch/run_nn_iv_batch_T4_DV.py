@@ -8,7 +8,7 @@ from modules_2 import log_class_attri, resil_nn_file_list, norm_nn_file_list
 class configuration(object):
     def __init__(self, work_dir=None):
         if work_dir is None:
-            self.work_dir = "/home/dawna/tts/mw545/TorchDV/debug"
+            self.work_dir = "/home/dawna/tts/mw545/TorchDV/debug_nausicaa"
         else:
             self.work_dir = work_dir # Comes from bash command argument, ${PWD}
         self.Processes = {}
@@ -27,12 +27,12 @@ class configuration(object):
         # self.Processes['TrainCMPTorch'] = True
         # self.Processes['TestCMPTorch']  = True
 
-        self.Processes['TrainCMPDVY'] = True
-        self.Processes['TestCMPDVY']  = True
+        self.Processes['TrainCMPDVY'] = False
+        self.Processes['TestCMPDVY']  = False
         self.Processes['GenCMPDVY']   = False
 
 
-        self.Processes['TrainWavDVY'] = False
+        self.Processes['TrainWavDVY'] = True
         self.Processes['TestWavDVY']  = False
         self.Processes['GenWavDVY']   = False
 
@@ -279,12 +279,15 @@ def main_function(cfg):
         
 
     if cfg.Processes['TrainWavDVY']:
-        from exp_mw545.exp_dv_wav_baseline import train_dv_y_model
-        train_dv_y_model(cfg)
+        from exp_mw545.exp_dv_wav_baseline import train_dv_y_wav_cmp_model
+        train_dv_y_wav_cmp_model(cfg)
 
     if cfg.Processes['TestWavDVY']:
-        from exp_mw545.exp_dv_wav_baseline import test_dv_y_model
-        test_dv_y_model(cfg)
+        from exp_mw545.exp_dv_wav_baseline import test_dv_y_wav_cmp_model
+        test_dv_y_wav_cmp_model(cfg)
+
+
+
 
     if cfg.Processes['GenWavDVY']:
         from exp_mw545.exp_dv_wav_baseline import gen_dv_y_model
