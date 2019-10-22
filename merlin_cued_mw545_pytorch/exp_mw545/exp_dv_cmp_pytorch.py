@@ -380,9 +380,10 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
         mean_accuracy = numpy.mean(accuracy_list)
         logger.info('Accuracy with %i utterances per speaker is %f' % (spk_num_utter, mean_accuracy))
 
-############
-# dv y cmp #
-############
+################################
+# dv_y_cmp; Not used any more  #
+# Moved to exp_dv_cmp_baseline #
+################################
 
 def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_speaker_list, utter_tvt, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
     feat_name = dv_y_cfg.y_feat_name # Hard-coded here for now
@@ -529,11 +530,11 @@ class dv_y_cmp_configuration(dv_y_configuration):
             # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
             # {'type':'SineAttenCNN', 'size':512, 'num_channels':1, 'dropout_p':1, 'CNN_filter_size':5, 'Sine_filter_size':200,'lf0_mean':5.04976, 'lf0_var':0.361811},
             # {'type':'CNNAttenCNNWav', 'size':1024, 'num_channels':1, 'dropout_p':1, 'CNN_kernel_size':[1,3200], 'CNN_stride':[1,80], 'CNN_activation':'ReLU'},
-            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
-            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
-            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
-            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
-            {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0}
+            {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
+            {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
+            {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
+            # {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
+            {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0.5}
         ]
 
         from modules_torch import DV_Y_CMP_model
