@@ -1,7 +1,5 @@
 # exp_dv_cmp_baseline.py
 
-# This file uses dv_cmp experiments to slowly progress with pytorch
-
 import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy
 numpy.random.seed(545)
