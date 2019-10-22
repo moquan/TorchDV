@@ -148,7 +148,7 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
 class dv_y_cmp_configuration(dv_y_configuration):
     """docstring for ClassName"""
     def __init__(self, cfg):
-        super(dv_y_cmp_configuration, self).__init__(cfg)
+        super().__init__(cfg)
         self.train_by_window = True # Optimise lambda_w; False: optimise speaker level lambda
         self.classify_in_training = True # Compute classification accuracy after validation errors during training
         self.batch_output_form = 'mean' # Method to convert from SBD to SD
