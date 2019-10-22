@@ -144,7 +144,7 @@ def get_one_utter_by_name(file_name, file_dir_dict, feat_name_list, feat_dim_lis
         len_list.append(frame_number)
         feature_files[feat_name] = features
     # Check for length consistency; and use shortest
-    min_len = 3000000
+    min_len = sys.float_info.max
     max_len = -1
     for l in len_list:
         if l > max_len:  max_len = l
