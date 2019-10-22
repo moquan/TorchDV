@@ -129,7 +129,7 @@ class configuration(object):
         self.nn_feature_dims = {}
         self.nn_feature_dims['lab'] = 601
         self.nn_feature_dims['cmp'] = sum(self.acoustic_out_dimension_dict.values())
-        self.nn_feature_dims['wav'] = self.wav_sr / self.frame_sr
+        self.nn_feature_dims['wav'] = int(self.wav_sr / self.frame_sr)
 
         # Features: First numericals
         self.nn_feat_dirs             = {}
