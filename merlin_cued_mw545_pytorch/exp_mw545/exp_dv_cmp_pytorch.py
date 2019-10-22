@@ -108,7 +108,7 @@ class dv_y_configuration(object):
         prepare_file_path(file_dir=self.exp_dir, script_name=cfg.python_script_name)
         prepare_file_path(file_dir=self.exp_dir, script_name=self.python_script_name)
 
-        self.gpu_id = 1
+        self.gpu_id = 0
         self.gpu_per_process_gpu_memory_fraction = 0.8
 
     def change_to_debug_mode(self, process=None):
