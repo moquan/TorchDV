@@ -15,13 +15,13 @@ def make_logger(logger_name):
     # create console handler and set level to debug
     if not logger.handlers:
         ch = logging.StreamHandler(sys.stdout)
-    # ch.setLevel(logging.DEBUG)
-    # create formatter
-    formatter = logging.Formatter('%(asctime)s %(levelname)8s%(name)15s: %(message)s')
-    # add formatter to ch
-    ch.setFormatter(formatter)
-    # add ch to logger
-    logger.addHandler(ch)
+        # ch.setLevel(logging.DEBUG)
+        # create formatter
+        formatter = logging.Formatter('%(asctime)s %(levelname)8s%(name)15s: %(message)s')
+        # add formatter to ch
+        ch.setFormatter(formatter)
+        # add ch to logger
+        logger.addHandler(ch)
     return logger
 
 def find_index_list_for_parallel(num_threads, in_file_list):
