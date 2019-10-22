@@ -1,5 +1,8 @@
 # exp_dv_cmp_baseline.py
 
+# d-vector style model
+# https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/41939.pdf
+
 import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy
 numpy.random.seed(545)
