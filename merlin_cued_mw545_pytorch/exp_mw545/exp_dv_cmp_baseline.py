@@ -97,7 +97,7 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
     dv[0] = true_speaker_index
 
     if BTD_feat_remain is None:
-        # Get new file, make BD
+        # Get new file, make BTD
         _min_len, features = get_one_utter_by_name(file_name, file_dir_dict, feat_name_list=[feat_name], feat_dim_list=[dv_y_cfg.feat_dim])
         y_features = features[feat_name]
         l = y_features.shape[0]
@@ -156,7 +156,7 @@ class dv_y_cmp_configuration(dv_y_configuration):
         self.previous_model_name = ''
         # self.python_script_name = '/home/dawna/tts/mw545/tools/merlin/merlin_cued_mw545_pytorch/exp_mw545/exp_dv_cmp_pytorch.py'
         self.python_script_name = os.path.realpath(__file__)
-        
+
         # Vocoder-level input configuration
         self.y_feat_name   = 'cmp'
         self.out_feat_list = ['mgc', 'lf0', 'bap']
