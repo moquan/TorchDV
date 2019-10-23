@@ -64,9 +64,7 @@ class dv_y_configuration(object):
 
         self.batch_num_spk = 100 # S
         self.spk_num_utter = 1 # When >1, windows from different utterances are stacked along B
-        self.batch_seq_total_len = 400 # Number of frames at 200Hz; 400 for 2s
-        self.batch_seq_len   = 40 # T
-        self.batch_seq_shift = 5
+        
 
         self.data_split_file_number = {}
         self.data_split_file_number['train'] = make_held_out_file_number(1000, 120)
@@ -108,7 +106,8 @@ class dv_y_configuration(object):
         prepare_file_path(file_dir=self.exp_dir, script_name=cfg.python_script_name)
         prepare_file_path(file_dir=self.exp_dir, script_name=self.python_script_name)
 
-        try: self.gpu_id except: self.gpu_id = 0
+        try: self.gpu_id 
+        except: self.gpu_id = 0
         self.gpu_per_process_gpu_memory_fraction = 0.8
 
     def change_to_debug_mode(self, process=None):
@@ -132,7 +131,11 @@ class dv_y_configuration(object):
         lambda_u_dict_file_name = 'lambda_u_class_test.dat'
         self.lambda_u_dict_file_name = os.path.join(self.exp_dir, lambda_u_dict_file_name)
 
-        self.batch_seq_shift = 1
+        if self.y_feat_name == 'cmp':
+            self.batch_seq_shift = 1
+        elif self.y_feat_name == 'wav':
+            self.batch_seq_shift = 100
+
         self.utter_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1  # Outputs of each sequence is then averaged
         # self.spk_num_seq = self.spk_num_utter * self.utter_num_seq
         if 'debug' in self.work_dir: self.change_to_debug_mode(process="class_test")
@@ -480,8 +483,8 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
         BTD_features = BTD_feat_remain
         B_total = BTD_features.shape[0]
 
-    if B_total > dv_y_cfg.batch_seq_len:
-        B_actual = dv_y_cfg.batch_seq_len
+    if B_total > dv_y_cfg.spk_num_seq:
+        B_actual = dv_y_cfg.spk_num_seq
         B_remain = B_total - B_actual
         gen_finish = False
     else:
@@ -524,8 +527,13 @@ class dv_y_cmp_configuration(dv_y_configuration):
         self.previous_model_name = ''
         # self.python_script_name = '/home/dawna/tts/mw545/tools/merlin/merlin_cued_mw545_pytorch/exp_mw545/exp_dv_cmp_pytorch.py'
         self.python_script_name = os.path.realpath(__file__)
+
+        # Vocoder-level input configuration
         self.y_feat_name   = 'cmp'
         self.out_feat_list = ['mgc', 'lf0', 'bap']
+        self.batch_seq_total_len = 400 # Number of frames at 200Hz; 400 for 2s
+        self.batch_seq_len   = 40 # T
+        self.batch_seq_shift = 5
         self.nn_layer_config_list = [
             # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
             # {'type':'SineAttenCNN', 'size':512, 'num_channels':1, 'dropout_p':1, 'CNN_filter_size':5, 'Sine_filter_size':200,'lf0_mean':5.04976, 'lf0_var':0.361811},
