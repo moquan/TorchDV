@@ -74,7 +74,7 @@ class configuration(object):
         
         prepare_file_path(self.work_dir)
 
-        self.dv_dim = 64
+        # self.dv_dim = 64
 
         # self.python_script_name = os.path.join(self.work_dir, 'run_nn_iv_batch_T4_DV.py')
         self.python_script_name = os.path.realpath(__file__)

@@ -163,6 +163,7 @@ class dv_y_cmp_configuration(dv_y_configuration):
         self.batch_seq_total_len = 400 # Number of frames at 200Hz; 400 for 2s
         self.batch_seq_len   = 40 # T
         self.batch_seq_shift = 5
+        self.dv_dim = 64
         self.nn_layer_config_list = [
             # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
             # {'type':'SineAttenCNN', 'size':512, 'num_channels':1, 'dropout_p':1, 'CNN_filter_size':5, 'Sine_filter_size':200,'lf0_mean':5.04976, 'lf0_var':0.361811},
@@ -170,8 +171,8 @@ class dv_y_cmp_configuration(dv_y_configuration):
             {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
             {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
             {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
-            {'type':'ReLUDVMax', 'size':self.dv_dim, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False}
-            # {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0.5}
+            # {'type':'ReLUDVMax', 'size':self.dv_dim, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False}
+            {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0.5}
         ]
 
         from modules_torch import DV_Y_CMP_model
