@@ -1,4 +1,4 @@
-# exp_dv_wav_baseline.py
+# exp_dv_wav_sinenet.py
 
 # d-vector style model
 # https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/41939.pdf
