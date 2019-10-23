@@ -373,7 +373,7 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
 
                 feed_dict = {'x': lambda_val}
                 idx_list_S_B = dv_y_model.lambda_to_indices(feed_dict=feed_dict)
-                print(idx_list_S_B)
+                # print(idx_list_S_B)
                 for b in range(B_actual):
                     if idx_list_S_B[0, b] == true_speaker_index: 
                         correct_counter += 1.
