@@ -244,7 +244,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
 
             if dv_y_cfg.classify_in_training:
                 average_accu = total_accuracy/float(dv_y_cfg.epoch_num_batch['valid'])
-                output_string['accuracy'] = output_string['accuracy'] + '; %s accuracy %.2f' % (utter_tvt_name, average_accu*100.)
+                output_string['accuracy'] = output_string['accuracy'] + '; %s accuracy %.2f' % (utter_tvt_name, average_accu)
 
             if utter_tvt_name == 'valid':
                 nnets_file_name = dv_y_cfg.nnets_file_name
