@@ -156,8 +156,13 @@ class dv_y_cmp_configuration(dv_y_configuration):
         self.previous_model_name = ''
         # self.python_script_name = '/home/dawna/tts/mw545/tools/merlin/merlin_cued_mw545_pytorch/exp_mw545/exp_dv_cmp_pytorch.py'
         self.python_script_name = os.path.realpath(__file__)
+        
+        # Vocoder-level input configuration
         self.y_feat_name   = 'cmp'
         self.out_feat_list = ['mgc', 'lf0', 'bap']
+        self.batch_seq_total_len = 400 # Number of frames at 200Hz; 400 for 2s
+        self.batch_seq_len   = 40 # T
+        self.batch_seq_shift = 5
         self.nn_layer_config_list = [
             # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
             # {'type':'SineAttenCNN', 'size':512, 'num_channels':1, 'dropout_p':1, 'CNN_filter_size':5, 'Sine_filter_size':200,'lf0_mean':5.04976, 'lf0_var':0.361811},
