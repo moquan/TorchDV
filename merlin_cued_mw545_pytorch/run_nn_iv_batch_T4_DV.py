@@ -29,11 +29,20 @@ class configuration(object):
 
         self.Processes['TrainCMPDVY'] = False
         self.Processes['TestCMPDVY']  = False
-        self.Processes['GenCMPDVY']   = False
+
+
+        
 
 
         self.Processes['TrainWavDVY'] = True
-        self.Processes['TestWavDVY']  = False
+        self.Processes['TestWavDVY']  = True
+
+        self.Processes['TrainWavCNNDVY'] = True
+        self.Processes['TestWavCNNDVY']  = True
+
+
+
+        self.Processes['GenCMPDVY']   = False
         self.Processes['GenWavDVY']   = False
 
 
@@ -270,36 +279,69 @@ def main_function(cfg):
         from exp_mw545.exp_dv_cmp_baseline import test_dv_y_cmp_model
         test_dv_y_cmp_model(cfg)
 
-    if cfg.Processes['GenCMPDVY']:
-        from exp_mw545.exp_dv_cmp_baseline import gen_dv_y_cmp_model
-        gen_dv_y_cmp_model(cfg)
+    
 
 
 
         
 
     if cfg.Processes['TrainWavDVY']:
-        from exp_mw545.exp_dv_wav_baseline import train_dv_y_wav_cmp_model
-        train_dv_y_wav_cmp_model(cfg)
+        from exp_mw545.exp_dv_wav_baseline import train_dv_y_wav_model
+        train_dv_y_wav_model(cfg)
 
     if cfg.Processes['TestWavDVY']:
-        from exp_mw545.exp_dv_wav_baseline import test_dv_y_wav_cmp_model
-        test_dv_y_wav_cmp_model(cfg)
+        from exp_mw545.exp_dv_wav_baseline import test_dv_y_wav_model
+        test_dv_y_wav_model(cfg)
+
+
+    if cfg.Processes['TrainWavSine']:
+        from exp_mw545.exp_dv_wav_sinenet import train_dv_y_wav_model
+        train_dv_y_wav_model(cfg)
+
+    if cfg.Processes['TestWavSine']:
+        from exp_mw545.exp_dv_wav_sinenet import test_dv_y_wav_model
+        test_dv_y_wav_model(cfg)
 
 
 
+
+
+
+
+
+
+    if cfg.Processes['TrainWavCNNDVY']:
+        from exp_mw545.exp_dv_wav_cnn import train_dv_y_wav_model
+        train_dv_y_wav_model(cfg)
+
+    if cfg.Processes['TestWavCNNDVY']:
+        from exp_mw545.exp_dv_wav_cnn import test_dv_y_wav_model
+        test_dv_y_wav_model(cfg)
+
+
+
+
+
+
+
+    if cfg.Processes['GenCMPDVY']:
+        from exp_mw545.exp_dv_cmp_baseline import gen_dv_y_cmp_model
+        gen_dv_y_cmp_model(cfg)
 
     if cfg.Processes['GenWavDVY']:
         from exp_mw545.exp_dv_wav_baseline import gen_dv_y_model
         gen_dv_y_model(cfg)
 
+
+
+
     if cfg.Processes['TrainWavCA']:
-        from exp_mw545.exp_dv_wav_cnn_atten import train_dv_y_model
-        train_dv_y_model(cfg)
+        from exp_mw545.exp_dv_wav_cnn_atten import train_dv_y_wav_model
+        train_dv_y_wav_model(cfg)
 
     if cfg.Processes['TestWavCA']:
-        from exp_mw545.exp_dv_wav_cnn_atten import test_dv_y_model
-        test_dv_y_model(cfg)
+        from exp_mw545.exp_dv_wav_cnn_atten import train_dv_y_wav_model
+        train_dv_y_wav_model(cfg)
 
     if cfg.Processes['GenWavCA']:
         from exp_mw545.exp_dv_wav_cnn_atten import gen_dv_y_model
@@ -312,13 +354,7 @@ def main_function(cfg):
 
         
 
-    if cfg.Processes['TrainWavSine']:
-        from exp_mw545.exp_dv_wav_sine_atten import train_dv_y_model
-        train_dv_y_model(cfg)
-
-    if cfg.Processes['TestWavSine']:
-        from exp_mw545.exp_dv_wav_sine_atten import test_dv_y_model
-        test_dv_y_model(cfg)
+    
 
     if cfg.Processes['GenWavSine']:
         from exp_mw545.exp_dv_wav_sine_atten import gen_dv_y_model
