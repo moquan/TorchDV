@@ -102,18 +102,18 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
         y_features = features[feat_name]
         l = y_features.shape[0]
         l_no_sil = l - total_sil_one_side * 2
-        features = y_features[total_sil_one_side:total_sil_one_side+l_no_sil]
+        features_no_sil = y_features[total_sil_one_side:total_sil_one_side+l_no_sil]
         B_total  = int((l_no_sil - dv_y_cfg.batch_seq_len) / dv_y_cfg.batch_seq_shift) + 1
         BTD_features = numpy.zeros((B_total, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
         for b in range(B_total):
             start_i = dv_y_cfg.batch_seq_shift * b
-            BTD_features[b] = features[start_i:start_i+dv_y_cfg.batch_seq_len]
+            BTD_features[b] = features_no_sil[start_i:start_i+dv_y_cfg.batch_seq_len]
     else:
         BTD_features = BTD_feat_remain
         B_total = BTD_features.shape[0]
 
-    if B_total > dv_y_cfg.batch_seq_len:
-        B_actual = dv_y_cfg.batch_seq_len
+    if B_total > dv_y_cfg.spk_num_seq:
+        B_actual = dv_y_cfg.spk_num_seq
         B_remain = B_total - B_actual
         gen_finish = False
     else:
