@@ -27,18 +27,23 @@ class configuration(object):
         # self.Processes['TrainCMPTorch'] = True
         # self.Processes['TestCMPTorch']  = True
 
-        self.Processes['TrainCMPDVY'] = False
-        self.Processes['TestCMPDVY']  = False
+        self.Processes['TrainCMPDVY'] = True
+        self.Processes['TestCMPDVY']  = True
+
+        self.Processes['TrainWavDVY'] = False
+        self.Processes['TestWavDVY']  = False
+
+        # Experiments where REAPER F0 and phase shift info are predicted
+        self.Processes['TrainWavSine'] = False
+        self.Processes['TestWavSine']  = False
 
 
-        
 
 
-        self.Processes['TrainWavDVY'] = True
-        self.Processes['TestWavDVY']  = True
 
-        self.Processes['TrainWavCNNDVY'] = True
-        self.Processes['TestWavCNNDVY']  = True
+
+        self.Processes['TrainWavCNNDVY'] = False
+        self.Processes['TestWavCNNDVY']  = False
 
 
 
@@ -51,9 +56,8 @@ class configuration(object):
         self.Processes['GenWavCA']   = False
         self.Processes['GenWavAttenCA'] = False
 
-        # Experiments where REAPER F0 and phase shift info are known
-        self.Processes['TrainWavSine'] = False
-        self.Processes['TestWavSine']  = False
+        
+        
         self.Processes['GenWavSine']   = False
 
 
@@ -70,7 +74,7 @@ class configuration(object):
         
         prepare_file_path(self.work_dir)
 
-        self.dv_dim = 256
+        self.dv_dim = 64
 
         # self.python_script_name = os.path.join(self.work_dir, 'run_nn_iv_batch_T4_DV.py')
         self.python_script_name = os.path.realpath(__file__)
