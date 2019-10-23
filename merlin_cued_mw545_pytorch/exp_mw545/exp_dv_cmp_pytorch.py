@@ -388,6 +388,7 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
 # Moved to exp_dv_cmp_baseline #
 ################################
 
+'''
 def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_speaker_list, utter_tvt, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
     feat_name = dv_y_cfg.y_feat_name # Hard-coded here for now
     # Make i/o shape arrays
@@ -561,3 +562,4 @@ def test_dv_y_cmp_model(cfg, dv_y_cfg=None):
         # numpy.random.seed(s)
     class_test_dv_y_model(cfg, dv_y_cfg)
 
+'''
