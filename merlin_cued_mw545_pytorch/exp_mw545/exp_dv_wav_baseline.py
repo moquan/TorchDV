@@ -184,11 +184,11 @@ class dv_y_wav_cmp_configuration(dv_y_configuration):
         self.make_feed_dict_method_test  = make_feed_dict_y_wav_cmp_test
         self.auto_complete(cfg)
 
-def train_dv_y_wav_cmp_model(cfg, dv_y_cfg=None):
+def train_dv_y_wav_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_wav_cmp_configuration(cfg)
     train_dv_y_model(cfg, dv_y_cfg)
 
-def test_dv_y_wav_cmp_model(cfg, dv_y_cfg=None):
+def test_dv_y_wav_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_wav_cmp_configuration(cfg)
     class_test_dv_y_model(cfg, dv_y_cfg)
 
