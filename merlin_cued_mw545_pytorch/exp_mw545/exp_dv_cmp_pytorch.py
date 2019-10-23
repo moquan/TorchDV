@@ -72,7 +72,7 @@ class dv_y_configuration(object):
         self.data_split_file_number['test']  = make_held_out_file_number(80, 41)
 
         # From cfg: Features
-        self.dv_dim = cfg.dv_dim
+        # self.dv_dim = cfg.dv_dim
         self.wav_sr = cfg.wav_sr
         self.cmp_use_delta = False
         self.frames_silence_to_keep = cfg.frames_silence_to_keep
