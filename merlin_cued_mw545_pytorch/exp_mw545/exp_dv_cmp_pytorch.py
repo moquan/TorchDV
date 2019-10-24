@@ -196,6 +196,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
 
     dv_y_model = torch_initialisation(dv_y_cfg)
     dv_y_model.build_optimiser()
+    dv_y_model.print_model_parameters(logger)
     # model.print_model_parameters(logger)
 
     epoch      = 0
