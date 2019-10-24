@@ -37,22 +37,25 @@ class dv_y_wav_cmp_configuration(dv_y_configuration):
         self.batch_seq_total_len = 32000 # Number of frames at 16kHz; 32000 for 2s
         self.batch_seq_len   = 3200 # T
         self.batch_seq_shift = 5*80
+        self.batch_num_spk = 100
+        self.dv_dim = 64
         self.nn_layer_config_list = [
             # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
             # {'type':'SineAttenCNN', 'size':512, 'num_channels':1, 'dropout_p':1, 'CNN_filter_size':5, 'Sine_filter_size':200,'lf0_mean':5.04976, 'lf0_var':0.361811},
             # {'type':'CNNAttenCNNWav', 'size':1024, 'num_channels':1, 'dropout_p':1, 'CNN_kernel_size':[1,3200], 'CNN_stride':[1,80], 'CNN_activation':'ReLU'},
-            {'type':'Sinenet', 'size':256, 'num_channels':2, 'channel_combi':'stack', 'dropout_p':0, 'batch_norm':False},
+            {'type':'SinenetV1', 'size':80, 'num_channels':1, 'channel_combi':'stack', 'dropout_p':0, 'batch_norm':False},
             {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
             {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
             # {'type':'ReLUDVMax', 'size':self.dv_dim, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False}
             {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0.5}
         ]
 
-        self.gpu_id = 1
+        # self.gpu_id = 'cpu'
+        self.gpu_id = 0
 
         from modules_torch import DV_Y_CMP_model
         self.dv_y_model_class = DV_Y_CMP_model
-        from exp_dv_wav_baseline import make_feed_dict_y_wav_cmp_train, make_feed_dict_y_wav_cmp_test
+        from exp_mw545.exp_dv_wav_baseline import make_feed_dict_y_wav_cmp_train, make_feed_dict_y_wav_cmp_test
         self.make_feed_dict_method_train = make_feed_dict_y_wav_cmp_train
         self.make_feed_dict_method_test  = make_feed_dict_y_wav_cmp_test
         self.auto_complete(cfg)
