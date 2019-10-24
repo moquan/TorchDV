@@ -206,6 +206,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
     num_train_epoch  = dv_y_cfg.num_train_epoch
     early_stop_epoch = dv_y_cfg.early_stop_epoch
     max_num_decay    = dv_y_cfg.max_num_decay
+    previous_valid_loss = sys.float_info.max
 
     while (epoch < num_train_epoch):
         epoch = epoch + 1
@@ -245,7 +246,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
 
             if dv_y_cfg.classify_in_training:
                 average_accu = total_accuracy/float(dv_y_cfg.epoch_num_batch['valid'])
-                output_string['accuracy'] = output_string['accuracy'] + '; %s accuracy %.2f' % (utter_tvt_name, average_accu)
+                output_string['accuracy'] = output_string['accuracy'] + '; %s accuracy %.4f' % (utter_tvt_name, average_accu)
 
             if utter_tvt_name == 'valid':
                 nnets_file_name = dv_y_cfg.nnets_file_name
@@ -263,7 +264,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
                     early_stop = 0
                     num_decay = num_decay + 1
                     if num_decay > max_num_decay:
-                        logger.info('stopping early, best model, %s, best valid error %.2f' % (nnets_file_name, best_valid_loss))
+                        logger.info('stopping early, best model, %s, best valid error %.4f' % (nnets_file_name, best_valid_loss))
                         return best_valid_loss
                     else:
                         new_learning_rate = dv_y_model.learning_rate*0.5
