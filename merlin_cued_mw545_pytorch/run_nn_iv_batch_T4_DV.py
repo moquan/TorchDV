@@ -27,15 +27,15 @@ class configuration(object):
         # self.Processes['TrainCMPTorch'] = True
         # self.Processes['TestCMPTorch']  = True
 
-        self.Processes['TrainCMPDVY'] = True
-        self.Processes['TestCMPDVY']  = True
+        self.Processes['TrainCMPDVY'] = False
+        self.Processes['TestCMPDVY']  = False
 
         self.Processes['TrainWavDVY'] = False
         self.Processes['TestWavDVY']  = False
 
         # Experiments where REAPER F0 and phase shift info are predicted
-        self.Processes['TrainWavSine'] = False
-        self.Processes['TestWavSine']  = False
+        self.Processes['TrainWavSineV1'] = True
+        self.Processes['TestWavSineV1']  = True
 
 
 
@@ -298,12 +298,12 @@ def main_function(cfg):
         test_dv_y_wav_model(cfg)
 
 
-    if cfg.Processes['TrainWavSine']:
-        from exp_mw545.exp_dv_wav_sinenet import train_dv_y_wav_model
+    if cfg.Processes['TrainWavSineV1']:
+        from exp_mw545.exp_dv_wav_sinenet_v1 import train_dv_y_wav_model
         train_dv_y_wav_model(cfg)
 
-    if cfg.Processes['TestWavSine']:
-        from exp_mw545.exp_dv_wav_sinenet import test_dv_y_wav_model
+    if cfg.Processes['TestWavSineV1']:
+        from exp_mw545.exp_dv_wav_sinenet_v1 import test_dv_y_wav_model
         test_dv_y_wav_model(cfg)
 
 
