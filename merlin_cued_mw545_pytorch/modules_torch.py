@@ -175,7 +175,7 @@ class Build_NN_Layer(torch.nn.Module):
         self.layer_fn = SinenetLayer(time_len, output_dim, num_channels)
 
     def SinenetV1(self):
-        self.params["expect_input_dim_seq"] = ['S','B','T']
+        self.params["expect_input_dim_seq"] = ['S','B','1','T']
         self.reshape_fn = Tensor_Reshape(self.params)
         self.params = self.reshape_fn.update_layer_params()
 
@@ -213,7 +213,7 @@ class ReLUDVMaxLayer(torch.nn.Module):
         h_max, _indices = torch.max(h_stack, dim=0, keepdim=False)
         return h_max
 
-class SinenetLayer(torch.nn.Module):
+class SinenetLayerIndiv(torch.nn.Module):
     ''' Try to build per frequency '''
     def __init__(self, time_len, output_dim, num_channels):
         super().__init__()
@@ -258,8 +258,6 @@ class SinenetLayer(torch.nn.Module):
         k_T_tensor = torch.nn.Parameter(k_T_tensor, requires_grad=False)
         return k_T_tensor
 
-
-
 class SinenetComponent(torch.nn.Module):
     def __init__(self, time_len, i):
         super().__init__()
@@ -288,12 +286,6 @@ class SinenetComponent(torch.nn.Module):
 
         return h_SB
 
-
-    
-
-
-
-
 class SinenetLayerTooBig(torch.nn.Module):
     ''' Intermediate tensor has dimension S*B*T*D, too big '''
     def __init__(self, time_len, output_dim, num_channels):
@@ -314,8 +306,6 @@ class SinenetLayerTooBig(torch.nn.Module):
         self.a   = torch.nn.Parameter(torch.Tensor(output_dim, 1)) # D*1
         self.phi = torch.nn.Parameter(torch.Tensor(output_dim, 1)) # D*1
 
-        
-
     def forward(self, x, nlf, tau):
         ''' 
         Input dimensions
@@ -328,13 +318,23 @@ class SinenetLayerTooBig(torch.nn.Module):
         lf = torch.add(torch.mul(nlf, self.log_f_std), self.log_f_mean) # S*B
         f  = torch.exp(lf)                                              # S*B
 
-        
         # Time
         t = torch.add(self.k_T_tensor, torch.neg(tau)) # 1*T + S*B*1*1 -> S*B*1*T
+
         # Degree in radian
-        ft = torch.mul(f, t)                   # S*B*1*1 * S*B*1*T = S*B*1*T
-        deg = torch.mul(self.i_2pi_tensor, deg) # D*1 * S*B*1*T = S*B*D*T
-        deg = torch.add(deg, self.phi)        # S*B*D*T + D*1 -> S*B*D*T
+        f_t = torch.mul(f, t)                        # S*B*1*1 * S*B*1*T -> S*B*1*T
+        deg = torch.nn.functional.linear(f_t, self.i_2pi_tensor, bias=self.phi)
+
+        i_f   = torch.mul(self.i_2pi_tensor, f)        # D*1 * S*B*1*1 -> S*B*D*1
+        i_f_t = torch.mul(i_f, t)                      # S*B*D*1 * S*B*1*T -> S*B*D*T
+        deg = torch.add(i_f_t, self.phi)               # S*B*D*T + D*1 -> S*B*D*T
+
+
+        
+        # # Degree in radian
+        # ft = torch.mul(f, t)                   # S*B*1*1 * S*B*1*T = S*B*1*T
+        # deg = torch.mul(self.i_2pi_tensor, deg) # D*1 * S*B*1*T = S*B*D*T
+        # deg = torch.add(deg, self.phi)        # S*B*D*T + D*1 -> S*B*D*T
 
         # deg = torch.mul(self.i_2pi_tensor, t) # D*1 * S*B*1*T -> S*B*D*T
         # deg = torch.mul(f, deg)               # S*B*1*1 * S*B*D*T = S*B*D*T
@@ -368,6 +368,80 @@ class SinenetLayerTooBig(torch.nn.Module):
         k_T_vec = numpy.zeros((1,self.time_len))
         for i in range(self.time_len):
             k_T_vec[0,i] = i
+        k_T_vec = k_T_vec * self.t_wav
+        k_T_tensor = torch.tensor(k_T_vec, dtype=torch.float, requires_grad=False)
+        k_T_tensor = torch.nn.Parameter(k_T_tensor)
+        return k_T_tensor
+
+class SinenetLayer(torch.nn.Module):
+    ''' Intermediate tensor has dimension S*B*T*D, too big '''
+    def __init__(self, time_len, output_dim, num_channels):
+        super().__init__()
+        self.time_len     = time_len
+        self.output_dim   = output_dim   # Total output dimension
+        self.num_channels = num_channels # Number of components per frequency
+        self.num_freq     = int(output_dim / num_channels) # Number of frequency components
+
+        self.t_wav = 1./16000
+
+        self.log_f_mean = 5.02654
+        self.log_f_std  = 0.373288
+
+        self.i_2pi_tensor = self.make_i_2pi_tensor() # D*1
+        self.k_T_tensor   = self.make_k_T_tensor_t_1()   # 1*T
+
+        self.a   = torch.nn.Parameter(torch.Tensor(output_dim)) # D*1
+        self.phi = torch.nn.Parameter(torch.Tensor(output_dim)) # D
+
+    def forward(self, x, nlf, tau):
+        ''' 
+        Input dimensions
+        x: S*B*1*T
+        nlf, tau: S*B*1*1
+        '''
+        # Denorm and exp norm_log_f (S*B)
+        # Norm: norm_features = (features - mean_matrix) / std_matrix
+        # Denorm: features = norm_features * std_matrix + mean_matrix
+        lf = torch.add(torch.mul(nlf, self.log_f_std), self.log_f_mean) # S*B
+        f  = torch.exp(lf)                                              # S*B
+
+        # Time
+        t = torch.add(self.k_T_tensor, torch.neg(tau)) # T*1 + S*B*1*1 -> S*B*T*1
+
+        # Degree in radian
+        f_t = torch.mul(f, t)                        # S*B*1*1 * S*B*T*1 -> S*B*T*1
+        deg = torch.nn.functional.linear(f_t, self.i_2pi_tensor, bias=self.phi) # S*B*T*1, D*1, D -> S*B*T*D
+        deg = torch.transpose(deg, 2, 3) # S*B*T*D -> S*B*D*T, but no additional storage
+
+        # Sine
+        s = torch.sin(deg)                    # S*B*D*T
+        # Multiply sine with x first
+        x_SBT = x.view(x.size()[0], x.size()[1], x.size()[3]) # S*B*1*T -> S*B*T
+        sin_x = torch.einsum('sbdt,sbt->sbd', s, x_SBT) # S*B*D*T, S*B*T -> S*B*D
+
+
+        h_SBD = torch.mul(self.a, sin_x)         # D * S*B*D -> S*B*D
+
+
+        return h_SBD
+
+    def make_i_2pi_tensor(self):
+        # indices of frequency components
+        i_vec = numpy.zeros((self.output_dim, 1))
+        for i in range(self.num_freq):
+            for j in range(self.num_channels):
+                d = int(i * self.num_channels + j)
+                i_vec[d,0] = i + 1
+        i_vec = i_vec * 2 * numpy.pi
+        i_vec_tensor = torch.tensor(i_vec, dtype=torch.float, requires_grad=False)
+        i_vec_tensor = torch.nn.Parameter(i_vec_tensor, requires_grad=False)
+        return i_vec_tensor
+
+    def make_k_T_tensor_t_1(self):
+        # indices along time
+        k_T_vec = numpy.zeros((self.time_len,1))
+        for i in range(self.time_len):
+            k_T_vec[i,0] = i
         k_T_vec = k_T_vec * self.t_wav
         k_T_tensor = torch.tensor(k_T_vec, dtype=torch.float, requires_grad=False)
         k_T_tensor = torch.nn.Parameter(k_T_tensor)
