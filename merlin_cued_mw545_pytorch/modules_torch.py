@@ -419,9 +419,7 @@ class SinenetLayer(torch.nn.Module):
         x_SBT = x.view(x.size()[0], x.size()[1], x.size()[3]) # S*B*1*T -> S*B*T
         sin_x = torch.einsum('sbdt,sbt->sbd', s, x_SBT) # S*B*D*T, S*B*T -> S*B*D
 
-
         h_SBD = torch.mul(self.a, sin_x)         # D * S*B*D -> S*B*D
-
 
         return h_SBD
 
