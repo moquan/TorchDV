@@ -148,6 +148,11 @@ class dv_y_configuration(object):
         self.spk_num_seq = self.spk_num_utter * self.utter_num_seq
         if 'debug' in self.work_dir: self.change_to_debug_mode()
 
+    def additional_eval_epoch(self, logger, dv_y_model):
+        # Run every epoch, after train and eval
+        # Add tests if necessary
+        pass
+
 def make_dv_y_exp_dir_name(model_cfg, cfg):
     exp_dir = cfg.work_dir + '/dv_y_%s_lr_%f_' %(model_cfg.y_feat_name, model_cfg.learning_rate)
     for nn_layer_config in model_cfg.nn_layer_config_list:
@@ -282,6 +287,8 @@ def train_dv_y_model(cfg, dv_y_cfg):
         if dv_y_cfg.classify_in_training:
             logger.info(output_string['accuracy'])
         logger.info(output_string['time'])
+
+        dv_y_cfg.additional_eval_epoch(logger, dv_y_model)
 
     return best_valid_loss
 
