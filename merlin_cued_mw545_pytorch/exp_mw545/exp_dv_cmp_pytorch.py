@@ -148,7 +148,7 @@ class dv_y_configuration(object):
         self.spk_num_seq = self.spk_num_utter * self.utter_num_seq
         if 'debug' in self.work_dir: self.change_to_debug_mode()
 
-    def additional_eval_epoch(self, logger, dv_y_model):
+    def additional_action_epoch(self, logger, dv_y_model):
         # Run every epoch, after train and eval
         # Add tests if necessary
         pass
@@ -288,7 +288,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
             logger.info(output_string['accuracy'])
         logger.info(output_string['time'])
 
-        dv_y_cfg.additional_eval_epoch(logger, dv_y_model)
+        dv_y_cfg.additional_action_epoch(logger, dv_y_model)
 
     return best_valid_loss
 
