@@ -390,8 +390,8 @@ class SinenetLayer(torch.nn.Module):
         self.i_2pi_tensor = self.make_i_2pi_tensor() # D*1
         self.k_T_tensor   = self.make_k_T_tensor_t_1()   # 1*T
 
-        self.a   = torch.nn.Parameter(torch.Tensor(output_dim)) # D*1
-        self.phi = torch.nn.Parameter(torch.Tensor(output_dim)) # D
+        self.a   = torch.nn.Parameter(torch.tensor(numpy.ones(output_dim), dtype=torch.float), requires_grad=True) # D*1
+        self.phi = torch.nn.Parameter(torch.Tensor(output_dim), requires_grad=True) # D
 
     def forward(self, x, nlf, tau):
         ''' 
@@ -416,7 +416,7 @@ class SinenetLayer(torch.nn.Module):
         # Sine
         s = torch.sin(deg)                    # S*B*D*T
         # Multiply sine with x first
-        x_SBT = x.view(x.size()[0], x.size()[1], x.size()[3]) # S*B*1*T -> S*B*T
+        x_SBT = torch.squeeze(x, 2)  # S*B*1*T -> S*B*T
         sin_x = torch.einsum('sbdt,sbt->sbd', s, x_SBT) # S*B*D*T, S*B*T -> S*B*D
 
         h_SBD = torch.mul(self.a, sin_x)         # D * S*B*D -> S*B*D
