@@ -390,7 +390,7 @@ class SinenetLayer(torch.nn.Module):
         self.i_2pi_tensor = self.make_i_2pi_tensor() # D*1
         self.k_T_tensor   = self.make_k_T_tensor_t_1()   # 1*T
 
-        self.a   = torch.nn.Parameter(torch.tensor(numpy.ones(output_dim), dtype=torch.float), requires_grad=True) # D*1
+        self.a   = torch.nn.Parameter(torch.tensor(numpy.ones(output_dim)/100., dtype=torch.float), requires_grad=True) # D*1
         self.phi = torch.nn.Parameter(torch.Tensor(output_dim), requires_grad=True) # D
 
     def forward(self, x, nlf, tau):
@@ -444,6 +444,29 @@ class SinenetLayer(torch.nn.Module):
         k_T_tensor = torch.tensor(k_T_vec, dtype=torch.float, requires_grad=False)
         k_T_tensor = torch.nn.Parameter(k_T_tensor)
         return k_T_tensor
+
+    def return_a_value(self):
+        return self.a.data.cpu().detach().numpy()
+
+    def return_phi_value(self):
+        return self.phi.data.cpu().detach().numpy()
+
+    def keep_phi_within_2pi(self, gpu_id):
+        phi_val = self.return_phi_value()
+
+        i = (phi_val / (2 * numpy.pi)).astype(int)
+        if numpy.any(i!=0):
+            print('Original phi_val')
+            print(phi_val)
+            print('i matrix')
+            print(i)
+            device_id = torch.device("cuda:%i" % gpu_id)
+            i2pi = torch.tensor(i * (2 * numpy.pi), device=device_id)
+            with torch.no_grad():
+                self.phi -= i2pi
+            phi_val = self.return_phi_value()
+            print('New phi_val')
+            print(phi_val)
 
 class SinenetLayerV1(torch.nn.Module):
     ''' 3 Parts: f-prediction, tau-prediction, sinenet '''
@@ -532,6 +555,7 @@ class General_Model(object):
     ###################
     # THings to build #
     ###################
+
     def __init__(self):
         self.nn_model = None
 
