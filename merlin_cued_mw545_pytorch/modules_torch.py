@@ -54,6 +54,12 @@ class Tensor_Reshape(torch.nn.Module):
         return self.params
 
     def forward(self, x):
+        # In case of multiple inputs to a layer, the first is the traditional "h"
+        if isinstance(x, list):
+            temp_input = x[0]
+        else:
+            temp_input = x
+
         input_dim_seq = self.params['input_dim_seq']
         input_dim_values = self.params['input_dim_values']
         expect_input_dim_seq = self.params['expect_input_dim_seq']
@@ -61,16 +67,16 @@ class Tensor_Reshape(torch.nn.Module):
 
         # First, check if change is needed at all; pass on if not
         if input_dim_seq == expect_input_dim_seq:
-            return x
+            return temp_input
         else:
             # Make anything into ['S', 'B', 'T', 'D']
             if input_dim_seq == ['S', 'B', 'T', 'D']:
                 # Do nothing, pass on
-                temp_input = x
+                temp_input = temp_input
             elif input_dim_seq == ['S', 'B', 'D']:
                 # Add T and make it 1
                 temp_input_dim_values = [input_dim_values['S'], input_dim_values['B'], 1, input_dim_values['D']]
-                temp_input = x.view(temp_input_dim_values)
+                temp_input = temp_input.view(temp_input_dim_values)
 
         # Then, make from ['S', 'B', 'T', 'D']
         if expect_input_dim_seq == ['S', 'B', 'D']:
@@ -127,9 +133,20 @@ class Build_NN_Layer(torch.nn.Module):
             self.dropout_fn = lambda a: a # Do nothing, just return same tensor
 
     def forward(self, x):
-        x = self.reshape_fn(x)
+        # In case of multiple inputs to a layer, the first is the traditional "h"
+        if isinstance(x, list):
+            x[0] = self.reshape_fn(x[0])
+        else:
+            x = self.reshape_fn(x)
+
         x = self.layer_fn(x)
-        x = self.dropout_fn(x)
+
+        # In case of multiple inputs to a layer, the first is the traditional "h"
+        if isinstance(x, list):
+            x[0] = self.dropout_fn(x[0])
+        else:
+            x = self.dropout_fn(x)
+
         return x
 
     def ReLUDVMax(self):
@@ -188,6 +205,22 @@ class Build_NN_Layer(torch.nn.Module):
         num_channels = self.params["layer_config"]["num_channels"]
         time_len   = self.params['expect_input_dim_values']['T']
         self.layer_fn = SinenetLayerV1(time_len, output_dim, num_channels)
+        self.params["output_dim_values"]['D'] += 1 # +1 to append nlf F0 values
+
+    def SinenetV2(self):
+        self.params["expect_input_dim_seq"] = ['S','B','1','T']
+        self.reshape_fn = Tensor_Reshape(self.params)
+        self.params = self.reshape_fn.update_layer_params()
+
+        self.params["output_dim_seq"]       = ['S', 'B', 'D']
+        v = self.params["expect_input_dim_values"]
+        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]} 
+
+        input_dim  = self.params['expect_input_dim_values']['D']
+        output_dim = self.params['output_dim_values']['D']
+        num_channels = self.params["layer_config"]["num_channels"]
+        time_len   = self.params['expect_input_dim_values']['T']
+        self.layer_fn = SinenetLayerV2(time_len, output_dim, num_channels)
         self.params["output_dim_values"]['D'] += 1 # +1 to append nlf F0 values
 
 class ReLUDVMaxLayer(torch.nn.Module):
@@ -397,7 +430,7 @@ class SinenetLayer(torch.nn.Module):
         self.a   = torch.nn.Parameter(torch.tensor(a_init_value, dtype=torch.float), requires_grad=True) # D*1
         self.phi = torch.nn.Parameter(torch.tensor(phi_init_value, dtype=torch.float), requires_grad=True) # D
 
-    def forward(self, x, nlf, tau):
+    def forward(self, x_list):
         ''' 
         Input dimensions
         x: S*B*1*T
@@ -406,6 +439,7 @@ class SinenetLayer(torch.nn.Module):
         # Denorm and exp norm_log_f (S*B)
         # Norm: norm_features = (features - mean_matrix) / std_matrix
         # Denorm: features = norm_features * std_matrix + mean_matrix
+        x, nlf, tau = x_list
         lf = torch.add(torch.mul(nlf, self.log_f_std), self.log_f_mean) # S*B*1*1
         f  = torch.exp(lf)                                              # S*B*1*1
 
@@ -489,7 +523,28 @@ class SinenetLayerV1(torch.nn.Module):
     def forward(self, x):
         nlf = self.nlf_pred_layer(x)
         tau = self.tau_pred_layer(x)
-        h_SBD = self.sinenet_layer(x, nlf, tau)
+        x_list = [x, nlf, tau]
+        h_SBD  = self.sinenet_layer(x_list)
+
+        nlf_SBD = torch.squeeze(nlf, 2)    # S*B*1*1 -> S*B*1
+        h_SBD   = torch.cat((nlf_SBD, h_SBD), 2)
+
+        return h_SBD
+
+class SinenetLayerV2(torch.nn.Module):
+    ''' 3 Parts: f-prediction, tau-prediction, sinenet '''
+    def __init__(self, time_len, output_dim, num_channels):
+        super().__init__()
+        self.time_len     = time_len
+        self.output_dim   = output_dim   # Total output dimension
+        self.num_channels = num_channels # Number of components per frequency
+        self.num_freq     = int(output_dim / num_channels) # Number of frequency components
+
+        self.sinenet_layer  = SinenetLayer(time_len, output_dim, num_channels)
+
+    def forward(self, x_list):
+        x, nlf, tau = x_list
+        h_SBD = self.sinenet_layer(x_list)
 
         nlf_SBD = torch.squeeze(nlf, 2)    # S*B*1*1 -> S*B*1
         h_SBD   = torch.cat((nlf_SBD, h_SBD), 2)
@@ -554,6 +609,15 @@ class DV_Y_CMP_NN_model(torch.nn.Module):
         ''' lambda_S_B_D to indices_S_B '''
         logit_SBD = self.expansion_layer(x)
         return logit_SBD
+
+class DV_Y_F0_Tau_NN_model(DV_Y_CMP_NN_model):
+    ''' Don't know what to put in this model yet '''
+    ''' Most functions can be shared, no need to change '''
+    ''' for sinenet, input becomes x_list '''
+    def __init__(self, dv_y_cfg):
+        super().__init__(dv_y_cfg)
+        
+
 
 ##############################################
 # Model Wrappers, between Python and PyTorch #
@@ -718,6 +782,49 @@ class DV_Y_CMP_model(General_Model):
             y = None
         return (x, y)
 
+class DV_Y_F0_Tau_model(DV_Y_CMP_model):
+    ''' S_B_D input, SB_D logit output, classification, cross-entropy '''
+    ''' Most functions can be shared, no need to change '''
+    ''' for sinenet, x becomes x_list '''
+    def __init__(self, dv_y_cfg):
+        super().__init__(dv_y_cfg)
+
+    def lambda_to_indices(self, feed_dict):
+        ''' lambda_S_B_D to indices_S_B '''
+        x_list = self.numpy_to_tensor(feed_dict) 
+        x = x_list[0]   # Here x is lambda_S_B_D! _nlf, _phi, _y are useless
+        logit_SBD  = self.nn_model.lambda_to_logits_SBD(x)
+        _values, predict_idx_list = torch.max(logit_SBD.data, -1)
+        return predict_idx_list.cpu().detach().numpy()
+
+    def numpy_to_tensor(self, feed_dict):
+        if 'x' in feed_dict:
+            x_val = feed_dict['x']
+            x = torch.tensor(x_val, dtype=torch.float)
+            x = x.to(self.device_id)
+        else:
+            x = None
+        if 'nlf' in feed_dict:
+            nlf_val = feed_dict['nlf']
+            nlf = torch.tensor(nlf_val, dtype=torch.float)
+            nlf = nlf.to(self.device_id)
+        else:
+            nlf = None
+        if 'phi' in feed_dict:
+            phi_val = feed_dict['phi']
+            phi = torch.tensor(phi_val, dtype=torch.float)
+            phi = phi.to(self.device_id)
+        else:
+            phi = None
+        if 'y' in feed_dict:
+            y_val = feed_dict['y']
+            y = torch.tensor(y_val, dtype=torch.long)
+            y = y.to(self.device_id)
+        else:
+            y = None
+        x_list = [x, nlf, phi]
+        return (x_list, y)
+
 
 def torch_initialisation(dv_y_cfg):
     logger = make_logger("torch initialisation")
@@ -767,6 +874,8 @@ def data_format_test(dv_y_cfg, dv_y_model):
             dv_y_model.nn_model.eval()
             loss = dv_y_model.gen_loss_value(feed_dict)
             logger.info('%i, %f' % (t, loss))
+
+
 
 ###########################
 # Useless Tensorflow Code #
