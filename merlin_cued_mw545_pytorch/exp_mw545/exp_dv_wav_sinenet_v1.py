@@ -20,7 +20,7 @@ from exp_mw545.exp_dv_cmp_pytorch import list_random_loader, dv_y_configuration,
 
 
 class dv_y_wav_cmp_configuration(dv_y_configuration):
-    """docstring for ClassName"""
+    
     def __init__(self, cfg):
         super().__init__(cfg)
         self.train_by_window = True # Optimise lambda_w; False: optimise speaker level lambda
@@ -36,22 +36,23 @@ class dv_y_wav_cmp_configuration(dv_y_configuration):
         self.out_feat_list = ['wav']
         self.batch_seq_total_len = 32000 # Number of frames at 16kHz; 32000 for 2s
         self.batch_seq_len   = 3200 # T
-        self.batch_seq_shift = 5*80
+        self.batch_seq_shift = 3200
+        self.learning_rate   = 0.0001
         self.batch_num_spk = 100
-        self.dv_dim = 64
+        self.dv_dim = 256
         self.nn_layer_config_list = [
             # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
             # {'type':'SineAttenCNN', 'size':512, 'num_channels':1, 'dropout_p':1, 'CNN_filter_size':5, 'Sine_filter_size':200,'lf0_mean':5.04976, 'lf0_var':0.361811},
             # {'type':'CNNAttenCNNWav', 'size':1024, 'num_channels':1, 'dropout_p':1, 'CNN_kernel_size':[1,3200], 'CNN_stride':[1,80], 'CNN_activation':'ReLU'},
-            {'type':'SinenetV1', 'size':80, 'num_channels':1, 'channel_combi':'stack', 'dropout_p':0, 'batch_norm':False},
+            {'type':'SinenetV1', 'size':128, 'num_channels':4, 'channel_combi':'stack', 'dropout_p':0, 'batch_norm':False},
             {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
             {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
-            # {'type':'ReLUDVMax', 'size':self.dv_dim, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False}
-            {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0.5}
+            {'type':'ReLUDVMax', 'size':self.dv_dim, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False}
+            # {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0.5}
         ]
 
         # self.gpu_id = 'cpu'
-        self.gpu_id = 0
+        self.gpu_id = 2
 
         from modules_torch import DV_Y_CMP_model
         self.dv_y_model_class = DV_Y_CMP_model
@@ -60,6 +61,30 @@ class dv_y_wav_cmp_configuration(dv_y_configuration):
         self.make_feed_dict_method_test  = make_feed_dict_y_wav_cmp_test
         self.auto_complete(cfg)
 
+        self.a_val = None
+        self.phi_val = None
+
+    def additional_action_epoch(self, logger, dv_y_model):
+        # Print values of a and phi to see if they are updated
+        sinenet_layer = dv_y_model.nn_model.layer_list[0].layer_fn.sinenet_layer
+
+        a_val = sinenet_layer.return_a_value()
+        phi_val = sinenet_layer.return_phi_value()
+
+        if self.a_val is not None:
+            dist = numpy.linalg.norm(a_val-self.a_val)
+            logger.info('Amplitude distance is %f' % dist)
+
+        if self.phi_val is not None:
+            dist = numpy.linalg.norm(phi_val-self.phi_val)
+            logger.info('Phi distance is %f' % dist)
+            
+        self.a_val   = a_val
+        self.phi_val = phi_val
+
+        # If phi is too large or small, change it to between +- 2pi
+        sinenet_layer.keep_phi_within_2pi(self.gpu_id)
+
 def train_dv_y_wav_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_wav_cmp_configuration(cfg)
     train_dv_y_model(cfg, dv_y_cfg)
@@ -67,4 +92,3 @@ def train_dv_y_wav_model(cfg, dv_y_cfg=None):
 def test_dv_y_wav_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_wav_cmp_configuration(cfg)
     class_test_dv_y_model(cfg, dv_y_cfg)
-
