@@ -33,9 +33,13 @@ class configuration(object):
         self.Processes['TrainWavDVY'] = False
         self.Processes['TestWavDVY']  = False
 
-        # Experiments where REAPER F0 and phase shift info are predicted
-        self.Processes['TrainWavSineV1'] = True
-        self.Processes['TestWavSineV1']  = True
+        # Experiments where F0 and phase shift info are predicted
+        self.Processes['TrainWavSineV1'] = False
+        self.Processes['TestWavSineV1']  = False
+
+        # Experiments where REAPER F0 and phase shift info are used
+        self.Processes['TrainWavSineV2'] = True
+        self.Processes['TestWavSineV2']  = True
 
 
 
@@ -304,6 +308,14 @@ def main_function(cfg):
 
     if cfg.Processes['TestWavSineV1']:
         from exp_mw545.exp_dv_wav_sinenet_v1 import test_dv_y_wav_model
+        test_dv_y_wav_model(cfg)
+
+    if cfg.Processes['TrainWavSineV2']:
+        from exp_mw545.exp_dv_wav_sinenet_v2 import train_dv_y_wav_model
+        train_dv_y_wav_model(cfg)
+
+    if cfg.Processes['TestWavSineV2']:
+        from exp_mw545.exp_dv_wav_sinenet_v2 import test_dv_y_wav_model
         test_dv_y_wav_model(cfg)
 
 
