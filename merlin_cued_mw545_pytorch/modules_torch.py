@@ -375,7 +375,8 @@ class SinenetLayerTooBig(torch.nn.Module):
         return k_T_tensor
 
 class SinenetLayer(torch.nn.Module):
-    ''' Intermediate tensor has dimension S*B*T*D, too big '''
+    ''' f tau dependent sine waves, convolve and stack '''
+    ''' output doesn't contain f0 information, pad outside '''
     def __init__(self, time_len, output_dim, num_channels):
         super().__init__()
         self.time_len     = time_len
