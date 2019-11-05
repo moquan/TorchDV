@@ -64,9 +64,7 @@ class dv_y_configuration(object):
 
         self.batch_num_spk = 100 # S
         self.spk_num_utter = 1 # When >1, windows from different utterances are stacked along B
-        self.batch_seq_total_len = 400 # Number of frames at 200Hz; 400 for 2s
-        self.batch_seq_len   = 40 # T
-        self.batch_seq_shift = 5
+        
 
         self.data_split_file_number = {}
         self.data_split_file_number['train'] = make_held_out_file_number(1000, 120)
@@ -74,7 +72,7 @@ class dv_y_configuration(object):
         self.data_split_file_number['test']  = make_held_out_file_number(80, 41)
 
         # From cfg: Features
-        self.dv_dim = cfg.dv_dim
+        # self.dv_dim = cfg.dv_dim
         self.wav_sr = cfg.wav_sr
         self.cmp_use_delta = False
         self.frames_silence_to_keep = cfg.frames_silence_to_keep
@@ -108,14 +106,15 @@ class dv_y_configuration(object):
         prepare_file_path(file_dir=self.exp_dir, script_name=cfg.python_script_name)
         prepare_file_path(file_dir=self.exp_dir, script_name=self.python_script_name)
 
-        self.gpu_id = 1
+        try: self.gpu_id 
+        except: self.gpu_id = 0
         self.gpu_per_process_gpu_memory_fraction = 0.8
 
     def change_to_debug_mode(self, process=None):
         self.epoch_num_batch  = {'train': 10, 'valid':10, 'test':10}
         if '_smallbatch' not in self.exp_dir:
             self.exp_dir = self.exp_dir + '_smallbatch'
-        self.num_train_epoch = 50
+        self.num_train_epoch = 10
         
 
         # Additional settings per process
@@ -132,7 +131,11 @@ class dv_y_configuration(object):
         lambda_u_dict_file_name = 'lambda_u_class_test.dat'
         self.lambda_u_dict_file_name = os.path.join(self.exp_dir, lambda_u_dict_file_name)
 
-        self.batch_seq_shift = 1
+        if self.y_feat_name == 'cmp':
+            self.batch_seq_shift = 1
+        elif self.y_feat_name == 'wav':
+            self.batch_seq_shift = 100
+
         self.utter_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1  # Outputs of each sequence is then averaged
         # self.spk_num_seq = self.spk_num_utter * self.utter_num_seq
         if 'debug' in self.work_dir: self.change_to_debug_mode(process="class_test")
@@ -144,6 +147,11 @@ class dv_y_configuration(object):
         self.utter_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1  # Outputs of each sequence is then averaged
         self.spk_num_seq = self.spk_num_utter * self.utter_num_seq
         if 'debug' in self.work_dir: self.change_to_debug_mode()
+
+    def additional_action_epoch(self, logger, dv_y_model):
+        # Run every epoch, after train and eval
+        # Add tests if necessary
+        pass
 
 def make_dv_y_exp_dir_name(model_cfg, cfg):
     exp_dir = cfg.work_dir + '/dv_y_%s_lr_%f_' %(model_cfg.y_feat_name, model_cfg.learning_rate)
@@ -193,6 +201,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
 
     dv_y_model = torch_initialisation(dv_y_cfg)
     dv_y_model.build_optimiser()
+    dv_y_model.print_model_parameters(logger)
     # model.print_model_parameters(logger)
 
     epoch      = 0
@@ -202,6 +211,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
     num_train_epoch  = dv_y_cfg.num_train_epoch
     early_stop_epoch = dv_y_cfg.early_stop_epoch
     max_num_decay    = dv_y_cfg.max_num_decay
+    previous_valid_loss = sys.float_info.max
 
     while (epoch < num_train_epoch):
         epoch = epoch + 1
@@ -241,7 +251,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
 
             if dv_y_cfg.classify_in_training:
                 average_accu = total_accuracy/float(dv_y_cfg.epoch_num_batch['valid'])
-                output_string['accuracy'] = output_string['accuracy'] + '; %s accuracy %.2f' % (utter_tvt_name, average_accu*100.)
+                output_string['accuracy'] = output_string['accuracy'] + '; %s accuracy %.4f' % (utter_tvt_name, average_accu)
 
             if utter_tvt_name == 'valid':
                 nnets_file_name = dv_y_cfg.nnets_file_name
@@ -259,7 +269,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
                     early_stop = 0
                     num_decay = num_decay + 1
                     if num_decay > max_num_decay:
-                        logger.info('stopping early, best model, %s, best valid error %.2f' % (nnets_file_name, best_valid_loss))
+                        logger.info('stopping early, best model, %s, best valid error %.4f' % (nnets_file_name, best_valid_loss))
                         return best_valid_loss
                     else:
                         new_learning_rate = dv_y_model.learning_rate*0.5
@@ -277,6 +287,8 @@ def train_dv_y_model(cfg, dv_y_cfg):
         if dv_y_cfg.classify_in_training:
             logger.info(output_string['accuracy'])
         logger.info(output_string['time'])
+
+        dv_y_cfg.additional_action_epoch(logger, dv_y_model)
 
     return best_valid_loss
 
@@ -370,7 +382,7 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
 
                 feed_dict = {'x': lambda_val}
                 idx_list_S_B = dv_y_model.lambda_to_indices(feed_dict=feed_dict)
-                print(idx_list_S_B)
+                # print(idx_list_S_B)
                 for b in range(B_actual):
                     if idx_list_S_B[0, b] == true_speaker_index: 
                         correct_counter += 1.
@@ -380,10 +392,12 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
         mean_accuracy = numpy.mean(accuracy_list)
         logger.info('Accuracy with %i utterances per speaker is %f' % (spk_num_utter, mean_accuracy))
 
-############
-# dv y cmp #
-############
+################################
+# dv_y_cmp; Not used any more  #
+# Moved to exp_dv_cmp_baseline #
+################################
 
+'''
 def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_speaker_list, utter_tvt, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
     feat_name = dv_y_cfg.y_feat_name # Hard-coded here for now
     # Make i/o shape arrays
@@ -479,8 +493,8 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
         BTD_features = BTD_feat_remain
         B_total = BTD_features.shape[0]
 
-    if B_total > dv_y_cfg.batch_seq_len:
-        B_actual = dv_y_cfg.batch_seq_len
+    if B_total > dv_y_cfg.spk_num_seq:
+        B_actual = dv_y_cfg.spk_num_seq
         B_remain = B_total - B_actual
         gen_finish = False
     else:
@@ -523,17 +537,22 @@ class dv_y_cmp_configuration(dv_y_configuration):
         self.previous_model_name = ''
         # self.python_script_name = '/home/dawna/tts/mw545/tools/merlin/merlin_cued_mw545_pytorch/exp_mw545/exp_dv_cmp_pytorch.py'
         self.python_script_name = os.path.realpath(__file__)
+
+        # Vocoder-level input configuration
         self.y_feat_name   = 'cmp'
         self.out_feat_list = ['mgc', 'lf0', 'bap']
+        self.batch_seq_total_len = 400 # Number of frames at 200Hz; 400 for 2s
+        self.batch_seq_len   = 40 # T
+        self.batch_seq_shift = 5
         self.nn_layer_config_list = [
             # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
             # {'type':'SineAttenCNN', 'size':512, 'num_channels':1, 'dropout_p':1, 'CNN_filter_size':5, 'Sine_filter_size':200,'lf0_mean':5.04976, 'lf0_var':0.361811},
             # {'type':'CNNAttenCNNWav', 'size':1024, 'num_channels':1, 'dropout_p':1, 'CNN_kernel_size':[1,3200], 'CNN_stride':[1,80], 'CNN_activation':'ReLU'},
-            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
-            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
-            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
-            {'type':'ReLUDVMax', 'size':512, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
-            {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0}
+            {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
+            {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
+            {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
+            # {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
+            {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0.5}
         ]
 
         from modules_torch import DV_Y_CMP_model
@@ -552,3 +571,4 @@ def test_dv_y_cmp_model(cfg, dv_y_cfg=None):
         # numpy.random.seed(s)
     class_test_dv_y_model(cfg, dv_y_cfg)
 
+'''

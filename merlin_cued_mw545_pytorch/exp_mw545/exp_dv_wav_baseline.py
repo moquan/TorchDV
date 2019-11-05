@@ -1,7 +1,9 @@
-# exp_dv_cmp_baseline.py
+# exp_dv_wav_baseline.py
 
 # d-vector style model
 # https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/41939.pdf
+
+# For each window, network input is a vector of stacked waveforms
 
 import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy
@@ -17,7 +19,7 @@ io_fun = BinaryIOCollection()
 from exp_mw545.exp_dv_cmp_pytorch import list_random_loader, dv_y_configuration, make_dv_y_exp_dir_name, make_dv_file_list, train_dv_y_model, class_test_dv_y_model
 
 
-def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_speaker_list, utter_tvt, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
+def make_feed_dict_y_wav_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_speaker_list, utter_tvt, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
     feat_name = dv_y_cfg.y_feat_name # Hard-coded here for now
     # Make i/o shape arrays
     # This is numpy shape, not Tensor shape!
@@ -25,8 +27,9 @@ def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_sp
     dv = numpy.zeros((dv_y_cfg.batch_num_spk))
 
     # Do not use silence frames at the beginning or the end
-    total_sil_one_side = dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad
-    min_file_len = dv_y_cfg.batch_seq_total_len + 2 * total_sil_one_side
+    total_sil_one_side_200 = dv_y_cfg.frames_silence_to_keep + dv_y_cfg.sil_pad # This is at 200Hz
+    total_sil_one_side = total_sil_one_side_200 * 80                            # This is at 16kHz
+    min_file_len = dv_y_cfg.batch_seq_total_len + 2 * total_sil_one_side          # This is at 16kHz
 
     file_name_list = []
     start_frame_index_list = []
@@ -79,7 +82,7 @@ def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_sp
         return_list.append(file_name_list)
     return return_list
 
-def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, start_frame_index, BTD_feat_remain):
+def make_feed_dict_y_wav_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, start_frame_index, BTD_feat_remain):
     feat_name = dv_y_cfg.y_feat_name # Hard-coded here for now
     assert dv_y_cfg.batch_num_spk == 1
     # Make i/o shape arrays
@@ -89,7 +92,8 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
     dv = numpy.zeros((dv_y_cfg.batch_num_spk))
 
     # Do not use silence frames at the beginning or the end
-    total_sil_one_side = dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad
+    total_sil_one_side_200 = dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad
+    total_sil_one_side = total_sil_one_side_200 * 80
 
     # Make classification targets, index sequence
     try: true_speaker_index = dv_y_cfg.speaker_id_list_dict['train'].index(speaker_id)
@@ -145,8 +149,8 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
     return_list = [feed_dict, gen_finish, batch_size, BTD_feat_remain]
     return return_list
 
-class dv_y_cmp_configuration(dv_y_configuration):
-    """docstring for ClassName"""
+class dv_y_wav_cmp_configuration(dv_y_configuration):
+    
     def __init__(self, cfg):
         super().__init__(cfg)
         self.train_by_window = True # Optimise lambda_w; False: optimise speaker level lambda
@@ -157,13 +161,13 @@ class dv_y_cmp_configuration(dv_y_configuration):
         # self.python_script_name = '/home/dawna/tts/mw545/tools/merlin/merlin_cued_mw545_pytorch/exp_mw545/exp_dv_cmp_pytorch.py'
         self.python_script_name = os.path.realpath(__file__)
 
-        # Vocoder-level input configuration
-        self.y_feat_name   = 'cmp'
-        self.out_feat_list = ['mgc', 'lf0', 'bap']
-        self.batch_seq_total_len = 400 # Number of frames at 200Hz; 400 for 2s
-        self.batch_seq_len   = 40 # T
-        self.batch_seq_shift = 5
-        self.dv_dim = 64
+        # Waveform-level input configuration
+        self.y_feat_name   = 'wav'
+        self.out_feat_list = ['wav']
+        self.batch_seq_total_len = 32000 # Number of frames at 16kHz; 32000 for 2s
+        self.batch_seq_len   = 3200 # T
+        self.batch_seq_shift = 5*80
+        self.dv_dim = 256
         self.nn_layer_config_list = [
             # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
             # {'type':'SineAttenCNN', 'size':512, 'num_channels':1, 'dropout_p':1, 'CNN_filter_size':5, 'Sine_filter_size':200,'lf0_mean':5.04976, 'lf0_var':0.361811},
@@ -171,23 +175,23 @@ class dv_y_cmp_configuration(dv_y_configuration):
             {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
             {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
             {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
-            # {'type':'ReLUDVMax', 'size':self.dv_dim, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False}
-            {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0.5}
+            {'type':'ReLUDVMax', 'size':self.dv_dim, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False}
+            # {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0.5}
         ]
+
+        self.gpu_id = 1
 
         from modules_torch import DV_Y_CMP_model
         self.dv_y_model_class = DV_Y_CMP_model
-        self.make_feed_dict_method_train = make_feed_dict_y_cmp_train
-        self.make_feed_dict_method_test  = make_feed_dict_y_cmp_test
+        self.make_feed_dict_method_train = make_feed_dict_y_wav_cmp_train
+        self.make_feed_dict_method_test  = make_feed_dict_y_wav_cmp_test
         self.auto_complete(cfg)
 
-def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
-    if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
+def train_dv_y_wav_model(cfg, dv_y_cfg=None):
+    if dv_y_cfg is None: dv_y_cfg = dv_y_wav_cmp_configuration(cfg)
     train_dv_y_model(cfg, dv_y_cfg)
 
-def test_dv_y_cmp_model(cfg, dv_y_cfg=None):
-    if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
-    # for s in [545,54,5]:
-        # numpy.random.seed(s)
+def test_dv_y_wav_model(cfg, dv_y_cfg=None):
+    if dv_y_cfg is None: dv_y_cfg = dv_y_wav_cmp_configuration(cfg)
     class_test_dv_y_model(cfg, dv_y_cfg)
 

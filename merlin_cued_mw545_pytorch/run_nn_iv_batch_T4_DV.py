@@ -8,7 +8,7 @@ from modules_2 import log_class_attri, resil_nn_file_list, norm_nn_file_list
 class configuration(object):
     def __init__(self, work_dir=None):
         if work_dir is None:
-            self.work_dir = "/home/dawna/tts/mw545/TorchDV/debug"
+            self.work_dir = "/home/dawna/tts/mw545/TorchDV/debug_nausicaa"
         else:
             self.work_dir = work_dir # Comes from bash command argument, ${PWD}
         self.Processes = {}
@@ -24,16 +24,30 @@ class configuration(object):
         # self.Processes['MuLawWav'] = False
         self.Processes['ResilPitch']   = False
 
-        self.Processes['TrainCMPTorch'] = True
-        self.Processes['TestCMPTorch']  = True
+        # self.Processes['TrainCMPTorch'] = True
+        # self.Processes['TestCMPTorch']  = True
 
         self.Processes['TrainCMPDVY'] = False
         self.Processes['TestCMPDVY']  = False
-        self.Processes['GenCMPDVY']   = False
-
 
         self.Processes['TrainWavDVY'] = False
         self.Processes['TestWavDVY']  = False
+
+        # Experiments where REAPER F0 and phase shift info are predicted
+        self.Processes['TrainWavSineV1'] = True
+        self.Processes['TestWavSineV1']  = True
+
+
+
+
+
+
+        self.Processes['TrainWavCNNDVY'] = False
+        self.Processes['TestWavCNNDVY']  = False
+
+
+
+        self.Processes['GenCMPDVY']   = False
         self.Processes['GenWavDVY']   = False
 
 
@@ -42,9 +56,8 @@ class configuration(object):
         self.Processes['GenWavCA']   = False
         self.Processes['GenWavAttenCA'] = False
 
-        # Experiments where REAPER F0 and phase shift info are known
-        self.Processes['TrainWavSine'] = False
-        self.Processes['TestWavSine']  = False
+        
+        
         self.Processes['GenWavSine']   = False
 
 
@@ -61,7 +74,7 @@ class configuration(object):
         
         prepare_file_path(self.work_dir)
 
-        self.dv_dim = 8
+        # self.dv_dim = 64
 
         # self.python_script_name = os.path.join(self.work_dir, 'run_nn_iv_batch_T4_DV.py')
         self.python_script_name = os.path.realpath(__file__)
@@ -129,7 +142,7 @@ class configuration(object):
         self.nn_feature_dims = {}
         self.nn_feature_dims['lab'] = 601
         self.nn_feature_dims['cmp'] = sum(self.acoustic_out_dimension_dict.values())
-        self.nn_feature_dims['wav'] = self.wav_sr / self.frame_sr
+        self.nn_feature_dims['wav'] = int(self.wav_sr / self.frame_sr)
 
         # Features: First numericals
         self.nn_feat_dirs             = {}
@@ -252,13 +265,13 @@ def main_function(cfg):
     #     nn_resil_norm_file_list[feat_name+'_mu'] = prepare_file_path_list(file_id_list, cfg.nn_feat_resil_norm_dirs[feat_name], '.mu.'+feat_name)
     #     perform_mu_law_list(nn_resil_norm_file_list[feat_name], nn_resil_norm_file_list[feat_name+'_mu'], mu_value=255.)
 
-    if cfg.Processes['TrainCMPTorch']:
-        from exp_mw545.exp_dv_cmp_pytorch import train_dv_y_cmp_model
-        train_dv_y_cmp_model(cfg)
+    # if cfg.Processes['TrainCMPTorch']:
+    #     from exp_mw545.exp_dv_cmp_baseline import train_dv_y_cmp_model
+    #     train_dv_y_cmp_model(cfg)
 
-    if cfg.Processes['TestCMPTorch']:
-        from exp_mw545.exp_dv_cmp_pytorch import test_dv_y_cmp_model
-        test_dv_y_cmp_model(cfg)
+    # if cfg.Processes['TestCMPTorch']:
+    #     from exp_mw545.exp_dv_cmp_baseline import test_dv_y_cmp_model
+    #     test_dv_y_cmp_model(cfg)
 
 
 
@@ -270,33 +283,69 @@ def main_function(cfg):
         from exp_mw545.exp_dv_cmp_baseline import test_dv_y_cmp_model
         test_dv_y_cmp_model(cfg)
 
-    if cfg.Processes['GenCMPDVY']:
-        from exp_mw545.exp_dv_cmp_baseline import gen_dv_y_cmp_model
-        gen_dv_y_cmp_model(cfg)
+    
 
 
 
         
 
     if cfg.Processes['TrainWavDVY']:
-        from exp_mw545.exp_dv_wav_baseline import train_dv_y_model
-        train_dv_y_model(cfg)
+        from exp_mw545.exp_dv_wav_baseline import train_dv_y_wav_model
+        train_dv_y_wav_model(cfg)
 
     if cfg.Processes['TestWavDVY']:
-        from exp_mw545.exp_dv_wav_baseline import test_dv_y_model
-        test_dv_y_model(cfg)
+        from exp_mw545.exp_dv_wav_baseline import test_dv_y_wav_model
+        test_dv_y_wav_model(cfg)
+
+
+    if cfg.Processes['TrainWavSineV1']:
+        from exp_mw545.exp_dv_wav_sinenet_v1 import train_dv_y_wav_model
+        train_dv_y_wav_model(cfg)
+
+    if cfg.Processes['TestWavSineV1']:
+        from exp_mw545.exp_dv_wav_sinenet_v1 import test_dv_y_wav_model
+        test_dv_y_wav_model(cfg)
+
+
+
+
+
+
+
+
+
+    if cfg.Processes['TrainWavCNNDVY']:
+        from exp_mw545.exp_dv_wav_cnn import train_dv_y_wav_model
+        train_dv_y_wav_model(cfg)
+
+    if cfg.Processes['TestWavCNNDVY']:
+        from exp_mw545.exp_dv_wav_cnn import test_dv_y_wav_model
+        test_dv_y_wav_model(cfg)
+
+
+
+
+
+
+
+    if cfg.Processes['GenCMPDVY']:
+        from exp_mw545.exp_dv_cmp_baseline import gen_dv_y_cmp_model
+        gen_dv_y_cmp_model(cfg)
 
     if cfg.Processes['GenWavDVY']:
         from exp_mw545.exp_dv_wav_baseline import gen_dv_y_model
         gen_dv_y_model(cfg)
 
+
+
+
     if cfg.Processes['TrainWavCA']:
-        from exp_mw545.exp_dv_wav_cnn_atten import train_dv_y_model
-        train_dv_y_model(cfg)
+        from exp_mw545.exp_dv_wav_cnn_atten import train_dv_y_wav_model
+        train_dv_y_wav_model(cfg)
 
     if cfg.Processes['TestWavCA']:
-        from exp_mw545.exp_dv_wav_cnn_atten import test_dv_y_model
-        test_dv_y_model(cfg)
+        from exp_mw545.exp_dv_wav_cnn_atten import train_dv_y_wav_model
+        train_dv_y_wav_model(cfg)
 
     if cfg.Processes['GenWavCA']:
         from exp_mw545.exp_dv_wav_cnn_atten import gen_dv_y_model
@@ -309,13 +358,7 @@ def main_function(cfg):
 
         
 
-    if cfg.Processes['TrainWavSine']:
-        from exp_mw545.exp_dv_wav_sine_atten import train_dv_y_model
-        train_dv_y_model(cfg)
-
-    if cfg.Processes['TestWavSine']:
-        from exp_mw545.exp_dv_wav_sine_atten import test_dv_y_model
-        test_dv_y_model(cfg)
+    
 
     if cfg.Processes['GenWavSine']:
         from exp_mw545.exp_dv_wav_sine_atten import gen_dv_y_model

@@ -1,3 +1,5 @@
+# modules.py
+
 import os, sys, pickle, time, shutil, logging
 import math, numpy, scipy, scipy.io.wavfile #, sigproc, sigproc.pystraight
 numpy.random.seed(545)
@@ -11,14 +13,15 @@ def make_logger(logger_name):
     logger = logging.getLogger(logger_name)
     logger.setLevel(logging.DEBUG)
     # create console handler and set level to debug
-    ch = logging.StreamHandler(sys.stdout)
-    # ch.setLevel(logging.DEBUG)
-    # create formatter
-    formatter = logging.Formatter('%(asctime)s %(levelname)8s%(name)15s: %(message)s')
-    # add formatter to ch
-    ch.setFormatter(formatter)
-    # add ch to logger
-    logger.addHandler(ch)
+    if not logger.handlers:
+        ch = logging.StreamHandler(sys.stdout)
+        # ch.setLevel(logging.DEBUG)
+        # create formatter
+        formatter = logging.Formatter('%(asctime)s %(levelname)8s%(name)15s: %(message)s')
+        # add formatter to ch
+        ch.setFormatter(formatter)
+        # add ch to logger
+        logger.addHandler(ch)
     return logger
 
 def find_index_list_for_parallel(num_threads, in_file_list):

@@ -144,7 +144,7 @@ def get_one_utter_by_name(file_name, file_dir_dict, feat_name_list, feat_dim_lis
         len_list.append(frame_number)
         feature_files[feat_name] = features
     # Check for length consistency; and use shortest
-    min_len = 30000
+    min_len = sys.float_info.max
     max_len = -1
     for l in len_list:
         if l > max_len:  max_len = l
@@ -217,3 +217,17 @@ def count_male_female_class_errors(total_wrong_class, male_speaker_list):
         str_temp = list_temp[0] + list_temp[1]
         wrong_list[str_temp] += count_temp
     return wrong_list
+
+def print_f0_mean_var(norm_file=None):
+    if norm_file == None:
+        norm_file = 'data/nn_cmp_resil_norm_86_info.dat'
+    from frontend.mean_variance_norm import MeanVarianceNorm
+    mean_var_normaliser = MeanVarianceNorm(feature_dimension=86)
+    mean_var_normaliser.load_mean_var_values(norm_file)
+    mean_vector = mean_var_normaliser.mean_vector
+    std_vector  = mean_var_normaliser.std_vector
+    print(mean_vector)
+    print(std_vector)
+    print(mean_vector[60])
+    print(std_vector[60])
+    return mean_vector[60], std_vector[60]
