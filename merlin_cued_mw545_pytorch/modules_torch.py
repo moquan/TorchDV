@@ -390,8 +390,10 @@ class SinenetLayer(torch.nn.Module):
         self.i_2pi_tensor = self.make_i_2pi_tensor() # D*1
         self.k_T_tensor   = self.make_k_T_tensor_t_1()   # 1*T
 
-        self.a   = torch.nn.Parameter(torch.tensor(numpy.ones(output_dim)/100., dtype=torch.float), requires_grad=True) # D*1
-        self.phi = torch.nn.Parameter(torch.Tensor(output_dim), requires_grad=True) # D
+        a_init_value   = numpy.random.normal(loc=0.1, scale=0.1, size=output_dim)
+        phi_init_value = numpy.random.normal(loc=0.0, scale=1.0, size=output_dim)
+        self.a   = torch.nn.Parameter(torch.tensor(a_init_value, dtype=torch.float), requires_grad=True) # D*1
+        self.phi = torch.nn.Parameter(torch.tensor(phi_init_value, dtype=torch.float), requires_grad=True) # D
 
     def forward(self, x, nlf, tau):
         ''' 
