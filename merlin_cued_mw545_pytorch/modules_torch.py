@@ -181,13 +181,14 @@ class Build_NN_Layer(torch.nn.Module):
 
         self.params["output_dim_seq"]       = ['S', 'B', 'D']
         v = self.params["expect_input_dim_values"]
-        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]}
+        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]} 
 
         input_dim  = self.params['expect_input_dim_values']['D']
         output_dim = self.params['output_dim_values']['D']
         num_channels = self.params["layer_config"]["num_channels"]
         time_len   = self.params['expect_input_dim_values']['T']
         self.layer_fn = SinenetLayerV1(time_len, output_dim, num_channels)
+        self.params["output_dim_values"]['D'] += 1 # +1 to append nlf F0 values
 
 class ReLUDVMaxLayer(torch.nn.Module):
     def __init__(self, input_dim, output_dim, num_channels):
@@ -404,8 +405,8 @@ class SinenetLayer(torch.nn.Module):
         # Denorm and exp norm_log_f (S*B)
         # Norm: norm_features = (features - mean_matrix) / std_matrix
         # Denorm: features = norm_features * std_matrix + mean_matrix
-        lf = torch.add(torch.mul(nlf, self.log_f_std), self.log_f_mean) # S*B
-        f  = torch.exp(lf)                                              # S*B
+        lf = torch.add(torch.mul(nlf, self.log_f_std), self.log_f_mean) # S*B*1*1
+        f  = torch.exp(lf)                                              # S*B*1*1
 
         # Time
         t = torch.add(self.k_T_tensor, torch.neg(tau)) # T*1 + S*B*1*1 -> S*B*T*1
@@ -462,6 +463,7 @@ class SinenetLayer(torch.nn.Module):
             print(phi_val)
             print('i matrix')
             print(i)
+
             device_id = torch.device("cuda:%i" % gpu_id)
             i2pi = torch.tensor(i * (2 * numpy.pi), device=device_id)
             with torch.no_grad():
@@ -487,6 +489,10 @@ class SinenetLayerV1(torch.nn.Module):
         nlf = self.nlf_pred_layer(x)
         tau = self.tau_pred_layer(x)
         h_SBD = self.sinenet_layer(x, nlf, tau)
+
+        nlf_SBD = torch.squeeze(nlf, 2)    # S*B*1*1 -> S*B*1
+        h_SBD   = torch.cat((nlf_SBD, h_SBD), 2)
+
         return h_SBD
 
 ########################
