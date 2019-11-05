@@ -150,7 +150,7 @@ def make_feed_dict_y_wav_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name
     return return_list
 
 class dv_y_wav_cmp_configuration(dv_y_configuration):
-    """docstring for ClassName"""
+    
     def __init__(self, cfg):
         super().__init__(cfg)
         self.train_by_window = True # Optimise lambda_w; False: optimise speaker level lambda
