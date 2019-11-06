@@ -526,6 +526,7 @@ class SinenetLayerV1(torch.nn.Module):
         x_list = [x, nlf, tau]
         h_SBD  = self.sinenet_layer(x_list)
 
+        # Append nlf
         nlf_SBD = torch.squeeze(nlf, 2)    # S*B*1*1 -> S*B*1
         h_SBD   = torch.cat((nlf_SBD, h_SBD), 2)
 
@@ -546,6 +547,7 @@ class SinenetLayerV2(torch.nn.Module):
         x, nlf, tau = x_list
         h_SBD = self.sinenet_layer(x_list)
 
+        # Append nlf
         nlf_SBD = torch.squeeze(nlf, 2)    # S*B*1*1 -> S*B*1
         h_SBD   = torch.cat((nlf_SBD, h_SBD), 2)
 
