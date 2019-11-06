@@ -179,7 +179,7 @@ class dv_y_wav_cmp_configuration(dv_y_configuration):
             # {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0.5}
         ]
 
-        self.gpu_id = 1
+        self.gpu_id = 0
 
         from modules_torch import DV_Y_CMP_model
         self.dv_y_model_class = DV_Y_CMP_model
