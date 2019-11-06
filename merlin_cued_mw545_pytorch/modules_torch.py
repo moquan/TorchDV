@@ -53,12 +53,13 @@ class Tensor_Reshape(torch.nn.Module):
             self.params['expect_input_dim_values'] = {'S':temp_input_dim_values['S'], 'B':temp_input_dim_values['B'], 'T':temp_input_dim_values['T']*temp_input_dim_values['D'],'D':0 }
         return self.params
 
-    def forward(self, x):
-        # In case of multiple inputs to a layer, the first is the traditional "h"
-        if isinstance(x, list):
-            temp_input = x[0]
+    def forward(self, x_dict):
+        if 'x' in x_dict:
+            temp_input = x_dict['x']
+        elif 'h' in x_dict:
+            temp_input = x_dict['h']
         else:
-            temp_input = x
+            raise Exception('No input tensor found!')
 
         input_dim_seq = self.params['input_dim_seq']
         input_dim_values = self.params['input_dim_values']
@@ -132,22 +133,11 @@ class Build_NN_Layer(torch.nn.Module):
         else:
             self.dropout_fn = lambda a: a # Do nothing, just return same tensor
 
-    def forward(self, x):
-        # In case of multiple inputs to a layer, the first is the traditional "h"
-        if isinstance(x, list):
-            x[0] = self.reshape_fn(x[0])
-        else:
-            x = self.reshape_fn(x)
-
-        x = self.layer_fn(x)
-
-        # In case of multiple inputs to a layer, the first is the traditional "h"
-        if isinstance(x, list):
-            x[0] = self.dropout_fn(x[0])
-        else:
-            x = self.dropout_fn(x)
-
-        return x
+    def forward(self, x_dict):
+        x_dict['h_reshape'] = self.reshape_fn(x_dict)
+        y_dict = self.layer_fn(x_dict)
+        y_dict['h'] = self.dropout_fn(y_dict['h'])
+        return y_dict
 
     def ReLUDVMax(self):
         self.params["expect_input_dim_seq"] = ['S','B','D']
@@ -174,7 +164,7 @@ class Build_NN_Layer(torch.nn.Module):
 
         input_dim  = self.params['expect_input_dim_values']['D']
         output_dim = self.params['output_dim_values']['D']
-        self.layer_fn = torch.nn.Linear(input_dim, output_dim)
+        self.layer_fn = LinearDVLayer(input_dim, output_dim)
 
     def Sinenet(self):
         self.params["expect_input_dim_seq"] = ['S','B','1','T']
@@ -204,6 +194,7 @@ class Build_NN_Layer(torch.nn.Module):
         output_dim = self.params['output_dim_values']['D']
         num_channels = self.params["layer_config"]["num_channels"]
         time_len   = self.params['expect_input_dim_values']['T']
+
         self.layer_fn = SinenetLayerV1(time_len, output_dim, num_channels)
         self.params["output_dim_values"]['D'] += 1 # +1 to append nlf F0 values
 
@@ -220,7 +211,28 @@ class Build_NN_Layer(torch.nn.Module):
         output_dim = self.params['output_dim_values']['D']
         num_channels = self.params["layer_config"]["num_channels"]
         time_len   = self.params['expect_input_dim_values']['T']
+
         self.layer_fn = SinenetLayerV2(time_len, output_dim, num_channels)
+        self.params["output_dim_values"]['D'] += 1 # +1 to append nlf F0 values
+
+    def SinenetV3(self):
+        self.params["expect_input_dim_seq"] = ['S','B','1','T']
+        self.reshape_fn = Tensor_Reshape(self.params)
+        self.params = self.reshape_fn.update_layer_params()
+
+        self.params["output_dim_seq"]       = ['S', 'B', 'D']
+        v = self.params["expect_input_dim_values"]
+        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]} 
+
+        input_dim  = self.params['expect_input_dim_values']['D']
+        output_dim = self.params['output_dim_values']['D']
+        num_channels = self.params["layer_config"]["num_channels"]
+        time_len   = self.params['expect_input_dim_values']['T']
+        win_len    = self.params["layer_config"]["win_len"]
+        win_shift  = self.params["layer_config"]["win_shift"]
+
+        self.layer_fn = SinenetLayerV3(time_len, output_dim, num_channels, win_len, win_shift)
+        self.params["output_dim_values"]['D'] *= self.layer_fn.num_wins # Multiple windows
         self.params["output_dim_values"]['D'] += 1 # +1 to append nlf F0 values
 
 class ReLUDVMaxLayer(torch.nn.Module):
@@ -233,7 +245,11 @@ class ReLUDVMaxLayer(torch.nn.Module):
         self.fc_list = torch.nn.ModuleList([torch.nn.Linear(input_dim, output_dim) for i in range(self.num_channels)])
         self.relu_fn = torch.nn.ReLU()
 
-    def forward(self, x):
+    def forward(self, x_dict):
+        if 'h_reshape' in x_dict:
+            x = x_dict['h_reshape']
+        elif 'x' in x_dict:
+            x = x_dict['x']
         h_list = []
         for i in range(self.num_channels):
             # Linear
@@ -245,7 +261,227 @@ class ReLUDVMaxLayer(torch.nn.Module):
         h_stack = torch.stack(h_list, dim=0)
         # MaxOut
         h_max, _indices = torch.max(h_stack, dim=0, keepdim=False)
-        return h_max
+        y_dict = {'h': h_max}
+        return y_dict
+
+class LinearDVLayer(torch.nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+        self.input_dim    = input_dim
+        self.output_dim   = output_dim
+        self.linear_fn = torch.nn.Linear(input_dim, output_dim)
+
+    def forward(self, x_dict):
+        if 'h_reshape' in x_dict:
+            x = x_dict['h_reshape']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+
+        h = self.linear_fn(x)
+        y_dict = {'h': h}
+        return y_dict
+
+class SinenetLayer(torch.nn.Module):
+    ''' f tau dependent sine waves, convolve and stack '''
+    ''' output doesn't contain f0 information, pad outside '''
+    def __init__(self, time_len, output_dim, num_channels):
+        super().__init__()
+        self.time_len     = time_len
+        self.output_dim   = output_dim   # Total output dimension
+        self.num_channels = num_channels # Number of components per frequency
+        self.num_freq     = int(output_dim / num_channels) # Number of frequency components
+
+        self.t_wav = 1./16000
+
+        self.log_f_mean = 5.02654
+        self.log_f_std  = 0.373288
+
+        self.i_2pi_tensor = self.make_i_2pi_tensor()   # D*1
+        self.k_T_tensor   = self.make_k_T_tensor_t_1() # 1*T
+
+        a_init_value   = numpy.random.normal(loc=0.1, scale=0.1, size=output_dim)
+        phi_init_value = numpy.random.normal(loc=0.0, scale=1.0, size=output_dim)
+        self.a   = torch.nn.Parameter(torch.tensor(a_init_value, dtype=torch.float), requires_grad=True) # D*1
+        self.phi = torch.nn.Parameter(torch.tensor(phi_init_value, dtype=torch.float), requires_grad=True) # D
+
+    def forward(self, x_dict):
+        ''' 
+        Input dimensions
+        x: S*B*1*T
+        nlf, tau: S*B*1*1
+        '''
+        # Denorm and exp norm_log_f (S*B)
+        # Norm: norm_features = (features - mean_matrix) / std_matrix
+        # Denorm: features = norm_features * std_matrix + mean_matrix
+        if 'h_reshape' in x_dict:
+            x = x_dict['h_reshape']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+        nlf = x_dict['nlf']
+        tau = x_dict['tau']
+
+        lf = torch.add(torch.mul(nlf, self.log_f_std), self.log_f_mean) # S*B*1*1
+        f  = torch.exp(lf)                                              # S*B*1*1
+
+        # Time
+        t = torch.add(self.k_T_tensor, torch.neg(tau)) # T*1 + S*B*1*1 -> S*B*T*1
+
+        # Degree in radian
+        f_t = torch.mul(f, t)                        # S*B*1*1 * S*B*T*1 -> S*B*T*1
+        deg = torch.nn.functional.linear(f_t, self.i_2pi_tensor, bias=self.phi) # S*B*T*1, D*1, D -> S*B*T*D
+        deg = torch.transpose(deg, 2, 3) # S*B*T*D -> S*B*D*T, but no additional storage
+
+        # Sine
+        s = torch.sin(deg)                    # S*B*D*T
+        # Multiply sine with x first
+        x_SBT = torch.squeeze(x, 2)  # S*B*1*T -> S*B*T
+        sin_x = torch.einsum('sbdt,sbt->sbd', s, x_SBT) # S*B*D*T, S*B*T -> S*B*D
+
+        h_SBD = torch.mul(self.a, sin_x)         # D * S*B*D -> S*B*D
+        y_dict = {'h': h_SBD}
+        return y_dict
+
+    def make_i_2pi_tensor(self):
+        # indices of frequency components
+        i_vec = numpy.zeros((self.output_dim, 1))
+        for i in range(self.num_freq):
+            for j in range(self.num_channels):
+                d = int(i * self.num_channels + j)
+                i_vec[d,0] = i + 1
+        i_vec = i_vec * 2 * numpy.pi
+        i_vec_tensor = torch.tensor(i_vec, dtype=torch.float, requires_grad=False)
+        i_vec_tensor = torch.nn.Parameter(i_vec_tensor, requires_grad=False)
+        return i_vec_tensor
+
+    def make_k_T_tensor_t_1(self):
+        # indices along time
+        k_T_vec = numpy.zeros((self.time_len,1))
+        for i in range(self.time_len):
+            k_T_vec[i,0] = i
+        k_T_vec = k_T_vec * self.t_wav
+        k_T_tensor = torch.tensor(k_T_vec, dtype=torch.float, requires_grad=False)
+        k_T_tensor = torch.nn.Parameter(k_T_tensor, requires_grad=False)
+        return k_T_tensor
+
+    def return_a_value(self):
+        return self.a.data.cpu().detach().numpy()
+
+    def return_phi_value(self):
+        return self.phi.data.cpu().detach().numpy()
+
+    def keep_phi_within_2pi(self, gpu_id):
+        phi_val = self.return_phi_value()
+
+        i = (phi_val / (2 * numpy.pi)).astype(int)
+        if numpy.any(i!=0):
+            print('Original phi_val')
+            print(phi_val)
+            print('i matrix')
+            print(i)
+
+            device_id = torch.device("cuda:%i" % gpu_id)
+            i2pi = torch.tensor(i * (2 * numpy.pi), device=device_id)
+            with torch.no_grad():
+                self.phi -= i2pi
+            phi_val = self.return_phi_value()
+            print('New phi_val')
+            print(phi_val)
+
+class SinenetLayerV1(torch.nn.Module):
+    ''' 3 Parts: f-prediction, tau-prediction, sinenet '''
+    def __init__(self, time_len, output_dim, num_channels):
+        super().__init__()
+        self.time_len     = time_len
+        self.output_dim   = output_dim   # Total output dimension
+        self.num_channels = num_channels # Number of components per frequency
+        self.num_freq     = int(output_dim / num_channels) # Number of frequency components
+
+        self.nlf_pred_layer = torch.nn.Linear(time_len, 1)
+        self.tau_pred_layer = torch.nn.Linear(time_len, 1)
+        self.sinenet_layer  = SinenetLayer(time_len, output_dim, num_channels)
+
+    def forward(self, x_dict):
+        if 'h_reshape' in x_dict:
+            x = x_dict['h_reshape']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+        nlf = self.nlf_pred_layer(x)
+        tau = self.tau_pred_layer(x)
+        sine_dict = {'h_reshape':x, 'nlf':nlf, 'tau':tau}
+
+        h_SBD  = self.sinenet_layer(sine_dict)['h']
+
+        # Append nlf
+        nlf_SBD = torch.squeeze(nlf, 2)    # S*B*1*1 -> S*B*1
+        h_SBD   = torch.cat((nlf_SBD, h_SBD), 2)
+        y_dict = {'h': h_SBD}
+        return y_dict
+
+class SinenetLayerV2(torch.nn.Module):
+    ''' 3 Parts: f-prediction, tau-prediction, sinenet '''
+    def __init__(self, time_len, output_dim, num_channels):
+        super().__init__()
+        self.time_len     = time_len
+        self.output_dim   = output_dim   # Total output dimension
+        self.num_channels = num_channels # Number of components per frequency
+        self.num_freq     = int(output_dim / num_channels) # Number of frequency components
+
+        self.sinenet_layer  = SinenetLayer(time_len, output_dim, num_channels)
+
+    def forward(self, x_dict):
+        h_SBD = self.sinenet_layer(x_dict)
+
+        # Append nlf
+        nlf_SBD = torch.squeeze(nlf, 2)    # S*B*1*1 -> S*B*1
+        h_SBD   = torch.cat((nlf_SBD, h_SBD), 2)
+        y_dict = {'h': h_SBD}
+        return y_dict
+
+class SinenetLayerV3(torch.nn.Module):
+    ''' 3 Parts: f-prediction, tau-prediction, sinenet_list '''
+    ''' Each sinenet for a sub-window within '''
+    def __init__(self, time_len, output_dim, num_channels, win_len, win_shift):
+        super().__init__()
+        self.time_len     = time_len
+        self.output_dim   = output_dim   # Total output dimension
+        self.num_channels = num_channels # Number of components per frequency
+        self.num_freq     = int(output_dim / num_channels) # Number of frequency components
+
+        self.win_len      = win_len
+        self.win_shift    = win_shift
+        self.num_wins     = int((time_len-self.win_len)/self.win_shift) + 1
+
+        self.nlf_pred_layer = torch.nn.Linear(time_len, 1)
+        self.tau_pred_layer = torch.nn.Linear(time_len, 1)
+        self.tau_layer_list = torch.nn.ModuleList([torch.nn.Linear(1, 1) for i in range(self.num_wins)])
+        self.sinenet_layer  = SinenetLayer(self.win_len, output_dim, num_channels)
+
+    def forward(self, x_dict):
+        if 'h_reshape' in x_dict:
+            x = x_dict['h_reshape']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+        nlf = self.nlf_pred_layer(x)
+        tau = self.tau_pred_layer(x)
+
+        h_SBD_i_list = []
+        for i in range(self.num_wins):
+            x_i = x_dict['x_win_list'][i]
+            tau_i = self.tau_layer_list[i](tau)
+            sine_dict_i = {'h_reshape':x_i, 'nlf':nlf, 'tau':tau_i}
+            h_SBD_i = self.sinenet_layer(sine_dict_i)['h']
+            h_SBD_i_list.append(h_SBD_i)
+        h_SBD   = torch.cat(h_SBD_i_list, 2)
+        nlf_SBD = torch.squeeze(nlf, 2)    # S*B*1*1 -> S*B*1
+        h_SBD   = torch.cat((nlf_SBD, h_SBD), 2)
+        y_dict = {'h': h_SBD}
+        return y_dict
+
+
+########################
+# PyTorch-based Layers #
+# To be removed        #
+########################
 
 class SinenetLayerIndiv(torch.nn.Module):
     ''' Try to build per frequency '''
@@ -407,152 +643,6 @@ class SinenetLayerTooBig(torch.nn.Module):
         k_T_tensor = torch.nn.Parameter(k_T_tensor)
         return k_T_tensor
 
-class SinenetLayer(torch.nn.Module):
-    ''' f tau dependent sine waves, convolve and stack '''
-    ''' output doesn't contain f0 information, pad outside '''
-    def __init__(self, time_len, output_dim, num_channels):
-        super().__init__()
-        self.time_len     = time_len
-        self.output_dim   = output_dim   # Total output dimension
-        self.num_channels = num_channels # Number of components per frequency
-        self.num_freq     = int(output_dim / num_channels) # Number of frequency components
-
-        self.t_wav = 1./16000
-
-        self.log_f_mean = 5.02654
-        self.log_f_std  = 0.373288
-
-        self.i_2pi_tensor = self.make_i_2pi_tensor() # D*1
-        self.k_T_tensor   = self.make_k_T_tensor_t_1()   # 1*T
-
-        a_init_value   = numpy.random.normal(loc=0.1, scale=0.1, size=output_dim)
-        phi_init_value = numpy.random.normal(loc=0.0, scale=1.0, size=output_dim)
-        self.a   = torch.nn.Parameter(torch.tensor(a_init_value, dtype=torch.float), requires_grad=True) # D*1
-        self.phi = torch.nn.Parameter(torch.tensor(phi_init_value, dtype=torch.float), requires_grad=True) # D
-
-    def forward(self, x_list):
-        ''' 
-        Input dimensions
-        x: S*B*1*T
-        nlf, tau: S*B*1*1
-        '''
-        # Denorm and exp norm_log_f (S*B)
-        # Norm: norm_features = (features - mean_matrix) / std_matrix
-        # Denorm: features = norm_features * std_matrix + mean_matrix
-        x, nlf, tau = x_list
-        lf = torch.add(torch.mul(nlf, self.log_f_std), self.log_f_mean) # S*B*1*1
-        f  = torch.exp(lf)                                              # S*B*1*1
-
-        # Time
-        t = torch.add(self.k_T_tensor, torch.neg(tau)) # T*1 + S*B*1*1 -> S*B*T*1
-
-        # Degree in radian
-        f_t = torch.mul(f, t)                        # S*B*1*1 * S*B*T*1 -> S*B*T*1
-        deg = torch.nn.functional.linear(f_t, self.i_2pi_tensor, bias=self.phi) # S*B*T*1, D*1, D -> S*B*T*D
-        deg = torch.transpose(deg, 2, 3) # S*B*T*D -> S*B*D*T, but no additional storage
-
-        # Sine
-        s = torch.sin(deg)                    # S*B*D*T
-        # Multiply sine with x first
-        x_SBT = torch.squeeze(x, 2)  # S*B*1*T -> S*B*T
-        sin_x = torch.einsum('sbdt,sbt->sbd', s, x_SBT) # S*B*D*T, S*B*T -> S*B*D
-
-        h_SBD = torch.mul(self.a, sin_x)         # D * S*B*D -> S*B*D
-
-        return h_SBD
-
-    def make_i_2pi_tensor(self):
-        # indices of frequency components
-        i_vec = numpy.zeros((self.output_dim, 1))
-        for i in range(self.num_freq):
-            for j in range(self.num_channels):
-                d = int(i * self.num_channels + j)
-                i_vec[d,0] = i + 1
-        i_vec = i_vec * 2 * numpy.pi
-        i_vec_tensor = torch.tensor(i_vec, dtype=torch.float, requires_grad=False)
-        i_vec_tensor = torch.nn.Parameter(i_vec_tensor, requires_grad=False)
-        return i_vec_tensor
-
-    def make_k_T_tensor_t_1(self):
-        # indices along time
-        k_T_vec = numpy.zeros((self.time_len,1))
-        for i in range(self.time_len):
-            k_T_vec[i,0] = i
-        k_T_vec = k_T_vec * self.t_wav
-        k_T_tensor = torch.tensor(k_T_vec, dtype=torch.float, requires_grad=False)
-        k_T_tensor = torch.nn.Parameter(k_T_tensor)
-        return k_T_tensor
-
-    def return_a_value(self):
-        return self.a.data.cpu().detach().numpy()
-
-    def return_phi_value(self):
-        return self.phi.data.cpu().detach().numpy()
-
-    def keep_phi_within_2pi(self, gpu_id):
-        phi_val = self.return_phi_value()
-
-        i = (phi_val / (2 * numpy.pi)).astype(int)
-        if numpy.any(i!=0):
-            print('Original phi_val')
-            print(phi_val)
-            print('i matrix')
-            print(i)
-
-            device_id = torch.device("cuda:%i" % gpu_id)
-            i2pi = torch.tensor(i * (2 * numpy.pi), device=device_id)
-            with torch.no_grad():
-                self.phi -= i2pi
-            phi_val = self.return_phi_value()
-            print('New phi_val')
-            print(phi_val)
-
-class SinenetLayerV1(torch.nn.Module):
-    ''' 3 Parts: f-prediction, tau-prediction, sinenet '''
-    def __init__(self, time_len, output_dim, num_channels):
-        super().__init__()
-        self.time_len     = time_len
-        self.output_dim   = output_dim   # Total output dimension
-        self.num_channels = num_channels # Number of components per frequency
-        self.num_freq     = int(output_dim / num_channels) # Number of frequency components
-
-        self.nlf_pred_layer = torch.nn.Linear(time_len, 1)
-        self.tau_pred_layer = torch.nn.Linear(time_len, 1)
-        self.sinenet_layer  = SinenetLayer(time_len, output_dim, num_channels)
-
-    def forward(self, x):
-        nlf = self.nlf_pred_layer(x)
-        tau = self.tau_pred_layer(x)
-        x_list = [x, nlf, tau]
-        h_SBD  = self.sinenet_layer(x_list)
-
-        # Append nlf
-        nlf_SBD = torch.squeeze(nlf, 2)    # S*B*1*1 -> S*B*1
-        h_SBD   = torch.cat((nlf_SBD, h_SBD), 2)
-
-        return h_SBD
-
-class SinenetLayerV2(torch.nn.Module):
-    ''' 3 Parts: f-prediction, tau-prediction, sinenet '''
-    def __init__(self, time_len, output_dim, num_channels):
-        super().__init__()
-        self.time_len     = time_len
-        self.output_dim   = output_dim   # Total output dimension
-        self.num_channels = num_channels # Number of components per frequency
-        self.num_freq     = int(output_dim / num_channels) # Number of frequency components
-
-        self.sinenet_layer  = SinenetLayer(time_len, output_dim, num_channels)
-
-    def forward(self, x_list):
-        x, nlf, tau = x_list
-        h_SBD = self.sinenet_layer(x_list)
-
-        # Append nlf
-        nlf_SBD = torch.squeeze(nlf, 2)    # S*B*1*1 -> S*B*1
-        h_SBD   = torch.cat((nlf_SBD, h_SBD), 2)
-
-        return h_SBD
-
 ########################
 # PyTorch-based Models #
 ########################
@@ -584,20 +674,20 @@ class DV_Y_CMP_NN_model(torch.nn.Module):
         self.output_dim = dv_y_cfg.num_speaker_dict['train']
         self.expansion_layer = torch.nn.Linear(self.dv_dim, self.output_dim)
 
-    def gen_lambda_SBD(self, x):
+    def gen_lambda_SBD(self, x_dict):
         ''' Simple sequential feed-forward '''
         for i in range(self.num_nn_layers):
             layer_temp = self.layer_list[i]
-            x = layer_temp(x)
-        return x
+            x_dict = layer_temp(x_dict)
+        return x_dict['h']
 
-    def gen_logit_SBD(self, x):
-        lambda_SBD = self.gen_lambda_SBD(x)
+    def gen_logit_SBD(self, x_dict):
+        lambda_SBD = self.gen_lambda_SBD(x_dict)
         logit_SBD  = self.expansion_layer(lambda_SBD)
         return logit_SBD
 
-    def forward(self, x):
-        logit_SBD = self.gen_logit_SBD(x)
+    def forward(self, x_dict):
+        logit_SBD = self.gen_logit_SBD(x_dict)
         # Choose which logit to use for cross-entropy
         if self.train_by_window:
             # Flatten to 2D for cross-entropy
@@ -606,10 +696,11 @@ class DV_Y_CMP_NN_model(torch.nn.Module):
         else:
             # Average over B
             logit_S_D = torch.mean(logit_SBD, dim=1, keepdim=False)
+            return logit_S_D
 
-    def lambda_to_logits_SBD(self, x):
+    def lambda_to_logits_SBD(self, x_dict):
         ''' lambda_S_B_D to indices_S_B '''
-        logit_SBD = self.expansion_layer(x)
+        logit_SBD = self.expansion_layer(x_dict['lambda'])
         return logit_SBD
 
 class DV_Y_F0_Tau_NN_model(DV_Y_CMP_NN_model):
@@ -669,6 +760,10 @@ class General_Model(object):
     def to_device(self, device_id):
         self.device_id = device_id
         self.nn_model.to(device_id)
+
+    def no_grad(self):
+        ''' Simulate PyTorch no_grad() method, change to eval mode '''
+        return torch.no_grad()
 
     def DataParallel(self):
         print("Let's use", torch.cuda.device_count(), "GPUs!")
@@ -741,28 +836,28 @@ class DV_Y_CMP_model(General_Model):
 
     def gen_loss(self, feed_dict):
         ''' Returns Tensor, not value! For value, use gen_loss_value '''
-        x, y = self.numpy_to_tensor(feed_dict)
-        y_pred = self.nn_model(x)
+        x_dict, y = self.numpy_to_tensor(feed_dict)
+        y_pred = self.nn_model(x_dict)
         # TODO: Add dimension check
         # Compute and print loss
         self.loss = self.criterion(y_pred, y)
         return self.loss
 
     def gen_lambda_SBD_value(self, feed_dict):
-        x, y = self.numpy_to_tensor(feed_dict)
-        self.lambda_SBD = self.nn_model.gen_lambda_SBD(x)
+        x_dict, y = self.numpy_to_tensor(feed_dict)
+        self.lambda_SBD = self.nn_model.gen_lambda_SBD(x_dict)
         return self.lambda_SBD.cpu().detach().numpy()
 
     def lambda_to_indices(self, feed_dict):
         ''' lambda_S_B_D to indices_S_B '''
-        x, _y = self.numpy_to_tensor(feed_dict) # Here x is lambda_S_B_D! _y is useless
-        logit_SBD  = self.nn_model.lambda_to_logits_SBD(x)
+        x_dict, _y = self.numpy_to_tensor(feed_dict) # x_dict['lambda'] lambda_S_B_D! _y is useless
+        logit_SBD  = self.nn_model.lambda_to_logits_SBD(x_dict)
         _values, predict_idx_list = torch.max(logit_SBD.data, -1)
         return predict_idx_list.cpu().detach().numpy()
 
     def cal_accuracy(self, feed_dict):
-        x, y = self.numpy_to_tensor(feed_dict)
-        outputs = self.nn_model(x)
+        x_dict, y = self.numpy_to_tensor(feed_dict)
+        outputs = self.nn_model(x_dict)
         _values, predict_idx_list = torch.max(outputs.data, 1)
         total = y.size(0)
         correct = (predict_idx_list == y).sum().item()
@@ -770,19 +865,20 @@ class DV_Y_CMP_model(General_Model):
         return correct, total, accuracy
 
     def numpy_to_tensor(self, feed_dict):
-        if 'x' in feed_dict:
-            x_val = feed_dict['x']
-            x = torch.tensor(x_val, dtype=torch.float)
-            x = x.to(self.device_id)
-        else:
-            x = None
-        if 'y' in feed_dict:
-            y_val = feed_dict['y']
-            y = torch.tensor(y_val, dtype=torch.long)
-            y = y.to(self.device_id)
-        else:
-            y = None
-        return (x, y)
+        x_dict = {}
+        y = None
+        for k in feed_dict:
+            k_val = feed_dict[k]
+            if k == 'y':
+                # 'y' is the one-hot speaker class
+                # High precision for cross-entropy function
+                k_dtype = torch.long
+                y = torch.tensor(k_val, dtype=k_dtype, device=self.device_id)
+            else:
+                k_dtype = torch.float
+            k_tensor = torch.tensor(k_val, dtype=k_dtype, device=self.device_id)
+            x_dict[k] = k_tensor
+        return x_dict, y
 
 class DV_Y_F0_Tau_model(DV_Y_CMP_model):
     ''' S_B_D input, SB_D logit output, classification, cross-entropy '''
@@ -791,41 +887,50 @@ class DV_Y_F0_Tau_model(DV_Y_CMP_model):
     def __init__(self, dv_y_cfg):
         super().__init__(dv_y_cfg)
 
-    def lambda_to_indices(self, feed_dict):
-        ''' lambda_S_B_D to indices_S_B '''
-        x_list = self.numpy_to_tensor(feed_dict) 
-        x = x_list[0]   # Here x is lambda_S_B_D! _nlf, _phi, _y are useless
-        logit_SBD  = self.nn_model.lambda_to_logits_SBD(x)
-        _values, predict_idx_list = torch.max(logit_SBD.data, -1)
-        return predict_idx_list.cpu().detach().numpy()
+class DV_Y_Wav_SubWin_model(DV_Y_CMP_model):
+    ''' S_B_D input, SB_D logit output, classification, cross-entropy '''
+    ''' Main difference: x  '''
+    ''' Most functions can be shared, no need to change '''
+    def __init__(self, dv_y_cfg):
+        super().__init__(dv_y_cfg)
+        layer_1_config = dv_y_cfg.nn_layer_config_list[0]
+        self.win_len   = layer_1_config['win_len']
+        self.win_shift = layer_1_config['win_shift']
+        self.num_wins  = int((dv_y_cfg.batch_seq_len-self.win_len)/self.win_shift) + 1
 
     def numpy_to_tensor(self, feed_dict):
-        if 'x' in feed_dict:
-            x_val = feed_dict['x']
-            x = torch.tensor(x_val, dtype=torch.float)
-            x = x.to(self.device_id)
-        else:
-            x = None
-        if 'nlf' in feed_dict:
-            nlf_val = feed_dict['nlf']
-            nlf = torch.tensor(nlf_val, dtype=torch.float)
-            nlf = nlf.to(self.device_id)
-        else:
-            nlf = None
-        if 'phi' in feed_dict:
-            phi_val = feed_dict['phi']
-            phi = torch.tensor(phi_val, dtype=torch.float)
-            phi = phi.to(self.device_id)
-        else:
-            phi = None
-        if 'y' in feed_dict:
-            y_val = feed_dict['y']
-            y = torch.tensor(y_val, dtype=torch.long)
-            y = y.to(self.device_id)
-        else:
-            y = None
-        x_list = [x, nlf, phi]
-        return (x_list, y)
+        x_dict = {}
+        y = None
+        for k in feed_dict:
+            k_val = feed_dict[k]
+            if k == 'y':
+                # 'y' is the one-hot speaker class
+                # High precision for cross-entropy function
+                k_dtype = torch.long
+                y = torch.tensor(k_val, dtype=k_dtype, device=self.device_id)
+            else:
+                k_dtype = torch.float
+            k_tensor = torch.tensor(k_val, dtype=k_dtype, device=self.device_id)
+            x_dict[k] = k_tensor
+            if k == 'x':
+                # S,B,T to smaller S,B,Tw
+                x_win_list = self.make_x_win_list(k_val)
+                x_dict['x_win_list'] = x_win_list
+        return x_dict, y
+
+    def make_x_win_list(self, x_val):
+        # S,B,T to smaller S,B,Tw
+        x_win_list = []
+        for i in range(self.num_wins):
+            t_start = i * self.win_shift
+            t_end   = t_start + self.win_len
+            x_win   = x_val[:, :, t_start:t_end]
+            # Make S,B,T to S,B,1,T
+            x_win   = numpy.expand_dims(x_win, axis=2)
+            x_win_tensor = torch.tensor(x_win, dtype=torch.float, device=self.device_id)
+            x_win_list.append(x_win_tensor)
+        return x_win_list
+
 
 
 def torch_initialisation(dv_y_cfg):
