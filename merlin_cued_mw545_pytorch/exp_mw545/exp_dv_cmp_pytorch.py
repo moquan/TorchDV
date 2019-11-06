@@ -380,7 +380,7 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
                 for b in range(B_actual):
                     lambda_val[0, b] = lambda_list_remain[b_index + b]
 
-                feed_dict = {'x': lambda_val}
+                feed_dict = {'lambda': lambda_val}
                 idx_list_S_B = dv_y_model.lambda_to_indices(feed_dict=feed_dict)
                 # print(idx_list_S_B)
                 for b in range(B_actual):
