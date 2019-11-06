@@ -110,6 +110,8 @@ class dv_y_configuration(object):
         except: self.gpu_id = 0
         self.gpu_per_process_gpu_memory_fraction = 0.8
 
+        self.cfg = cfg
+
     def change_to_debug_mode(self, process=None):
         self.epoch_num_batch  = {'train': 10, 'valid':10, 'test':10}
         if '_smallbatch' not in self.exp_dir:
