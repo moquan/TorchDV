@@ -240,12 +240,13 @@ def train_dv_y_model(cfg, dv_y_cfg):
                 # Make feed_dict for evaluation
                 feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list, utter_tvt=utter_tvt_name)
                 dv_y_model.eval()
-                batch_mean_loss = dv_y_model.gen_loss_value(feed_dict=feed_dict)
-                total_batch_size += batch_size
-                total_loss       += batch_mean_loss
-                if dv_y_cfg.classify_in_training:
-                    _c, _t, accuracy = dv_y_model.cal_accuracy(feed_dict=feed_dict)
-                    total_accuracy   += accuracy
+                with dv_y_model.no_grad():
+                    batch_mean_loss = dv_y_model.gen_loss_value(feed_dict=feed_dict)
+                    total_batch_size += batch_size
+                    total_loss       += batch_mean_loss
+                    if dv_y_cfg.classify_in_training:
+                        _c, _t, accuracy = dv_y_model.cal_accuracy(feed_dict=feed_dict)
+                        total_accuracy   += accuracy
             average_loss = total_loss/float(dv_y_cfg.epoch_num_batch['valid'])
             output_string['loss'] = output_string['loss'] + '; '+utter_tvt_name+' loss '+str(average_loss)
 
