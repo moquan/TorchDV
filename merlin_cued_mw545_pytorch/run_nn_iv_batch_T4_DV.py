@@ -38,8 +38,13 @@ class configuration(object):
         self.Processes['TestWavSineV1']  = False
 
         # Experiments where REAPER F0 and phase shift info are used
-        self.Processes['TrainWavSineV2'] = True
-        self.Processes['TestWavSineV2']  = True
+        self.Processes['TrainWavSineV2'] = False
+        self.Processes['TestWavSineV2']  = False
+
+        # Experiments where F0 and phase shift info are predicted
+        # 200ms window is sliced into smaller windows
+        self.Processes['TrainWavSineV3'] = True
+        self.Processes['TestWavSineV3']  = True
 
 
 
@@ -156,7 +161,7 @@ class configuration(object):
         self.nn_feat_resil_norm_dirs  = {}
         self.nn_feat_resil_norm_files = {}
         # Scratch directories for speed-up
-        self.nn_feat_scratch_dir_root = '/scratch/tmp-mw545/voicebank_208_speakers'        
+        self.nn_feat_scratch_dir_root = '/scratch/tmp-mw545/voicebank_208_speakers'
         self.nn_feat_scratch_dirs     = {}
         for nn_feat in self.nn_features:
             self.nn_feat_dirs[nn_feat]             = os.path.join(self.data_dir, 'nn_' + nn_feat)
@@ -317,6 +322,15 @@ def main_function(cfg):
     if cfg.Processes['TestWavSineV2']:
         from exp_mw545.exp_dv_wav_sinenet_v2 import test_dv_y_wav_model
         test_dv_y_wav_model(cfg)
+
+    if cfg.Processes['TrainWavSineV3']:
+        from exp_mw545.exp_dv_wav_sinenet_v3 import train_dv_y_wav_model
+        train_dv_y_wav_model(cfg)
+
+    if cfg.Processes['TestWavSineV3']:
+        from exp_mw545.exp_dv_wav_sinenet_v3 import test_dv_y_wav_model
+        test_dv_y_wav_model(cfg)
+
 
 
 
