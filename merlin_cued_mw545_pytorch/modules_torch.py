@@ -439,7 +439,8 @@ class SinenetLayerV2(torch.nn.Module):
 
 class SinenetLayerV3(torch.nn.Module):
     ''' 3 Parts: f-prediction, tau-prediction, sinenet_list '''
-    ''' Each sinenet for a sub-window within '''
+    ''' Apply sinenet on each sub-window within '''
+    ''' nlf is shared, but tau_i is sub-window-specific '''
     def __init__(self, time_len, output_dim, num_channels, win_len, win_shift):
         super().__init__()
         self.time_len     = time_len
