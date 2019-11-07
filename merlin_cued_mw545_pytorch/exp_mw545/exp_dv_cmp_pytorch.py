@@ -191,6 +191,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
     # Feed data use feed_dict style
 
     logger = make_logger("dv_y_config")
+    dv_y_cfg = copy.deepcopy(dv_y_cfg)
     log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
 
     logger = make_logger("train_dvy")
@@ -298,6 +299,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
 def class_test_dv_y_model(cfg, dv_y_cfg):
 
     logger = make_logger("dv_y_config")
+    dv_y_cfg = copy.deepcopy(dv_y_cfg)
     dv_y_cfg.change_to_class_test_mode()
     log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
 
@@ -398,8 +400,12 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
         logger.info('Accuracy with %i utterances per speaker is %f' % (spk_num_utter, mean_accuracy))
 
 def distance_test_dv_y_model(cfg, dv_y_cfg):
+    distance_test_dv_y_wav_model(cfg, dv_y_cfg)
+
+def distance_test_dv_y_wav_model(cfg, dv_y_cfg):
 
     logger = make_logger("dv_y_config")
+    dv_y_cfg = copy.deepcopy(dv_y_cfg)
     log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
 
     logger = make_logger("dist_dvy")
@@ -449,6 +455,58 @@ def distance_test_dv_y_model(cfg, dv_y_cfg):
     num_lambda = batch_size*num_batch
     print([float(dist_sum[i+1]/(num_lambda)) for i in range(max_len_to_plot)])
 
+def distance_test_dv_y_cmp_model(cfg, dv_y_cfg):
+
+    logger = make_logger("dv_y_config")
+    dv_y_cfg = copy.deepcopy(dv_y_cfg)
+    log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
+
+    logger = make_logger("dist_dvy")
+    logger.info('Creating data lists')
+    speaker_id_list = dv_y_cfg.speaker_id_list_dict['train'] # For DV training and evaluation, use train speakers only
+    speaker_loader  = list_random_loader(speaker_id_list)
+    file_id_list    = read_file_list(cfg.file_id_list_file)
+    file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
+    make_feed_dict_method_train = dv_y_cfg.make_feed_dict_method_train
+
+    dv_y_model = torch_initialisation(dv_y_cfg)
+    dv_y_model.load_nn_model(dv_y_cfg.nnets_file_name)
+    dv_y_model.eval()
+
+    max_len_to_plot = 4
+    dv_y_cfg.orig_batch_seq_len = dv_y_cfg.batch_seq_len
+    dv_y_cfg.batch_seq_total_len += max_len_to_plot
+    dv_y_cfg.batch_seq_len += max_len_to_plot
+    # Distance sum holders
+    dist_sum = {i+1:0. for i in range(max_len_to_plot)}
+
+    num_batch = dv_y_cfg.epoch_num_batch['valid']
+
+    for batch_idx in range(num_batch):
+        batch_idx += 1
+        logger.info('start generating Batch '+str(batch_idx))
+        # Draw random speakers
+        batch_speaker_list = speaker_loader.draw_n_samples(dv_y_cfg.batch_num_spk)
+        # Make feed_dict for training
+        feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list,  utter_tvt='test')
+
+        for i in range(max_len_to_plot+1):
+            feed_dict_i = {}
+            for k in feed_dict:
+                if k == 'x':
+                    feed_dict_i['x'] = feed_dict['x'][:,:,i*dv_y_cfg.feat_dim:(i+dv_y_cfg.orig_batch_seq_len)*dv_y_cfg.feat_dim]
+                else:
+                    feed_dict_i[k] = feed_dict[k]
+            with dv_y_model.no_grad():
+                lambda_SBD_i = dv_y_model.gen_lambda_SBD_value(feed_dict=feed_dict_i)
+            if i == 0:
+                lambda_SBD_0 = lambda_SBD_i
+            else:
+                dist_sum[i] += compute_cosine_distance(lambda_SBD_i, lambda_SBD_0)
+
+    logger.info('Printing distances')
+    num_lambda = batch_size*num_batch
+    print([float(dist_sum[i+1]/(num_lambda)) for i in range(max_len_to_plot)])
 
 ################################
 # dv_y_cmp; Not used any more  #
