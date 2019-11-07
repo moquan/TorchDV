@@ -8,6 +8,7 @@ numpy.random.seed(545)
 from modules import make_logger, read_file_list, prepare_file_path, prepare_file_path_list, make_held_out_file_number, copy_to_scratch
 from modules import keep_by_speaker, remove_by_speaker, keep_by_file_number, remove_by_file_number, keep_by_min_max_file_number, check_and_change_to_list
 from modules_2 import compute_feat_dim, log_class_attri, resil_nn_file_list, norm_nn_file_list, get_utters_from_binary_dict, get_one_utter_by_name, count_male_female_class_errors
+from modules_2 import compute_cosine_distance
 from modules_torch import torch_initialisation
 
 from io_funcs.binary_io import BinaryIOCollection
@@ -38,7 +39,6 @@ class list_random_loader(object):
                 n_need -= n_remain
                 n_remain = len(self.list_remain)
         return list_return
-
 
 class dv_y_configuration(object):
     
@@ -310,6 +310,7 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
 
     dv_y_model = torch_initialisation(dv_y_cfg)
     dv_y_model.load_nn_model(dv_y_cfg.nnets_file_name)
+    dv_y_model.eval()
 
     try: 
         lambda_u_dict = pickle.load(open(dv_y_cfg.lambda_u_dict_file_name, 'rb'))
@@ -328,8 +329,8 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
                 BTD_feat_remain = None
                 while not (gen_finish):
                     feed_dict, gen_finish, batch_size, BTD_feat_remain = make_feed_dict_method_test(dv_y_cfg, cfg.nn_feat_scratch_dirs, speaker_id, file_name, start_frame_index, BTD_feat_remain)
-                    dv_y_model.eval()
-                    lambda_temp = dv_y_model.gen_lambda_SBD_value(feed_dict=feed_dict)
+                    with dv_y_model.no_grad():
+                        lambda_temp = dv_y_model.gen_lambda_SBD_value(feed_dict=feed_dict)
                     lambda_temp_list.append(lambda_temp)
                     batch_size_list.append(batch_size)
                 B_u = numpy.sum(batch_size_list)
@@ -384,7 +385,8 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
                     lambda_val[0, b] = lambda_list_remain[b_index + b]
 
                 feed_dict = {'lambda': lambda_val}
-                idx_list_S_B = dv_y_model.lambda_to_indices(feed_dict=feed_dict)
+                with dv_y_model.no_grad():
+                    idx_list_S_B = dv_y_model.lambda_to_indices(feed_dict=feed_dict)
                 # print(idx_list_S_B)
                 for b in range(B_actual):
                     if idx_list_S_B[0, b] == true_speaker_index: 
@@ -394,6 +396,59 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
             accuracy_list.append(speaker_accuracy)
         mean_accuracy = numpy.mean(accuracy_list)
         logger.info('Accuracy with %i utterances per speaker is %f' % (spk_num_utter, mean_accuracy))
+
+def distance_test_dv_y_model(cfg, dv_y_cfg):
+
+    logger = make_logger("dv_y_config")
+    log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
+
+    logger = make_logger("dist_dvy")
+    logger.info('Creating data lists')
+    speaker_id_list = dv_y_cfg.speaker_id_list_dict['train'] # For DV training and evaluation, use train speakers only
+    speaker_loader  = list_random_loader(speaker_id_list)
+    file_id_list    = read_file_list(cfg.file_id_list_file)
+    file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
+    make_feed_dict_method_train = dv_y_cfg.make_feed_dict_method_train
+
+    dv_y_model = torch_initialisation(dv_y_cfg)
+    dv_y_model.load_nn_model(dv_y_cfg.nnets_file_name)
+    dv_y_model.eval()
+
+    max_len_to_plot = 200
+    dv_y_cfg.orig_batch_seq_len = dv_y_cfg.batch_seq_len
+    dv_y_cfg.batch_seq_total_len += max_len_to_plot
+    dv_y_cfg.batch_seq_len += max_len_to_plot
+    # Distance sum holders
+    dist_sum = {i+1:0. for i in range(max_len_to_plot)}
+
+    num_batch = dv_y_cfg.epoch_num_batch['valid']
+
+    for batch_idx in range(num_batch):
+        batch_idx += 1
+        logger.info('start generating Batch '+str(batch_idx))
+        # Draw random speakers
+        batch_speaker_list = speaker_loader.draw_n_samples(dv_y_cfg.batch_num_spk)
+        # Make feed_dict for training
+        feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list,  utter_tvt='test')
+
+        for i in range(max_len_to_plot+1):
+            feed_dict_i = {}
+            for k in feed_dict:
+                if k == 'x':
+                    feed_dict_i['x'] = feed_dict['x'][:,:,i:i+dv_y_cfg.orig_batch_seq_len]
+                else:
+                    feed_dict_i[k] = feed_dict[k]
+            with dv_y_model.no_grad():
+                lambda_SBD_i = dv_y_model.gen_lambda_SBD_value(feed_dict=feed_dict_i)
+            if i == 0:
+                lambda_SBD_0 = lambda_SBD_i
+            else:
+                dist_sum[i] += compute_cosine_distance(lambda_SBD_i, lambda_SBD_0)
+
+    logger.info('Printing distances')
+    num_lambda = batch_size*num_batch
+    print([float(dist_sum[i+1]/(num_lambda)) for i in range(max_len_to_plot)])
+
 
 ################################
 # dv_y_cmp; Not used any more  #
