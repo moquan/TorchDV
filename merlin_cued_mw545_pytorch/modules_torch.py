@@ -849,6 +849,11 @@ class DV_Y_CMP_model(General_Model):
         self.lambda_SBD = self.nn_model.gen_lambda_SBD(x_dict)
         return self.lambda_SBD.cpu().detach().numpy()
 
+    def gen_logit_SBD_value(self, feed_dict):
+        x_dict, y = self.numpy_to_tensor(feed_dict)
+        self.logit_SBD = self.nn_model.gen_logit_SBD(x_dict)
+        return self.logit_SBD.cpu().detach().numpy()
+
     def lambda_to_indices(self, feed_dict):
         ''' lambda_S_B_D to indices_S_B '''
         x_dict, _y = self.numpy_to_tensor(feed_dict) # x_dict['lambda'] lambda_S_B_D! _y is useless
