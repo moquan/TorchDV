@@ -17,7 +17,7 @@ from modules_torch import torch_initialisation
 from io_funcs.binary_io import BinaryIOCollection
 io_fun = BinaryIOCollection()
 
-from exp_mw545.exp_dv_cmp_pytorch import list_random_loader, dv_y_configuration, make_dv_y_exp_dir_name, make_dv_file_list, train_dv_y_model, class_test_dv_y_model
+from exp_mw545.exp_dv_cmp_pytorch import list_random_loader, dv_y_configuration, make_dv_y_exp_dir_name, make_dv_file_list, train_dv_y_model, class_test_dv_y_model, distance_test_dv_y_model, eval_logit_dv_y_model
 
 
 class dv_y_wav_cmp_configuration(dv_y_configuration):
@@ -37,7 +37,7 @@ class dv_y_wav_cmp_configuration(dv_y_configuration):
         self.out_feat_list = ['wav']
         self.batch_seq_total_len = 32000 # Number of frames at 16kHz; 32000 for 2s
         self.batch_seq_len   = 3200 # T
-        self.batch_seq_shift = 4800
+        self.batch_seq_shift = 3200
         self.learning_rate   = 0.0001
         self.batch_num_spk = 100
         self.dv_dim = 256
@@ -53,7 +53,7 @@ class dv_y_wav_cmp_configuration(dv_y_configuration):
         ]
 
         # self.gpu_id = 'cpu'
-        self.gpu_id = 1
+        self.gpu_id = 3
 
         from modules_torch import DV_Y_Wav_SubWin_model
         self.dv_y_model_class = DV_Y_Wav_SubWin_model
@@ -92,4 +92,9 @@ def train_dv_y_wav_model(cfg, dv_y_cfg=None):
 
 def test_dv_y_wav_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_wav_cmp_configuration(cfg)
-    class_test_dv_y_model(cfg, dv_y_cfg)
+    # class_test_dv_y_model(cfg, dv_y_cfg)
+    distance_test_dv_y_model(cfg, dv_y_cfg)
+
+def eval_dv_y_wav_model(cfg, dv_y_cfg=None):
+    if dv_y_cfg is None: dv_y_cfg = dv_y_wav_cmp_configuration(cfg)
+    eval_logit_dv_y_model(cfg, dv_y_cfg)
