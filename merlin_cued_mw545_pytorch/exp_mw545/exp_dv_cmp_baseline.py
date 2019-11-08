@@ -187,6 +187,6 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
 
 def test_dv_y_cmp_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
-    # class_test_dv_y_model(cfg, dv_y_cfg)
+    class_test_dv_y_model(cfg, dv_y_cfg)
     distance_test_dv_y_cmp_model(cfg, dv_y_cfg)
 
