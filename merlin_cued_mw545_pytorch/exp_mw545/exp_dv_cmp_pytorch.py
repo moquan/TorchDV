@@ -5,6 +5,8 @@
 import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy
 numpy.random.seed(545)
+import matplotlib
+import matplotlib.pyplot as plt
 from modules import make_logger, read_file_list, prepare_file_path, prepare_file_path_list, make_held_out_file_number, copy_to_scratch
 from modules import keep_by_speaker, remove_by_speaker, keep_by_file_number, remove_by_file_number, keep_by_min_max_file_number, check_and_change_to_list
 from modules_2 import compute_feat_dim, log_class_attri, resil_nn_file_list, norm_nn_file_list, get_utters_from_binary_dict, get_one_utter_by_name, count_male_female_class_errors
@@ -507,6 +509,118 @@ def distance_test_dv_y_cmp_model(cfg, dv_y_cfg):
     logger.info('Printing distances')
     num_lambda = batch_size*num_batch
     print([float(dist_sum[i+1]/(num_lambda)) for i in range(max_len_to_plot)])
+
+def eval_logit_dv_y_model(cfg, dv_y_cfg):
+    logger = make_logger("dv_y_config")
+    dv_y_cfg = copy.deepcopy(dv_y_cfg)
+
+    log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
+
+    logger = make_logger("eval_logit")
+    logger.info('Creating data lists')
+    speaker_id_list = dv_y_cfg.speaker_id_list_dict['train'] # For DV training and evaluation, use train speakers only
+    # speaker_loader  = list_random_loader(speaker_id_list)
+    # file_id_list    = read_file_list(cfg.file_id_list_file)
+    # file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
+    make_feed_dict_method_train = dv_y_cfg.make_feed_dict_method_train
+
+    dv_y_cfg.batch_num_spk = 4
+    batch_speaker_list = ['p15', 'p28', 'p122', 'p68'] # Males 2, Females 2
+    file_list_dict = {}
+    for speaker_name in batch_speaker_list:
+        file_list_dict[(speaker_name, 'eval')] = ['%s_003' % speaker_name]
+
+    dv_y_model = torch_initialisation(dv_y_cfg)
+    dv_y_model.load_nn_model(dv_y_cfg.nnets_file_name)
+    dv_y_model.eval()
+
+    fig = plt.figure(figsize=(200,100))
+    num_spk = dv_y_cfg.batch_num_spk
+    num_win = 5
+    # fig.set_size_inches(185, 105)
+    fig, ax_list = plt.subplots(num_spk, num_win)
+    fig.suptitle('%i speakers, %i windows' % (num_spk, num_win))
+    # Make feed_dict for training
+    feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list, all_utt_start_frame_index=4000, utter_tvt='eval')
+    with dv_y_model.no_grad():
+        logit_SBD = dv_y_model.gen_logit_SBD_value(feed_dict=feed_dict)
+    for i in range(num_spk):
+        for j in range(num_win):
+            logit_D = logit_SBD[i,j]
+            ax_list[i,j].plot(logit_D)
+
+    fig_name = '/home/dawna/tts/mw545/Export_Temp' + "/gen_logit.png"
+    logger.info('Saving logits to %s' % fig_name)
+    fig.savefig(fig_name)
+
+
+    # SinenetV3 specific
+    plot_f0_tau = False
+    plot_h      = False
+    for nn_layer_config in dv_y_cfg.nn_layer_config_list:
+        if nn_layer_config['type'] == 'SinenetV3':
+            plot_f0_tau = True
+            plot_h = True
+            break
+    if plot_f0_tau:
+    # if False:
+        with dv_y_model.no_grad():
+            nlf, tau, tau_list = dv_y_model.gen_nlf_tau_values(feed_dict=feed_dict)
+        # Plot f0
+        num_spk = dv_y_cfg.batch_num_spk
+        num_win = 5
+        fig, ax = plt.subplots()
+        fig.suptitle('F0, %i speakers, %i windows' % (num_spk, num_win))
+        ax.plot(numpy.squeeze(nlf).T)
+        fig_name = '/home/dawna/tts/mw545/Export_Temp' + "/nlf.png"
+        logger.info('Saving NLF to %s' % fig_name)
+        fig.savefig(fig_name)
+        # Plot tau
+        num_spk = dv_y_cfg.batch_num_spk
+        num_win = 5
+        fig, ax = plt.subplots()
+        fig.suptitle('Tau, %i speakers, %i windows' % (num_spk, num_win))
+        ax.plot(numpy.squeeze(tau).T)
+        fig_name = '/home/dawna/tts/mw545/Export_Temp' + "/tau.png"
+        logger.info('Saving Tau to %s' % fig_name)
+        fig.savefig(fig_name)
+        # Plot tau trajectories
+        tau_SBT = numpy.stack(tau_list, axis=-1)
+        num_spk = dv_y_cfg.batch_num_spk
+        num_win = 5
+        fig, ax_list = plt.subplots(num_spk, num_win)
+        fig.suptitle('Tau trajectory, %i speakers, %i windows' % (num_spk, num_win))
+        for i in range(num_spk):
+            for j in range(num_win):
+                tau_T = tau_SBT[i,j]
+                ax_list[i,j].plot(numpy.squeeze(tau_T))
+        fig_name = '/home/dawna/tts/mw545/Export_Temp' + "/tau_list.png"
+        logger.info('Saving Tau trajectory to %s' % fig_name)
+        fig.savefig(fig_name)
+
+    if plot_h:
+        with dv_y_model.no_grad():
+            h = dv_y_model.gen_sinenet_h_value(feed_dict=feed_dict)
+        # Plot different speaker
+        fig, ax_list = plt.subplots(num_spk)
+        fig.suptitle('h, %i speakers' % (num_spk))
+        for i in range(num_spk):
+            h_BD = h[i]
+            h_D  = h_BD[0]
+            ax_list[i].plot(h_D)
+        fig_name = '/home/dawna/tts/mw545/Export_Temp' + "/h_speaker.png"
+        logger.info('Saving h_speaker to %s' % fig_name)
+        fig.savefig(fig_name)
+        # Plot different window
+        fig, ax_list = plt.subplots(num_win)
+        fig.suptitle('h, %i windows' % (num_win))
+        h_BD = h[0]
+        for i in range(num_win):
+            h_D  = h_BD[i]
+            ax_list[i].plot(h_D)
+        fig_name = '/home/dawna/tts/mw545/Export_Temp' + "/h_window.png"
+        logger.info('Saving h_window to %s' % fig_name)
+        fig.savefig(fig_name)
 
 ################################
 # dv_y_cmp; Not used any more  #
