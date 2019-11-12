@@ -16,10 +16,10 @@ from modules_torch import torch_initialisation
 from io_funcs.binary_io import BinaryIOCollection
 io_fun = BinaryIOCollection()
 
-from exp_mw545.exp_dv_cmp_pytorch import list_random_loader, dv_y_configuration, make_dv_y_exp_dir_name, make_dv_file_list, train_dv_y_model, class_test_dv_y_model, distance_test_dv_y_model
+from exp_mw545.exp_dv_cmp_pytorch import list_random_loader, dv_y_configuration, make_dv_y_exp_dir_name, make_dv_file_list, train_dv_y_model, class_test_dv_y_model, distance_test_dv_y_model, eval_logit_dv_y_model
 
 
-def make_feed_dict_y_wav_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_speaker_list, utter_tvt, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
+def make_feed_dict_y_wav_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_speaker_list, utter_tvt, all_utt_start_frame_index=None, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
     feat_name = dv_y_cfg.y_feat_name # Hard-coded here for now
     # Make i/o shape arrays
     # This is numpy shape, not Tensor shape!
@@ -46,12 +46,17 @@ def make_feed_dict_y_wav_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batc
         speaker_file_name_list, speaker_utter_len_list, speaker_utter_list = get_utters_from_binary_dict(dv_y_cfg.spk_num_utter, file_list_dict[(speaker_id, utter_tvt)], file_dir_dict, feat_name_list=[feat_name], feat_dim_list=[dv_y_cfg.feat_dim], min_file_len=min_file_len, random_seed=None)
         file_name_list.append(speaker_file_name_list)
 
+
         speaker_start_frame_index_list = []
         for utter_idx in range(dv_y_cfg.spk_num_utter):
             y_stack = speaker_utter_list[feat_name][utter_idx][:,dv_y_cfg.feat_index]
-            frame_number   = speaker_utter_len_list[utter_idx]
-            extra_file_len = frame_number - (min_file_len)
-            start_frame_index = numpy.random.choice(range(total_sil_one_side, total_sil_one_side+extra_file_len+1))
+            if all_utt_start_frame_index is None:
+                # Use random starting frame index
+                frame_number   = speaker_utter_len_list[utter_idx]
+                extra_file_len = frame_number - (min_file_len)
+                start_frame_index = numpy.random.choice(range(total_sil_one_side, total_sil_one_side+extra_file_len+1))
+            else:
+                start_frame_index = all_utt_start_frame_index
             speaker_start_frame_index_list.append(start_frame_index)
             for seq_idx in range(dv_y_cfg.utter_num_seq):
                 y[speaker_idx, utter_idx*dv_y_cfg.utter_num_seq+seq_idx, :, :] = y_stack[start_frame_index:start_frame_index+dv_y_cfg.batch_seq_len, :]
@@ -193,6 +198,9 @@ def train_dv_y_wav_model(cfg, dv_y_cfg=None):
 
 def test_dv_y_wav_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_wav_cmp_configuration(cfg)
-    class_test_dv_y_model(cfg, dv_y_cfg)
+    # class_test_dv_y_model(cfg, dv_y_cfg)
     distance_test_dv_y_model(cfg, dv_y_cfg)
 
+def eval_dv_y_wav_model(cfg, dv_y_cfg=None):
+    if dv_y_cfg is None: dv_y_cfg = dv_y_wav_cmp_configuration(cfg)
+    eval_logit_dv_y_model(cfg, dv_y_cfg)
