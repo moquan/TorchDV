@@ -478,6 +478,35 @@ class SinenetLayerV3(torch.nn.Module):
         y_dict = {'h': h_SBD}
         return y_dict
 
+    def return_nlf_value(self, x_dict):
+        if 'h_reshape' in x_dict:
+            x = x_dict['h_reshape']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+        nlf = self.nlf_pred_layer(x)
+        return nlf.data.cpu().detach().numpy()
+
+    def return_tau_value(self, x_dict):
+        if 'h_reshape' in x_dict:
+            x = x_dict['h_reshape']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+        tau = self.tau_pred_layer(x)
+        return tau.data.cpu().detach().numpy()
+
+    def return_tau_list_value(self, x_dict):
+        if 'h_reshape' in x_dict:
+            x = x_dict['h_reshape']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+        tau = self.tau_pred_layer(x)
+
+        tau_list = []
+        for i in range(self.num_wins):
+            tau_i = self.tau_layer_list[i](tau)
+            tau_list.append(tau_i.data.cpu().detach().numpy())
+        return tau_list
+
 
 ########################
 # PyTorch-based Layers #
@@ -936,6 +965,22 @@ class DV_Y_Wav_SubWin_model(DV_Y_CMP_model):
             x_win_tensor = torch.tensor(x_win, dtype=torch.float, device=self.device_id)
             x_win_list.append(x_win_tensor)
         return x_win_list
+
+    def gen_nlf_tau_values(self, feed_dict):
+        x_dict, y = self.numpy_to_tensor(feed_dict)
+        sinenet_layer = self.nn_model.layer_list[0].layer_fn
+        nlf = sinenet_layer.return_nlf_value(x_dict)
+        tau = sinenet_layer.return_tau_value(x_dict)
+        tau_list = sinenet_layer.return_tau_list_value(x_dict)
+        return nlf, tau, tau_list
+
+    def gen_sinenet_h_value(self, feed_dict):
+        x_dict, y = self.numpy_to_tensor(feed_dict)
+        sinenet_layer = self.nn_model.layer_list[0]
+        y_dict = sinenet_layer(x_dict)
+        h = y_dict['h']
+        return h.data.cpu().detach().numpy()
+
 
 
 
