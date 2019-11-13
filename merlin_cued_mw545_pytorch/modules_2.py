@@ -179,9 +179,19 @@ def compute_cosine_distance(lambda_1, lambda_2):
     S = lambda_1.shape[0]
     B = lambda_1.shape[1]
     D = lambda_1.shape[2]
+    nan_count = 0
     for i in range(S):
         for j in range(B):
-            d += scipy.spatial.distance.cosine(lambda_1[i,j], lambda_2[i,j])
+            d_ij = scipy.spatial.distance.cosine(lambda_1[i,j], lambda_2[i,j])
+            if numpy.isnan(d_ij):
+                # print(lambda_1[i,j])
+                # print(lambda_2[i,j])
+                # print(lambda_1)
+                # print(lambda_2)
+                print('Return Nan')
+                nan_count += 1
+            else:
+                d += d_ij
     return d
 
 def get_file_id_from_file_name(file_name):
