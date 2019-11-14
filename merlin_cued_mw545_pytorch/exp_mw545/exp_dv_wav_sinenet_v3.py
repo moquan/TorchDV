@@ -53,7 +53,7 @@ class dv_y_wav_cmp_configuration(dv_y_configuration):
         ]
 
         # self.gpu_id = 'cpu'
-        self.gpu_id = 3
+        self.gpu_id = 1
 
         from modules_torch import DV_Y_Wav_SubWin_model
         self.dv_y_model_class = DV_Y_Wav_SubWin_model
