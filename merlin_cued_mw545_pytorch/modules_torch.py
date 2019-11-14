@@ -139,6 +139,32 @@ class Build_NN_Layer(torch.nn.Module):
         y_dict['h'] = self.dropout_fn(y_dict['h'])
         return y_dict
 
+    def ReLUDV(self):
+        self.params["expect_input_dim_seq"] = ['S','B','D']
+        self.reshape_fn = Tensor_Reshape(self.params)
+        self.params = self.reshape_fn.update_layer_params()
+
+        self.params["output_dim_seq"]       = ['S', 'B', 'D']
+        v = self.params["expect_input_dim_values"]
+        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]}
+
+        input_dim  = self.params['expect_input_dim_values']['D']
+        output_dim = self.params['output_dim_values']['D']
+        self.layer_fn = ReLUDVLayer(input_dim, output_dim)
+
+    def LReLUDV(self):
+        self.params["expect_input_dim_seq"] = ['S','B','D']
+        self.reshape_fn = Tensor_Reshape(self.params)
+        self.params = self.reshape_fn.update_layer_params()
+
+        self.params["output_dim_seq"]       = ['S', 'B', 'D']
+        v = self.params["expect_input_dim_values"]
+        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]}
+
+        input_dim  = self.params['expect_input_dim_values']['D']
+        output_dim = self.params['output_dim_values']['D']
+        self.layer_fn = LReLUDVLayer(input_dim, output_dim)
+
     def ReLUDVMax(self):
         self.params["expect_input_dim_seq"] = ['S','B','D']
         self.reshape_fn = Tensor_Reshape(self.params)
@@ -152,6 +178,20 @@ class Build_NN_Layer(torch.nn.Module):
         output_dim = self.params['output_dim_values']['D']
         num_channels = self.params["layer_config"]["num_channels"]
         self.layer_fn = ReLUDVMaxLayer(input_dim, output_dim, num_channels)
+
+    def LReLUDVMax(self):
+        self.params["expect_input_dim_seq"] = ['S','B','D']
+        self.reshape_fn = Tensor_Reshape(self.params)
+        self.params = self.reshape_fn.update_layer_params()
+
+        self.params["output_dim_seq"]       = ['S', 'B', 'D']
+        v = self.params["expect_input_dim_values"]
+        self.params["output_dim_values"]    = {'S': v['S'], 'B': v['B'], 'D': self.params["size"]}
+
+        input_dim  = self.params['expect_input_dim_values']['D']
+        output_dim = self.params['output_dim_values']['D']
+        num_channels = self.params["layer_config"]["num_channels"]
+        self.layer_fn = LReLUDVMaxLayer(input_dim, output_dim, num_channels)
 
     def LinDV(self):
         self.params["expect_input_dim_seq"] = ['S','B','D']
@@ -235,6 +275,48 @@ class Build_NN_Layer(torch.nn.Module):
         self.params["output_dim_values"]['D'] *= self.layer_fn.num_wins # Multiple windows
         self.params["output_dim_values"]['D'] += 1 # +1 to append nlf F0 values
 
+class ReLUDVLayer(torch.nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+        self.input_dim    = input_dim
+        self.output_dim   = output_dim
+
+        self.fc_fn   = torch.nn.Linear(input_dim, output_dim)
+        self.relu_fn = torch.nn.ReLU()
+
+    def forward(self, x_dict):
+        if 'h_reshape' in x_dict:
+            x = x_dict['h_reshape']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+        # Linear
+        h_i = self.fc_fn(x)
+        # ReLU
+        h = self.relu_fn(h_i)
+        y_dict = {'h': h}
+        return y_dict
+
+class LReLUDVLayer(torch.nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+        self.input_dim    = input_dim
+        self.output_dim   = output_dim
+
+        self.fc_fn    = torch.nn.Linear(input_dim, output_dim)
+        self.lrelu_fn = torch.nn.LeakyReLU()
+
+    def forward(self, x_dict):
+        if 'h_reshape' in x_dict:
+            x = x_dict['h_reshape']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+        # Linear
+        h_i = self.fc_fn(x)
+        # ReLU
+        h = self.lrelu_fn(h_i)
+        y_dict = {'h': h}
+        return y_dict
+
 class ReLUDVMaxLayer(torch.nn.Module):
     def __init__(self, input_dim, output_dim, num_channels):
         super().__init__()
@@ -261,7 +343,37 @@ class ReLUDVMaxLayer(torch.nn.Module):
         h_stack = torch.stack(h_list, dim=0)
         # MaxOut
         h_max, _indices = torch.max(h_stack, dim=0, keepdim=False)
-        y_dict = {'h': h_max}
+        y_dict = {'h': h_max, 'h_stack':h_stack}
+        return y_dict
+
+class LReLUDVMaxLayer(torch.nn.Module):
+    ''' Leaky ReLU, then MaxOut '''
+    def __init__(self, input_dim, output_dim, num_channels):
+        super().__init__()
+        self.input_dim    = input_dim
+        self.output_dim   = output_dim
+        self.num_channels = num_channels
+
+        self.fc_list = torch.nn.ModuleList([torch.nn.Linear(input_dim, output_dim) for i in range(self.num_channels)])
+        self.lrelu_fn = torch.nn.LeakyReLU()
+
+    def forward(self, x_dict):
+        if 'h_reshape' in x_dict:
+            x = x_dict['h_reshape']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+        h_list = []
+        for i in range(self.num_channels):
+            # Linear
+            h_i = self.fc_list[i](x)
+            # ReLU
+            h_i = self.lrelu_fn(h_i)
+            h_list.append(h_i)
+
+        h_stack = torch.stack(h_list, dim=0)
+        # MaxOut
+        h_max, _indices = torch.max(h_stack, dim=0, keepdim=False)
+        y_dict = {'h': h_max, 'h_stack':h_stack}
         return y_dict
 
 class LinearDVLayer(torch.nn.Module):
@@ -507,172 +619,6 @@ class SinenetLayerV3(torch.nn.Module):
             tau_list.append(tau_i.data.cpu().detach().numpy())
         return tau_list
 
-
-########################
-# PyTorch-based Layers #
-# To be removed        #
-########################
-
-class SinenetLayerIndiv(torch.nn.Module):
-    ''' Try to build per frequency '''
-    def __init__(self, time_len, output_dim, num_channels):
-        super().__init__()
-        self.time_len     = time_len
-        self.output_dim   = output_dim   # Total output dimension
-        self.num_channels = num_channels # Number of components per frequency
-        self.num_freq     = int(output_dim / num_channels) # Number of frequency components
-
-        self.t_wav = 1./16000
-
-        self.log_f_mean = 5.02654
-        self.log_f_std  = 0.373288
-
-        self.k_T_tensor = self.make_k_T_tensor()
-
-        self.sinenet_list = torch.nn.ModuleList()
-        for i in range(self.num_freq):
-            for j in range(self.num_channels):
-                self.sinenet_list.append(SinenetComponent(self.time_len, i))
-
-    def forward(self, x, nlf, tau):
-        lf = torch.add(torch.mul(nlf, self.log_f_std), self.log_f_mean) # S*B
-        f  = torch.exp(lf)                                              # S*B
-        # Time
-        t = torch.add(self.k_T_tensor, torch.neg(tau)) # 1*T + S*B*1 -> S*B*T
-        h_list = []
-        for k in range(self.output_dim):
-            h_k = self.sinenet_list[k](x, f, t)
-            h_list.append(h_k) # SB
-
-        # Need to check the stacking process
-        h_SBD = torch.stack(h_list, dim=2)
-        return h_SBD
-
-    def make_k_T_tensor(self):
-        # indices along time; 1*T
-        k_T_vec = numpy.zeros((1,self.time_len))
-        for i in range(self.time_len):
-            k_T_vec[0,i] = i
-        k_T_vec = k_T_vec * self.t_wav
-        k_T_tensor = torch.tensor(k_T_vec, dtype=torch.float, requires_grad=False)
-        k_T_tensor = torch.nn.Parameter(k_T_tensor, requires_grad=False)
-        return k_T_tensor
-
-class SinenetComponent(torch.nn.Module):
-    def __init__(self, time_len, i):
-        super().__init__()
-        self.time_len = time_len
-        self.i = i # Multiple of fundamental frequency
-
-        self.t_wav = 1./16000
-
-        self.log_f_mean = 5.02654
-        self.log_f_std  = 0.373288
-
-        self.a   = torch.nn.Parameter(torch.Tensor(1))
-        self.phi = torch.nn.Parameter(torch.Tensor(1))
-
-    def forward(self, x, f, t):
-        # Degree in radian
-        i_f   = torch.mul(self.i, f)                   # 1 * S*B*1 -> S*B*1
-        i_f_t = torch.mul(i_f, t)                      # S*B*1 * S*B*T -> S*B*T
-        deg = torch.add(i_f_t, self.phi)               # S*B*T + 1 -> S*B*T
-
-        s = torch.sin(deg)                    # S*B*T
-        self.W = torch.mul(self.a, s)         # 1 * S*B*T -> S*B*T
-
-        h_SBT = torch.mul(self.W, x)         # S*B*T * S*B*T -> S*B*T
-        h_SB  = torch.sum(h_SBT, dim=-1, keepdim=False)
-
-        return h_SB
-
-class SinenetLayerTooBig(torch.nn.Module):
-    ''' Intermediate tensor has dimension S*B*T*D, too big '''
-    def __init__(self, time_len, output_dim, num_channels):
-        super().__init__()
-        self.time_len     = time_len
-        self.output_dim   = output_dim   # Total output dimension
-        self.num_channels = num_channels # Number of components per frequency
-        self.num_freq     = int(output_dim / num_channels) # Number of frequency components
-
-        self.t_wav = 1./16000
-
-        self.log_f_mean = 5.02654
-        self.log_f_std  = 0.373288
-
-        self.i_2pi_tensor = self.make_i_2pi_tensor() # D*1
-        self.k_T_tensor   = self.make_k_T_tensor()   # 1*T
-
-        self.a   = torch.nn.Parameter(torch.Tensor(output_dim, 1)) # D*1
-        self.phi = torch.nn.Parameter(torch.Tensor(output_dim, 1)) # D*1
-
-    def forward(self, x, nlf, tau):
-        ''' 
-        Input dimensions
-        x: S*B*1*T
-        nlf, tau: S*B*1*1
-        '''
-        # Denorm and exp norm_log_f (S*B)
-        # Norm: norm_features = (features - mean_matrix) / std_matrix
-        # Denorm: features = norm_features * std_matrix + mean_matrix
-        lf = torch.add(torch.mul(nlf, self.log_f_std), self.log_f_mean) # S*B
-        f  = torch.exp(lf)                                              # S*B
-
-        # Time
-        t = torch.add(self.k_T_tensor, torch.neg(tau)) # 1*T + S*B*1*1 -> S*B*1*T
-
-        # Degree in radian
-        f_t = torch.mul(f, t)                        # S*B*1*1 * S*B*1*T -> S*B*1*T
-        deg = torch.nn.functional.linear(f_t, self.i_2pi_tensor, bias=self.phi)
-
-        i_f   = torch.mul(self.i_2pi_tensor, f)        # D*1 * S*B*1*1 -> S*B*D*1
-        i_f_t = torch.mul(i_f, t)                      # S*B*D*1 * S*B*1*T -> S*B*D*T
-        deg = torch.add(i_f_t, self.phi)               # S*B*D*T + D*1 -> S*B*D*T
-
-
-        
-        # # Degree in radian
-        # ft = torch.mul(f, t)                   # S*B*1*1 * S*B*1*T = S*B*1*T
-        # deg = torch.mul(self.i_2pi_tensor, deg) # D*1 * S*B*1*T = S*B*D*T
-        # deg = torch.add(deg, self.phi)        # S*B*D*T + D*1 -> S*B*D*T
-
-        # deg = torch.mul(self.i_2pi_tensor, t) # D*1 * S*B*1*T -> S*B*D*T
-        # deg = torch.mul(f, deg)               # S*B*1*1 * S*B*D*T = S*B*D*T
-        # deg = torch.add(deg, self.phi)        # S*B*D*T + D*1 -> S*B*D*T
-        # Sine
-        s = torch.sin(deg)                    # S*B*D*T
-        self.W = torch.mul(self.a, s)         # D*1 * S*B*D*T -> S*B*D*T
-        
-
-        # self.W = torch.mul(self.a, torch.sin(torch.add(torch.mul(f, torch.mul(self.i_2pi_tensor, torch.add(self.k_T_tensor, torch.neg(tau)))), self.phi)))
-
-        h_SBDT = torch.mul(self.W, x)         # S*B*D*T * S*B*1*T -> S*B*D*T
-        h_SBD  = torch.sum(h_SBDT, dim=-1, keepdim=False)
-
-        return h_SBD
-
-    def make_i_2pi_tensor(self):
-        # indices of frequency components
-        i_vec = numpy.zeros((self.output_dim, 1))
-        for i in range(self.num_freq):
-            for j in range(self.num_channels):
-                d = int(i * self.num_channels + j)
-                i_vec[d,0] = i + 1
-        i_vec = i_vec * 2 * numpy.pi
-        i_vec_tensor = torch.tensor(i_vec, dtype=torch.float, requires_grad=False)
-        i_vec_tensor = torch.nn.Parameter(i_vec_tensor, requires_grad=False)
-        return i_vec_tensor
-
-    def make_k_T_tensor(self):
-        # indices along time
-        k_T_vec = numpy.zeros((1,self.time_len))
-        for i in range(self.time_len):
-            k_T_vec[0,i] = i
-        k_T_vec = k_T_vec * self.t_wav
-        k_T_tensor = torch.tensor(k_T_vec, dtype=torch.float, requires_grad=False)
-        k_T_tensor = torch.nn.Parameter(k_T_tensor)
-        return k_T_tensor
-
 ########################
 # PyTorch-based Models #
 ########################
@@ -810,6 +756,22 @@ class General_Model(object):
                 s *= n
             size += s
         logger.info("Total model size is %i" % size)
+        
+    def detect_nan_model_parameters(self, logger):
+        logger.info('Detect NaN in Parameters')
+        detect_bool = False
+        for name, param in self.nn_model.named_parameters():
+            # Detect Inf
+            if not torch.isfinite(param).all():
+                detect_bool = True
+                print(str(name)+' contains Inf')
+                print(torch.isfinite(param))
+                # Detect NaN; NaN is not finite in Torch
+                if torch.isnan(param).any():
+                    print(str(name)+' contains NaN')
+                    print(torch.isnan(param))
+        if not detect_bool:
+            logger.info('No Inf or NaN found in Parameters')
 
     def update_parameters(self, feed_dict):
         self.loss = self.gen_loss(feed_dict)
@@ -898,6 +860,18 @@ class DV_Y_CMP_model(General_Model):
         correct = (predict_idx_list == y).sum().item()
         accuracy = correct/total
         return correct, total, accuracy
+
+    def gen_all_h_values(self, feed_dict):
+        x_dict, y = self.numpy_to_tensor(feed_dict)
+        h_list = []
+        for nn_layer in self.nn_model.layer_list:
+            x_dict = nn_layer(x_dict)
+            if 'h_stack' in x_dict:
+                h = x_dict['h_stack']
+            else:
+                h = x_dict['h']
+            h_list.append(h.cpu().detach().numpy())
+        return h_list
 
     def numpy_to_tensor(self, feed_dict):
         x_dict = {}
