@@ -192,7 +192,7 @@ def compute_cosine_distance(lambda_1, lambda_2):
                 nan_count += 1
             else:
                 d += d_ij
-    return d
+    return d, nan_count
 
 def get_file_id_from_file_name(file_name):
     file_id = file_name.split('/')[-1].split('.')[0]
