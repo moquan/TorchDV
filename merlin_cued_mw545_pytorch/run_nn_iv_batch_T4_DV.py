@@ -28,7 +28,7 @@ class configuration(object):
         # self.Processes['TestCMPTorch']  = True
 
         self.Processes['TrainCMPDVY'] = False
-        self.Processes['TestCMPDVY']  = False
+        self.Processes['TestCMPDVY']  = True
 
         self.Processes['TrainWavDVY'] = False
         self.Processes['TestWavDVY']  = False
@@ -43,8 +43,8 @@ class configuration(object):
 
         # Experiments where F0 and phase shift info are predicted
         # 200ms window is sliced into smaller windows
-        self.Processes['TrainWavSineV3'] = True
-        self.Processes['TestWavSineV3']  = True
+        self.Processes['TrainWavSineV3'] = False
+        self.Processes['TestWavSineV3']  = False
 
 
 
@@ -181,7 +181,9 @@ class configuration(object):
 
     def make_speaker_id_list_dict(self):
         speaker_id_list_dict = {}
-        speaker_id_list_dict['all'] = ['p100', 'p101', 'p102', 'p103', 'p105', 'p106', 'p107', 'p109', 'p10', 'p110', 'p112', 'p113', 'p114', 'p116', 'p117', 'p118', 'p11', 'p120', 'p122', 'p123', 'p124', 'p125', 'p126', 'p128', 'p129', 'p130', 'p131', 'p132', 'p134', 'p135', 'p136', 'p139', 'p13', 'p140', 'p141', 'p142', 'p146', 'p147', 'p14', 'p151', 'p152', 'p153', 'p155', 'p156', 'p157', 'p158', 'p15', 'p160', 'p161', 'p162', 'p163', 'p164', 'p165', 'p166', 'p167', 'p168', 'p170', 'p171', 'p173', 'p174', 'p175', 'p176', 'p177', 'p178', 'p179', 'p17', 'p180', 'p182', 'p184', 'p187', 'p188', 'p192', 'p194', 'p197', 'p19', 'p1', 'p200', 'p201', 'p207', 'p208', 'p209', 'p210', 'p211', 'p212', 'p215', 'p216', 'p217', 'p218', 'p219', 'p21', 'p220', 'p221', 'p223', 'p224', 'p22', 'p23', 'p24', 'p26', 'p27', 'p28', 'p290', 'p293', 'p294', 'p295', 'p298', 'p299', 'p2', 'p300', 'p302', 'p303', 'p304', 'p306', 'p308', 'p30', 'p310', 'p311', 'p312', 'p313', 'p314', 'p316', 'p31', 'p320', 'p321', 'p322', 'p327', 'p32', 'p331', 'p333', 'p334', 'p336', 'p337', 'p339', 'p33', 'p340', 'p341', 'p343', 'p344', 'p347', 'p348', 'p349', 'p34', 'p350', 'p351', 'p353', 'p354', 'p356', 'p35', 'p36', 'p370', 'p375', 'p376', 'p37', 'p384', 'p386', 'p38', 'p398', 'p39', 'p3', 'p41', 'p43', 'p44', 'p45', 'p47', 'p48', 'p49', 'p4', 'p52', 'p53', 'p54', 'p55', 'p56', 'p57', 'p5', 'p60', 'p61', 'p62', 'p63', 'p65', 'p67', 'p68', 'p69', 'p6', 'p70', 'p71', 'p73', 'p74', 'p75', 'p76', 'p77', 'p79', 'p7', 'p81', 'p84', 'p85', 'p87', 'p88', 'p89', 'p8', 'p90', 'p91', 'p93', 'p94', 'p95', 'p96', 'p97', 'p98', 'p99']        
+        speaker_id_list_dict['all'] = ['p100', 'p101', 'p102', 'p103', 'p105', 'p106', 'p107', 'p109', 'p10', 'p110', 'p112', 'p113', 'p114', 'p116', 'p117', 'p118', 'p11', 'p120', 'p122', 'p123', 'p124', 'p125', 'p126', 'p128', 'p129', 'p130', 'p131', 'p132', 'p134', 'p135', 'p136', 'p139', 'p13', 'p140', 'p141', 'p142', 'p146', 'p147', 'p14', 'p151', 'p152', 'p153', 'p155', 'p156', 'p157', 'p158', 'p15', 'p160', 'p161', 'p162', 'p163', 'p164', 'p165', 'p166', 'p167', 'p168', 'p170', 'p171', 'p173', 'p174', 'p175', 'p176', 'p177', 'p178', 'p179', 'p17', 'p180', 'p182', 'p184', 'p187', 'p188', 'p192', 'p194', 'p197', 'p19', 'p1', 'p200', 'p201', 'p207', 'p208', 'p209', 'p210', 'p211', 'p212', 'p215', 'p216', 'p217', 'p218', 'p219', 'p21', 'p220', 'p221', 'p223', 'p224', 'p22', 'p23', 'p24', 'p26', 'p27', 'p28', 'p290', 'p293', 'p294', 'p295', 'p298', 'p299', 'p2', 'p300', 'p302', 'p303', 'p304', 'p306', 'p308', 'p30', 'p310', 'p311', 'p312', 'p313', 'p314', 'p316', 'p31', 'p320', 'p321', 'p322', 'p327', 'p32', 'p331', 'p333', 'p334', 'p336', 'p337', 'p339', 'p33', 'p340', 'p341', 'p343', 'p344', 'p347', 'p348', 'p349', 'p34', 'p350', 'p351', 'p353', 'p354', 'p356', 'p35', 'p36', 'p370', 'p375', 'p376', 'p37', 'p384', 'p386', 'p38', 'p398', 'p39', 'p3', 'p43', 'p44', 'p45', 'p47', 'p48', 'p49', 'p4', 'p52', 'p53', 'p54', 'p55', 'p56', 'p57', 'p5', 'p60', 'p61', 'p62', 'p63', 'p65', 'p67', 'p68', 'p69', 'p6', 'p70', 'p71', 'p73', 'p74', 'p75', 'p76', 'p77', 'p79', 'p7', 'p81', 'p84', 'p85', 'p87', 'p88', 'p89', 'p8', 'p90', 'p91', 'p93', 'p94', 'p95', 'p96', 'p97', 'p98', 'p99']
+        # p41 has been removed, voice of a sick person
+        # p202 is not in file_id_list yet, and he has same voice as p209, be careful
         speaker_id_list_dict['valid'] = ['p162', 'p2', 'p303', 'p48', 'p109', 'p153', 'p38', 'p166', 'p218', 'p70']    # Last 3 are males
         speaker_id_list_dict['test']  = ['p293', 'p210', 'p26', 'p24', 'p313', 'p223', 'p141', 'p386', 'p178', 'p290'] # Last 3 are males
         speaker_id_list_dict['train'] = [spk for spk in speaker_id_list_dict['all'] if (spk not in (speaker_id_list_dict['valid']+speaker_id_list_dict['test']))]
@@ -315,6 +317,7 @@ def main_function(cfg):
         from exp_mw545.exp_dv_wav_sinenet_v1 import test_dv_y_wav_model
         test_dv_y_wav_model(cfg)
 
+
     if cfg.Processes['TrainWavSineV2']:
         from exp_mw545.exp_dv_wav_sinenet_v2 import train_dv_y_wav_model
         train_dv_y_wav_model(cfg)
@@ -323,6 +326,7 @@ def main_function(cfg):
         from exp_mw545.exp_dv_wav_sinenet_v2 import test_dv_y_wav_model
         test_dv_y_wav_model(cfg)
 
+
     if cfg.Processes['TrainWavSineV3']:
         from exp_mw545.exp_dv_wav_sinenet_v3 import train_dv_y_wav_model
         train_dv_y_wav_model(cfg)
@@ -330,6 +334,7 @@ def main_function(cfg):
     if cfg.Processes['TestWavSineV3']:
         from exp_mw545.exp_dv_wav_sinenet_v3 import test_dv_y_wav_model
         test_dv_y_wav_model(cfg)
+
 
 
 
