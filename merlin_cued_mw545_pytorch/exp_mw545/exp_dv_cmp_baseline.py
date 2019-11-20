@@ -14,10 +14,10 @@ from modules_torch import torch_initialisation
 from io_funcs.binary_io import BinaryIOCollection
 io_fun = BinaryIOCollection()
 
-from exp_mw545.exp_dv_cmp_pytorch import list_random_loader, dv_y_configuration, make_dv_y_exp_dir_name, make_dv_file_list, train_dv_y_model, class_test_dv_y_model, distance_test_dv_y_cmp_model, plot_all_h_dv_y_model
+from exp_mw545.exp_dv_cmp_pytorch import list_random_loader, dv_y_configuration, make_dv_y_exp_dir_name, make_dv_file_list, train_dv_y_model, class_test_dv_y_model, distance_test_dv_y_cmp_model, plot_all_h_dv_y_model, relu_0_stats
 
 
-def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_speaker_list, utter_tvt, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
+def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_speaker_list, utter_tvt, all_utt_start_frame_index=None, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
     feat_name = dv_y_cfg.y_feat_name # Hard-coded here for now
     # Make i/o shape arrays
     # This is numpy shape, not Tensor shape!
@@ -46,9 +46,13 @@ def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_sp
         speaker_start_frame_index_list = []
         for utter_idx in range(dv_y_cfg.spk_num_utter):
             y_stack = speaker_utter_list[feat_name][utter_idx][:,dv_y_cfg.feat_index]
-            frame_number   = speaker_utter_len_list[utter_idx]
-            extra_file_len = frame_number - (min_file_len)
-            start_frame_index = numpy.random.choice(range(total_sil_one_side, total_sil_one_side+extra_file_len+1))
+            if all_utt_start_frame_index is None:
+                # Use random starting frame index
+                frame_number   = speaker_utter_len_list[utter_idx]
+                extra_file_len = frame_number - (min_file_len)
+                start_frame_index = numpy.random.choice(range(total_sil_one_side, total_sil_one_side+extra_file_len+1))
+            else:
+                start_frame_index = all_utt_start_frame_index
             speaker_start_frame_index_list.append(start_frame_index)
             for seq_idx in range(dv_y_cfg.utter_num_seq):
                 y[speaker_idx, utter_idx*dv_y_cfg.utter_num_seq+seq_idx, :, :] = y_stack[start_frame_index:start_frame_index+dv_y_cfg.batch_seq_len, :]
@@ -57,7 +61,9 @@ def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_sp
 
 
     # S,B,T,D --> S,B,T*D
-    x_val = numpy.reshape(y, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
+    # How about transpose first, so it becomes 86 trajectories?
+    y_SBDT = numpy.transpose(y, (0,1,3,2))
+    x_val = numpy.reshape(y_SBDT, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
     if dv_y_cfg.train_by_window:
         # S --> S*B
         y_val = numpy.repeat(dv, dv_y_cfg.spk_num_seq)
@@ -134,7 +140,9 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
     batch_size = B_actual
 
     # B,T,D --> S(1),B,T*D
-    x_val = numpy.reshape(y, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
+    # How about transpose first, so it becomes 86 trajectories?
+    y_BDT = numpy.transpose(y, (0,2,1))
+    x_val = numpy.reshape(y_BDT, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
     if dv_y_cfg.train_by_window:
         # S --> S*B
         y_val = numpy.repeat(dv, dv_y_cfg.spk_num_seq)
@@ -163,7 +171,7 @@ class dv_y_cmp_configuration(dv_y_configuration):
         self.batch_seq_total_len = 400 # Number of frames at 200Hz; 400 for 2s
         self.batch_seq_len   = 40 # T
         self.batch_seq_shift = 5
-        self.dv_dim = 256
+        self.dv_dim = 64
         self.nn_layer_config_list = [
             # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
             # {'type':'SineAttenCNN', 'size':512, 'num_channels':1, 'dropout_p':1, 'CNN_filter_size':5, 'Sine_filter_size':200,'lf0_mean':5.04976, 'lf0_var':0.361811},
@@ -174,8 +182,8 @@ class dv_y_cmp_configuration(dv_y_configuration):
             # {'type':'LReLUDVMax', 'size':self.dv_dim, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False}
             # {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0.5}
             {'type':'ReLUDV', 'size':256, 'dropout_p':0, 'batch_norm':False},
-            {'type':'ReLUDV', 'size':256, 'dropout_p':0, 'batch_norm':False},
-            {'type':'LReLUDV', 'size':256, 'dropout_p':0.2, 'batch_norm':False}
+            {'type':'ReLUDV', 'size':256, 'dropout_p':0, 'batch_norm':True},
+            {'type':'ReLUDV', 'size':self.dv_dim, 'dropout_p':0.2, 'batch_norm':False}
         ]
 
         self.gpu_id = 1
@@ -194,5 +202,5 @@ def test_dv_y_cmp_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
     # class_test_dv_y_model(cfg, dv_y_cfg)
     # distance_test_dv_y_cmp_model(cfg, dv_y_cfg)
-    plot_all_h_dv_y_model(cfg, dv_y_cfg)
-
+    # plot_all_h_dv_y_model(cfg, dv_y_cfg)
+    relu_0_stats(cfg, dv_y_cfg)
