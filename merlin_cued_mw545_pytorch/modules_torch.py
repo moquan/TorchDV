@@ -150,7 +150,8 @@ class Build_NN_Layer(torch.nn.Module):
 
         input_dim  = self.params['expect_input_dim_values']['D']
         output_dim = self.params['output_dim_values']['D']
-        self.layer_fn = ReLUDVLayer(input_dim, output_dim)
+        batch_norm = self.params["layer_config"]["batch_norm"]
+        self.layer_fn = ReLUDVLayer(input_dim, output_dim, batch_norm)
 
     def LReLUDV(self):
         self.params["expect_input_dim_seq"] = ['S','B','D']
@@ -276,13 +277,17 @@ class Build_NN_Layer(torch.nn.Module):
         self.params["output_dim_values"]['D'] += 1 # +1 to append nlf F0 values
 
 class ReLUDVLayer(torch.nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, batch_norm):
         super().__init__()
-        self.input_dim    = input_dim
-        self.output_dim   = output_dim
+        self.input_dim  = input_dim
+        self.output_dim = output_dim
+        self.batch_norm = batch_norm
 
         self.fc_fn   = torch.nn.Linear(input_dim, output_dim)
         self.relu_fn = torch.nn.ReLU()
+
+        if self.batch_norm:
+            self.bn_fn = torch.nn.BatchNorm1d(output_dim)
 
     def forward(self, x_dict):
         if 'h_reshape' in x_dict:
@@ -291,6 +296,14 @@ class ReLUDVLayer(torch.nn.Module):
             x = x_dict['x']
         # Linear
         h_i = self.fc_fn(x)
+        # Batch Norm
+        if self.batch_norm:
+            # Reshape S*B*D to S*D*B, to norm D
+            h_i_SDB = torch.transpose(h_i, 1,2)
+            h_i_SDB = self.bn_fn(h_i_SDB)
+            # Reshape back to S*B*D
+            h_i_SBD = torch.transpose(h_i_SDB, 1,2)
+            h_i = h_i_SBD
         # ReLU
         h = self.relu_fn(h_i)
         y_dict = {'h': h}
@@ -565,8 +578,8 @@ class SinenetLayerV3(torch.nn.Module):
         self.num_wins     = int((time_len-self.win_len)/self.win_shift) + 1
 
         self.nlf_pred_layer = torch.nn.Linear(time_len, 1)
-        self.tau_pred_layer = torch.nn.Linear(time_len, 1)
-        self.tau_layer_list = torch.nn.ModuleList([torch.nn.Linear(1, 1) for i in range(self.num_wins)])
+        # self.tau_pred_layer = torch.nn.Linear(time_len, 1)
+        self.tau_layer_list = torch.nn.ModuleList([torch.nn.Linear(time_len, 1) for i in range(self.num_wins)])
         self.sinenet_layer  = SinenetLayer(self.win_len, output_dim, num_channels)
 
     def forward(self, x_dict):
@@ -575,12 +588,12 @@ class SinenetLayerV3(torch.nn.Module):
         elif 'x' in x_dict:
             x = x_dict['x']
         nlf = self.nlf_pred_layer(x)
-        tau = self.tau_pred_layer(x)
+        # tau = self.tau_pred_layer(x)
 
         h_SBD_i_list = []
         for i in range(self.num_wins):
             x_i = x_dict['x_win_list'][i]
-            tau_i = self.tau_layer_list[i](tau)
+            tau_i = self.tau_layer_list[i](x)
             sine_dict_i = {'h_reshape':x_i, 'nlf':nlf, 'tau':tau_i}
             h_SBD_i = self.sinenet_layer(sine_dict_i)['h']
             h_SBD_i_list.append(h_SBD_i)
@@ -676,7 +689,13 @@ class DV_Y_CMP_NN_model(torch.nn.Module):
 
     def lambda_to_logits_SBD(self, x_dict):
         ''' lambda_S_B_D to indices_S_B '''
-        logit_SBD = self.expansion_layer(x_dict['lambda'])
+        if 'lambda' in x_dict:
+            logit_SBD = self.expansion_layer(x_dict['lambda'])
+        elif 'h' in x_dict:
+            logit_SBD = self.expansion_layer(x_dict['h'])
+        else:
+            print('No valid key found in x_dict, expect lambda or h!')
+            raise
         return logit_SBD
 
 class DV_Y_F0_Tau_NN_model(DV_Y_CMP_NN_model):
@@ -871,6 +890,8 @@ class DV_Y_CMP_model(General_Model):
             else:
                 h = x_dict['h']
             h_list.append(h.cpu().detach().numpy())
+        logit_SBD = self.nn_model.lambda_to_logits_SBD(x_dict)
+        h_list.append(logit_SBD.cpu().detach().numpy())
         return h_list
 
     def numpy_to_tensor(self, feed_dict):
