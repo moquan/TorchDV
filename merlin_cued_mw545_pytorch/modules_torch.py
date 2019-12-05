@@ -554,8 +554,8 @@ class SinenetLayerV2(torch.nn.Module):
         self.sinenet_layer  = SinenetLayer(time_len, output_dim, num_channels)
 
     def forward(self, x_dict):
-        h_SBD = self.sinenet_layer(x_dict)
-
+        h_SBD = self.sinenet_layer(x_dict)['h']
+        nlf   = x_dict['nlf']
         # Append nlf
         nlf_SBD = torch.squeeze(nlf, 2)    # S*B*1*1 -> S*B*1
         h_SBD   = torch.cat((nlf_SBD, h_SBD), 2)
