@@ -57,6 +57,20 @@ def read_file_list(file_name):
     logger.info('Read file list from %s' % file_name)
     return  file_lists
 
+def read_sil_index_file(sil_index_file='/home/dawna/tts/mw545/TorchDV/sil_index_list.scp'):
+    logger = make_logger("read_sil_index")
+    sil_index_dict = {}
+    with open(sil_index_file, 'r') as f:
+        file_lines = f.readlines()
+    logger.info('Read sil index dict from %s' % sil_index_file)
+    for l in file_lines:
+        a,b,c = l.strip().split(' ')
+        file_id = a
+        index_first = int(b)
+        index_last  = int(c)
+        sil_index_dict[file_id] = [index_first, index_last]
+    return sil_index_dict
+
 def get_iv_values_from_file(iv_file_name, file_type='text'):
     if file_type == 'text':
         iv_values = {}
@@ -417,7 +431,7 @@ def wav_2_norm_cmp(cfg, wav_file, target_dir, lab_file, cmp_norm_file):
     acoustic_2_cmp_list(cfg, acoustic_file_list_dict, cmp_file_list)
 
     ''' 3. cmp to resil_cmp (requires label file) '''
-    from modules_2 import resil_nn_file_list
+    # from modules_2 import resil_nn_file_list
     feat_name = 'cmp'
     label_align_file_list = [lab_file]
     cmp_resil_file_list = prepare_file_path_list([file_name], target_dir, '.cmp.resil')
