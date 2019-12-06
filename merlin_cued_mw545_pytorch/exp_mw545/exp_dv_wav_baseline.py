@@ -16,7 +16,7 @@ from modules_torch import torch_initialisation
 from io_funcs.binary_io import BinaryIOCollection
 io_fun = BinaryIOCollection()
 
-from exp_mw545.exp_dv_cmp_pytorch import list_random_loader, dv_y_configuration, make_dv_y_exp_dir_name, make_dv_file_list, train_dv_y_model, class_test_dv_y_model, distance_test_dv_y_model, plot_all_h_dv_y_model, eval_logit_dv_y_model
+from exp_mw545.exp_dv_cmp_pytorch import list_random_loader, dv_y_configuration, make_dv_y_exp_dir_name, make_dv_file_list, train_dv_y_model, class_test_dv_y_model, distance_test_dv_y_model, plot_all_h_dv_y_model, eval_logit_dv_y_model, relu_0_stats
 
 
 def make_feed_dict_y_wav_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_speaker_list, utter_tvt, all_utt_start_frame_index=None, return_dv=False, return_y=False, return_frame_index=False, return_file_name=False):
@@ -25,11 +25,15 @@ def make_feed_dict_y_wav_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batc
     # This is numpy shape, not Tensor shape!
     y  = numpy.zeros((dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
     dv = numpy.zeros((dv_y_cfg.batch_num_spk))
-
+    
+    wav_sr  = dv_y_cfg.cfg.wav_sr
+    cmp_sr  = dv_y_cfg.cfg.frame_sr
+    wav_cmp_ratio = int(wav_sr / cmp_sr)
     # Do not use silence frames at the beginning or the end
-    total_sil_one_side_200 = dv_y_cfg.frames_silence_to_keep + dv_y_cfg.sil_pad # This is at 200Hz
-    total_sil_one_side = total_sil_one_side_200 * 80                            # This is at 16kHz
-    min_file_len = dv_y_cfg.batch_seq_total_len + 2 * total_sil_one_side          # This is at 16kHz
+    total_sil_one_side_cmp = dv_y_cfg.frames_silence_to_keep + dv_y_cfg.sil_pad # This is at 200Hz
+    total_sil_one_side_wav = total_sil_one_side_cmp * wav_cmp_ratio             # This is at 16kHz
+    min_file_len = dv_y_cfg.batch_seq_total_len + 2 * total_sil_one_side_wav    # This is at 16kHz
+    sil_index_dict = dv_y_cfg.sil_index_dict
 
     file_name_list = []
     start_frame_index_list = []
@@ -46,23 +50,27 @@ def make_feed_dict_y_wav_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batc
         speaker_file_name_list, speaker_utter_len_list, speaker_utter_list = get_utters_from_binary_dict(dv_y_cfg.spk_num_utter, file_list_dict[(speaker_id, utter_tvt)], file_dir_dict, feat_name_list=[feat_name], feat_dim_list=[dv_y_cfg.feat_dim], min_file_len=min_file_len, random_seed=None)
         file_name_list.append(speaker_file_name_list)
 
-
         speaker_start_frame_index_list = []
         for utter_idx in range(dv_y_cfg.spk_num_utter):
             y_stack = speaker_utter_list[feat_name][utter_idx][:,dv_y_cfg.feat_index]
+            file_name = speaker_file_name_list[utter_idx]
+            no_sil_start_cmp = sil_index_dict[file_name][0]
+            no_sil_end_cmp   = sil_index_dict[file_name][1]
+            len_no_sil_cmp   = no_sil_end_cmp - no_sil_start_cmp + 1
+            sil_pad_first_idx_cmp = max(0, no_sil_start_cmp - total_sil_one_side_cmp)
+            remain_sil_before_cmp = no_sil_start_cmp - sil_pad_first_idx_cmp
+            remain_sil_before_wav = remain_sil_before_cmp * wav_cmp_ratio
             if all_utt_start_frame_index is None:
                 # Use random starting frame index
-                frame_number   = speaker_utter_len_list[utter_idx]
-                extra_file_len = frame_number - (min_file_len)
-                start_frame_index = numpy.random.choice(range(total_sil_one_side, total_sil_one_side+extra_file_len+1))
+                extra_file_len = len_no_sil_cmp * wav_cmp_ratio - dv_y_cfg.batch_seq_total_len
+                start_frame_index = numpy.random.randint(low=remain_sil_before_wav, high=remain_sil_before_wav+extra_file_len+1)
             else:
-                start_frame_index = all_utt_start_frame_index
+                start_frame_index = remain_sil_before_wav + all_utt_start_frame_index
             speaker_start_frame_index_list.append(start_frame_index)
             for seq_idx in range(dv_y_cfg.utter_num_seq):
                 y[speaker_idx, utter_idx*dv_y_cfg.utter_num_seq+seq_idx, :, :] = y_stack[start_frame_index:start_frame_index+dv_y_cfg.batch_seq_len, :]
                 start_frame_index = start_frame_index + dv_y_cfg.batch_seq_shift
         start_frame_index_list.append(speaker_start_frame_index_list)
-
 
     # S,B,T,D --> S,B,T*D
     x_val = numpy.reshape(y, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
@@ -96,10 +104,6 @@ def make_feed_dict_y_wav_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name
     y  = numpy.zeros((dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
     dv = numpy.zeros((dv_y_cfg.batch_num_spk))
 
-    # Do not use silence frames at the beginning or the end
-    total_sil_one_side_200 = dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad
-    total_sil_one_side = total_sil_one_side_200 * 80
-
     # Make classification targets, index sequence
     try: true_speaker_index = dv_y_cfg.speaker_id_list_dict['train'].index(speaker_id)
     except ValueError: true_speaker_index = 0 # At generation time, since dv is not used, a non-train speaker is given an arbituary speaker index
@@ -109,10 +113,23 @@ def make_feed_dict_y_wav_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name
         # Get new file, make BTD
         _min_len, features = get_one_utter_by_name(file_name, file_dir_dict, feat_name_list=[feat_name], feat_dim_list=[dv_y_cfg.feat_dim])
         y_features = features[feat_name]
-        l = y_features.shape[0]
-        l_no_sil = l - total_sil_one_side * 2
-        features_no_sil = y_features[total_sil_one_side:total_sil_one_side+l_no_sil]
-        B_total  = int((l_no_sil - dv_y_cfg.batch_seq_len) / dv_y_cfg.batch_seq_shift) + 1
+        # Do not use silence frames at the beginning or the end
+        wav_sr  = dv_y_cfg.cfg.wav_sr
+        cmp_sr  = dv_y_cfg.cfg.frame_sr
+        wav_cmp_ratio = int(wav_sr / cmp_sr)
+        total_sil_one_side_cmp = dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad
+        total_sil_one_side_wav = total_sil_one_side_cmp * wav_cmp_ratio
+        sil_index_dict = dv_y_cfg.sil_index_dict
+        no_sil_start_cmp = sil_index_dict[file_name][0]
+        no_sil_end_cmp   = sil_index_dict[file_name][1]
+        len_no_sil_cmp = no_sil_end_cmp - no_sil_start_cmp + 1
+        len_no_sil_wav = len_no_sil_cmp*wav_cmp_ratio
+        sil_pad_first_idx_cmp = max(0, no_sil_start_cmp - total_sil_one_side_cmp)
+        remain_sil_before_cmp  = no_sil_start_cmp - sil_pad_first_idx_cmp
+        remain_sil_before_wav = remain_sil_before_cmp * wav_cmp_ratio
+        features_no_sil = y_features[remain_sil_before_wav:remain_sil_before_wav+len_no_sil_wav]
+
+        B_total  = int((len_no_sil_wav - dv_y_cfg.batch_seq_len) / dv_y_cfg.batch_seq_shift) + 1
         BTD_features = numpy.zeros((B_total, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
         for b in range(B_total):
             start_i = dv_y_cfg.batch_seq_shift * b
@@ -169,10 +186,10 @@ class dv_y_wav_cmp_configuration(dv_y_configuration):
         # Waveform-level input configuration
         self.y_feat_name   = 'wav'
         self.out_feat_list = ['wav']
-        self.batch_seq_total_len = 32000 # Number of frames at 16kHz; 32000 for 2s
+        self.batch_seq_total_len = 12000 # Number of frames at 16kHz; 32000 for 2s
         self.batch_seq_len   = 3200 # T
         self.batch_seq_shift = 5*80
-        self.dv_dim = 256
+        self.dv_dim = 8
         self.nn_layer_config_list = [
             # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
             # {'type':'SineAttenCNN', 'size':512, 'num_channels':1, 'dropout_p':1, 'CNN_filter_size':5, 'Sine_filter_size':200,'lf0_mean':5.04976, 'lf0_var':0.361811},
@@ -180,14 +197,14 @@ class dv_y_wav_cmp_configuration(dv_y_configuration):
             # {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
             # {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0, 'batch_norm':False},
             # {'type':'ReLUDVMax', 'size':256, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False},
-            # {'type':'ReLUDVMax', 'size':self.dv_dim, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False}
+            # {'type':'LReLUDVMax', 'size':self.dv_dim, 'num_channels':2, 'channel_combi':'maxout', 'dropout_p':0.5, 'batch_norm':False}
             # {'type':'LinDV', 'size':self.dv_dim, 'num_channels':1, 'dropout_p':0.5}
             {'type':'ReLUDV', 'size':256, 'dropout_p':0, 'batch_norm':False},
-            {'type':'ReLUDV', 'size':256, 'dropout_p':0, 'batch_norm':False},
-            {'type':'LReLUDV', 'size':256, 'dropout_p':0.2, 'batch_norm':False}
+            {'type':'ReLUDV', 'size':256, 'dropout_p':0, 'batch_norm':True},
+            {'type':'ReLUDV', 'size':self.dv_dim, 'dropout_p':0.2, 'batch_norm':False}
         ]
 
-        self.gpu_id = 1
+        self.gpu_id = 2
 
         from modules_torch import DV_Y_CMP_model
         self.dv_y_model_class = DV_Y_CMP_model
@@ -202,9 +219,9 @@ def train_dv_y_wav_model(cfg, dv_y_cfg=None):
 def test_dv_y_wav_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_wav_cmp_configuration(cfg)
     class_test_dv_y_model(cfg, dv_y_cfg)
-    distance_test_dv_y_model(cfg, dv_y_cfg)
-    plot_all_h_dv_y_model(cfg, dv_y_cfg)
+    # distance_test_dv_y_model(cfg, dv_y_cfg)
+    # plot_all_h_dv_y_model(cfg, dv_y_cfg)
+    # eval_logit_dv_y_model(cfg, dv_y_cfg)
+    relu_0_stats(cfg, dv_y_cfg)
 
-def eval_dv_y_wav_model(cfg, dv_y_cfg=None):
-    if dv_y_cfg is None: dv_y_cfg = dv_y_wav_cmp_configuration(cfg)
-    eval_logit_dv_y_model(cfg, dv_y_cfg)
+    
