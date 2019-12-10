@@ -51,20 +51,19 @@ def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_sp
             no_sil_start = sil_index_dict[file_name][0]
             no_sil_end   = sil_index_dict[file_name][1]
             len_no_sil   = no_sil_end - no_sil_start + 1
-            sil_pad_first_idx = max(0, no_sil_start - (dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad))
-            total_sil_before  = no_sil_start - sil_pad_first_idx
+            sil_pad_first_idx = max(0, no_sil_start - total_sil_one_side)
+            remain_sil_before  = no_sil_start - sil_pad_first_idx
             if all_utt_start_frame_index is None:
                 # Use random starting frame index
                 extra_file_len = len_no_sil - dv_y_cfg.batch_seq_total_len
-                start_frame_index = numpy.random.randint(low=total_sil_before, high=total_sil_before+extra_file_len+1)
+                start_frame_index = numpy.random.randint(low=remain_sil_before, high=remain_sil_before+extra_file_len+1)
             else:
-                start_frame_index = total_sil_before + all_utt_start_frame_index
+                start_frame_index = remain_sil_before + all_utt_start_frame_index
             speaker_start_frame_index_list.append(start_frame_index)
             for seq_idx in range(dv_y_cfg.utter_num_seq):
                 y[speaker_idx, utter_idx*dv_y_cfg.utter_num_seq+seq_idx, :, :] = y_stack[start_frame_index:start_frame_index+dv_y_cfg.batch_seq_len, :]
                 start_frame_index = start_frame_index + dv_y_cfg.batch_seq_shift
         start_frame_index_list.append(speaker_start_frame_index_list)
-
 
     # S,B,T,D --> S,B,T*D
     # How about transpose first, so it becomes 86 trajectories?
@@ -116,11 +115,11 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
         sil_index_dict = dv_y_cfg.sil_index_dict
         no_sil_start = sil_index_dict[file_name][0]
         no_sil_end   = sil_index_dict[file_name][1]
-        l_no_sil = no_sil_end - no_sil_start + 1
+        len_no_sil   = no_sil_end - no_sil_start + 1
         sil_pad_first_idx = max(0, no_sil_start - (dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad))
-        total_sil_before  = no_sil_start - sil_pad_first_idx
-        features_no_sil = y_features[total_sil_before:total_sil_before+l_no_sil]
-        B_total  = int((l_no_sil - dv_y_cfg.batch_seq_len) / dv_y_cfg.batch_seq_shift) + 1
+        remain_sil_before  = no_sil_start - sil_pad_first_idx
+        features_no_sil = y_features[remain_sil_before:remain_sil_before+len_no_sil]
+        B_total  = int((len_no_sil - dv_y_cfg.batch_seq_len) / dv_y_cfg.batch_seq_shift) + 1
         BTD_features = numpy.zeros((B_total, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
         for b in range(B_total):
             start_i = dv_y_cfg.batch_seq_shift * b
