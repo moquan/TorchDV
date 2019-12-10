@@ -206,16 +206,6 @@ def linear_interpolate(lf0_data, t_space, t_start, t_end):
     lf0_mid = lf0_data[n] * (1-r) + lf0_data[n+1] * r
     return lf0_mid
 
-def find_pitch_time(pitch_loc_list, t_start, t_end):
-    for t in pitch_loc_list:
-        if t > t_start:
-            if t <= t_end:
-                return t
-        elif t > t_end:
-            return 0
-    return 0
-
-
 def count_male_female_class_errors(total_wrong_class, male_speaker_list):
     wrong_list = {'mm':0, 'ff':0, 'mf':0, 'fm':0}
     for (x,y) in total_wrong_class.keys():
