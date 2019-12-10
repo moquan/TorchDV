@@ -138,7 +138,7 @@ def get_one_utter_by_name(file_name, file_dir_dict, feat_name_list, feat_dim_lis
     # Given file_name and a list of directories, extension names and extension dimensions
     # Return the file length and the binary files
     feature_files = {}
-    len_list       = []
+    len_list      = []
     for feat_name, feat_dim in zip(feat_name_list, feat_dim_list):
         full_file_name = os.path.join(file_dir_dict[feat_name], file_name+'.'+feat_name)
         features, frame_number = io_fun.load_binary_file_frame(full_file_name, feat_dim)
