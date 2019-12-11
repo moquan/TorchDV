@@ -64,7 +64,7 @@ class dv_y_configuration(object):
         self.max_num_decay    = 10
         self.epoch_num_batch  = {'train': 400, 'valid':400}
 
-        self.batch_num_spk = 100 # S
+        self.batch_num_spk = 64 # S
         self.spk_num_utter = 1 # When >1, windows from different utterances are stacked along B
         
 
@@ -436,6 +436,7 @@ def distance_test_dv_y_cmp_model(cfg, dv_y_cfg):
     dv_y_model = torch_initialisation(dv_y_cfg)
     dv_y_model.load_nn_model(dv_y_cfg.nnets_file_name)
     dv_y_model.eval()
+    dv_y_model.detect_nan_model_parameters(logger)
 
     max_len_to_plot = 4
     dv_y_cfg.orig_batch_seq_len = dv_y_cfg.batch_seq_len
