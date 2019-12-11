@@ -23,9 +23,12 @@ def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_sp
     # This is numpy shape, not Tensor shape!
     y  = numpy.zeros((dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
     dv = numpy.zeros((dv_y_cfg.batch_num_spk))
-
+    
+    wav_sr  = dv_y_cfg.cfg.wav_sr
+    cmp_sr  = dv_y_cfg.cfg.frame_sr
+    wav_cmp_ratio = int(wav_sr / cmp_sr)
     # Do not use silence frames at the beginning or the end
-    total_sil_one_side = dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad
+    total_sil_one_side = dv_y_cfg.frames_silence_to_keep + dv_y_cfg.sil_pad
     min_file_len = dv_y_cfg.batch_seq_total_len + 2 * total_sil_one_side
     sil_index_dict = dv_y_cfg.sil_index_dict
 
@@ -46,15 +49,16 @@ def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_sp
 
         speaker_start_frame_index_list = []
         for utter_idx in range(dv_y_cfg.spk_num_utter):
-            y_stack = speaker_utter_list[feat_name][utter_idx][:,dv_y_cfg.feat_index]
             file_name = speaker_file_name_list[utter_idx]
-            no_sil_start = sil_index_dict[file_name][0]
-            no_sil_end   = sil_index_dict[file_name][1]
-            len_no_sil   = no_sil_end - no_sil_start + 1
+            y_stack = speaker_utter_list[feat_name][utter_idx][:,dv_y_cfg.feat_index]
+
+            no_sil_start, no_sil_end = sil_index_dict[file_name]
             sil_pad_first_idx = max(0, no_sil_start - total_sil_one_side)
-            remain_sil_before  = no_sil_start - sil_pad_first_idx
+            remain_sil_before = no_sil_start - sil_pad_first_idx
+
             if all_utt_start_frame_index is None:
                 # Use random starting frame index
+                len_no_sil = no_sil_end - no_sil_start + 1
                 extra_file_len = len_no_sil - dv_y_cfg.batch_seq_total_len
                 start_frame_index = numpy.random.randint(low=remain_sil_before, high=remain_sil_before+extra_file_len+1)
             else:
@@ -65,9 +69,10 @@ def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_sp
                 start_frame_index = start_frame_index + dv_y_cfg.batch_seq_shift
         start_frame_index_list.append(speaker_start_frame_index_list)
 
-    # S,B,T,D --> S,B,T*D
-    # How about transpose first, so it becomes 86 trajectories?
+    # Transpose first, so it becomes 86 trajectories
+    # S,B,T,D --> S,B,D,T
     y_SBDT = numpy.transpose(y, (0,1,3,2))
+    # S,B,D,T --> S,B,T*D
     x_val = numpy.reshape(y_SBDT, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
     if dv_y_cfg.train_by_window:
         # S --> S*B
@@ -108,15 +113,12 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
         # Get new file, make BTD
         _min_len, features = get_one_utter_by_name(file_name, file_dir_dict, feat_name_list=[feat_name], feat_dim_list=[dv_y_cfg.feat_dim])
         y_features = features[feat_name]
-        # l = y_features.shape[0]
-        # l_no_sil = l - total_sil_one_side * 2
         # Do not use silence frames at the beginning or the end
-        # total_sil_one_side = dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad
+        total_sil_one_side = dv_y_cfg.frames_silence_to_keep + dv_y_cfg.sil_pad
         sil_index_dict = dv_y_cfg.sil_index_dict
-        no_sil_start = sil_index_dict[file_name][0]
-        no_sil_end   = sil_index_dict[file_name][1]
+        no_sil_start, no_sil_end = sil_index_dict[file_name]
         len_no_sil   = no_sil_end - no_sil_start + 1
-        sil_pad_first_idx = max(0, no_sil_start - (dv_y_cfg.frames_silence_to_keep+dv_y_cfg.sil_pad))
+        sil_pad_first_idx = max(0, no_sil_start - total_sil_one_side)
         remain_sil_before  = no_sil_start - sil_pad_first_idx
         features_no_sil = y_features[remain_sil_before:remain_sil_before+len_no_sil]
         B_total  = int((len_no_sil - dv_y_cfg.batch_seq_len) / dv_y_cfg.batch_seq_shift) + 1
@@ -149,9 +151,10 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
 
     batch_size = B_actual
 
-    # B,T,D --> S(1),B,T*D
-    # How about transpose first, so it becomes 86 trajectories?
+    # Transpose first, so it becomes 86 trajectories
+    # B,T,D --> B,D,T
     y_BDT = numpy.transpose(y, (0,2,1))
+    # B,D,T --> S(1),B,T*D
     x_val = numpy.reshape(y_BDT, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
     if dv_y_cfg.train_by_window:
         # S --> S*B
@@ -164,7 +167,7 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
     return return_list
 
 class dv_y_cmp_configuration(dv_y_configuration):
-    """docstring for ClassName"""
+    
     def __init__(self, cfg):
         super().__init__(cfg)
         self.train_by_window = True # Optimise lambda_w; False: optimise speaker level lambda
@@ -196,7 +199,7 @@ class dv_y_cmp_configuration(dv_y_configuration):
             {'type':'ReLUDV', 'size':self.dv_dim, 'dropout_p':0.2, 'batch_norm':False}
         ]
 
-        self.gpu_id = 2
+        self.gpu_id = 1
 
         from modules_torch import DV_Y_CMP_model
         self.dv_y_model_class = DV_Y_CMP_model
@@ -211,6 +214,6 @@ def train_dv_y_cmp_model(cfg, dv_y_cfg=None):
 def test_dv_y_cmp_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
     class_test_dv_y_model(cfg, dv_y_cfg)
-    # distance_test_dv_y_cmp_model(cfg, dv_y_cfg)
+    distance_test_dv_y_cmp_model(cfg, dv_y_cfg)
     # plot_all_h_dv_y_model(cfg, dv_y_cfg)
-    relu_0_stats(cfg, dv_y_cfg)
+    # relu_0_stats(cfg, dv_y_cfg)
