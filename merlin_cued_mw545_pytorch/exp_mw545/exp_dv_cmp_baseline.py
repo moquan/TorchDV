@@ -69,11 +69,8 @@ def make_feed_dict_y_cmp_train(dv_y_cfg, file_list_dict, file_dir_dict, batch_sp
                 start_frame_index = start_frame_index + dv_y_cfg.batch_seq_shift
         start_frame_index_list.append(speaker_start_frame_index_list)
 
-    # Transpose first, so it becomes 86 trajectories
-    # S,B,T,D --> S,B,D,T
-    y_SBDT = numpy.transpose(y, (0,1,3,2))
-    # S,B,D,T --> S,B,T*D
-    x_val = numpy.reshape(y_SBDT, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
+    # S,B,T,D --> S,B,T*D
+    x_val = numpy.reshape(y, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
     if dv_y_cfg.train_by_window:
         # S --> S*B
         y_val = numpy.repeat(dv, dv_y_cfg.spk_num_seq)
@@ -120,7 +117,9 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
         len_no_sil   = no_sil_end - no_sil_start + 1
         sil_pad_first_idx = max(0, no_sil_start - total_sil_one_side)
         remain_sil_before  = no_sil_start - sil_pad_first_idx
+
         features_no_sil = y_features[remain_sil_before:remain_sil_before+len_no_sil]
+
         B_total  = int((len_no_sil - dv_y_cfg.batch_seq_len) / dv_y_cfg.batch_seq_shift) + 1
         BTD_features = numpy.zeros((B_total, dv_y_cfg.batch_seq_len, dv_y_cfg.feat_dim))
         for b in range(B_total):
@@ -151,11 +150,8 @@ def make_feed_dict_y_cmp_test(dv_y_cfg, file_dir_dict, speaker_id, file_name, st
 
     batch_size = B_actual
 
-    # Transpose first, so it becomes 86 trajectories
-    # B,T,D --> B,D,T
-    y_BDT = numpy.transpose(y, (0,2,1))
-    # B,D,T --> S(1),B,T*D
-    x_val = numpy.reshape(y_BDT, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
+    # B,T,D --> S(1),B,T*D
+    x_val = numpy.reshape(y, (dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.batch_seq_len*dv_y_cfg.feat_dim))
     if dv_y_cfg.train_by_window:
         # S --> S*B
         y_val = numpy.repeat(dv, dv_y_cfg.spk_num_seq)
