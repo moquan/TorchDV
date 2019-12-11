@@ -389,7 +389,6 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
                     # Fill all dv_y_cfg.spk_num_seq, keep remain for later
                     B_actual = dv_y_cfg.spk_num_seq
                     B_remain -= dv_y_cfg.spk_num_seq
-                    b_index += dv_y_cfg.spk_num_seq
                 else:
                     # No more remain
                     B_actual = B_remain
@@ -397,6 +396,8 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
 
                 for b in range(B_actual):
                     lambda_val[0, b] = lambda_list_remain[b_index + b]
+
+                b_index += B_actual
 
                 feed_dict = {'lambda': lambda_val}
                 with dv_y_model.no_grad():
