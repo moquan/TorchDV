@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from modules import make_logger, read_file_list, read_sil_index_file, prepare_file_path, prepare_file_path_list, make_held_out_file_number, copy_to_scratch
 from modules import keep_by_speaker, remove_by_speaker, keep_by_file_number, remove_by_file_number, keep_by_min_max_file_number, check_and_change_to_list
 from modules_2 import compute_feat_dim, log_class_attri, resil_nn_file_list, norm_nn_file_list, get_utters_from_binary_dict, get_one_utter_by_name, count_male_female_class_errors
-from modules_2 import compute_cosine_distance
+from modules_2 import compute_cosine_distance, compute_Euclidean_distance
 from modules_torch import torch_initialisation
 
 from io_funcs.binary_io import BinaryIOCollection
@@ -370,7 +370,7 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
 
                 # Weighted average of lambda_u
                 batch_lambda = numpy.zeros(dv_y_cfg.dv_dim)
-                B_total = 0
+                B_total = 0.
                 for file_name in batch_file_list:
                     lambda_u, B_u = lambda_u_dict[file_name]
                     batch_lambda += lambda_u * B_u
@@ -379,8 +379,7 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
                 speaker_lambda_list.append(batch_lambda)
 
             true_speaker_index = dv_y_cfg.speaker_id_list_dict['train'].index(speaker_id)
-            lambda_list_remain = speaker_lambda_list
-            B_remain = len(speaker_lambda_list)
+            B_remain = dv_y_cfg.epoch_num_batch['test']
             b_index = 0 # Track counter, instead of removing elements
             correct_counter = 0.
             while B_remain > 0:
@@ -395,14 +394,14 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
                     B_remain = 0
 
                 for b in range(B_actual):
-                    lambda_val[0, b] = lambda_list_remain[b_index + b]
+                    lambda_val[0, b] = speaker_lambda_list[b_index + b]
 
+                # Set up for next round (if dv_y_cfg.spk_num_seq)
                 b_index += B_actual
 
                 feed_dict = {'lambda': lambda_val}
                 with dv_y_model.no_grad():
                     idx_list_S_B = dv_y_model.lambda_to_indices(feed_dict=feed_dict)
-                # print(idx_list_S_B)
                 for b in range(B_actual):
                     if idx_list_S_B[0, b] == true_speaker_index: 
                         correct_counter += 1.
@@ -468,7 +467,7 @@ def distance_test_dv_y_cmp_model(cfg, dv_y_cfg):
             if i == 0:
                 lambda_SBD_0 = lambda_SBD_i
             else:
-                dist_i, nan_count = compute_cosine_distance(lambda_SBD_i, lambda_SBD_0)
+                dist_i, nan_count = compute_Euclidean_distance(lambda_SBD_i, lambda_SBD_0)
                 if nan_count == 0:
                     dist_sum[i] += dist_i
                 else:
@@ -535,7 +534,7 @@ def distance_test_dv_y_wav_model(cfg, dv_y_cfg):
             if i == 0:
                 lambda_SBD_0 = lambda_SBD_i
             else:
-                dist_i, nan_count = compute_cosine_distance(lambda_SBD_i, lambda_SBD_0)
+                dist_i, nan_count = compute_Euclidean_distance(lambda_SBD_i, lambda_SBD_0)
                 if nan_count == 0:
                     dist_sum[i] += dist_i
                 else:
