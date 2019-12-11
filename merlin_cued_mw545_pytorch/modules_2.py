@@ -194,6 +194,19 @@ def compute_cosine_distance(lambda_1, lambda_2):
                 d += d_ij
     return d, nan_count
 
+def compute_Euclidean_distance(lambda_1, lambda_2):
+    d = 0.
+    S = lambda_1.shape[0]
+    B = lambda_1.shape[1]
+    D = lambda_1.shape[2]
+    nan_count = 0
+    for i in range(S):
+        for j in range(B):
+            d_ij = scipy.spatial.distance.euclidean(lambda_1[i,j], lambda_2[i,j])
+            d += d_ij
+    return d, 0
+    
+
 def get_file_id_from_file_name(file_name):
     file_id = file_name.split('/')[-1].split('.')[0]
     return file_id
