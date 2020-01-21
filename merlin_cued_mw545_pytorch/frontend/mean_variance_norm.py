@@ -191,8 +191,8 @@ class   MeanVarianceNorm(FeatureNormBase):
         io_funcs = BinaryIOCollection()
         mean_std_vector, frame_number = io_funcs.load_binary_file_frame(cmp_norm_file, 1)
         mean_std_vector = numpy.reshape(mean_std_vector, (-1, ))
-        feature_dimension = frame_number/2
-        self.mean_vector = mean_std_vector[0:feature_dimension]
+        feature_dimension = int(frame_number/2)
+        self.mean_vector = mean_std_vector[:feature_dimension]
         self.std_vector  = mean_std_vector[feature_dimension:]
 
         logger.info('Loaded min max values from the trained data for feature dimension of %d' % self.feature_dimension)
