@@ -215,10 +215,12 @@ def reduce_silence_reaper_output(cfg, reaper_output_file='/home/dawna/tts/mw545/
             # Content lines should have 3 values
             # Time stamp, vuv, F0 value
             if len(x) == 3:
-                t = float(x[0])
-                if (t >= start_time) and (t <= end_time):
-                    t_new = t - start_time
-                    f.write(str(t_new)+' '+x[1]+' '+x[2]+'\n')
+                vuv = int(x[1])
+                if vuv == 1:
+                    t = float(x[0])
+                    if (t >= start_time) and (t <= end_time):
+                        t_new = t - start_time
+                        f.write(str(t_new)+' '+x[1]+' '+x[2]+'\n')
 
 def reduce_silence_reaper_output_list(cfg, file_id_list, reaper_output_dir, label_align_dir, out_dir, reaper_output_ext='.used.pm', label_align_ext='.lab', out_ext='.pm', silence_pattern=['*-#+*']):
     for file_id in file_id_list:
