@@ -205,8 +205,14 @@ def reduce_silence_reaper_output(cfg, reaper_output_file='/home/dawna/tts/mw545/
     from frontend.silence_reducer_keep_sil import SilenceReducer
     remover = SilenceReducer(n_cmp = 1, silence_pattern = silence_pattern)
     nonsilence_indices = remover.load_alignment(label_align_file)
-    start_time = float(nonsilence_indices[0]) / float(cfg.frame_sr)
-    end_time   = float(nonsilence_indices[-1]+1.) / float(cfg.frame_sr)
+    no_sil_start = nonsilence_indices[0]
+    no_sil_end   = nonsilence_indices[-1]
+
+    total_sil_one_side_cmp = cfg.frames_silence_to_keep + cfg.sil_pad
+    sil_pad_first_idx = no_sil_start - total_sil_one_side_cmp
+    sil_pad_last_idx  = no_sil_end + total_sil_one_side_cmp
+    start_time = float(sil_pad_first_idx) / float(cfg.frame_sr)
+    end_time   = float(sil_pad_last_idx+1.) / float(cfg.frame_sr)
     with open(reaper_output_file, 'r') as f:
         file_lines = f.readlines()
     with open(out_file, 'w') as f:
