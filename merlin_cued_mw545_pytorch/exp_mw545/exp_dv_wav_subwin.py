@@ -281,10 +281,10 @@ class dv_y_wav_subwin_configuration(dv_y_configuration):
         # Waveform-level input configuration
         self.y_feat_name   = 'wav'
         self.out_feat_list = ['wav']
-        self.batch_seq_total_len = 12000 # Number of frames at 16kHz; 32000 for 2s
+        self.batch_seq_total_len = 12000 # Number of frames at 16kHz; 12000 for 0.75s
         self.batch_seq_len   = 3200 # T
         self.batch_seq_shift = 5*80
-        self.seq_win_len   = 640
+        self.seq_win_len   = 640         # Number of frames at 16kHz; 640 for 40ms
         self.seq_win_shift = 80
         self.seq_num_win   = int((self.batch_seq_len - self.seq_win_len) / self.seq_win_shift) + 1
 
