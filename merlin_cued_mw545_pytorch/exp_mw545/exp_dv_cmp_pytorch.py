@@ -321,6 +321,8 @@ def train_dv_y_model(cfg, dv_y_cfg):
 
 def class_test_dv_y_model(cfg, dv_y_cfg):
 
+    # Classification test
+    # Also generates lambda_u per utterance; store in lambda_u_dict[file_name]
     # Use test utterances only
     # Make or load lambda_u_dict
     # lambda_u_dict[file_name] = [lambda_u, B_u]
