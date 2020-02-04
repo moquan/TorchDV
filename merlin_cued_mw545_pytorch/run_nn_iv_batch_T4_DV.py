@@ -12,7 +12,6 @@ class configuration(object):
         else:
             self.work_dir = work_dir # Comes from bash command argument, ${PWD}
         self.Processes = {}
-        self.Processes['copy_to_scratch'] = False
         self.Processes['MakeCmp']  = False
         self.Processes['MakeWav']  = False
         self.Processes['ResilLab'] = False
@@ -22,16 +21,17 @@ class configuration(object):
         self.Processes['NormCmp']  = False
         self.Processes['NormWav']  = False
         # self.Processes['MuLawWav'] = False
-        self.Processes['ResilPitch']   = False
-
-        # self.Processes['TrainCMPTorch'] = True
-        # self.Processes['TestCMPTorch']  = True
+        self.Processes['ResilPitch'] = False
+        self.Processes['copy_to_scratch'] = False
 
         self.Processes['TrainCMPDVY'] = False
-        self.Processes['TestCMPDVY']  = True
+        self.Processes['TestCMPDVY']  = False
 
         self.Processes['TrainWavDVY'] = False
         self.Processes['TestWavDVY']  = False
+
+        self.Processes['TrainWavSubwinDVY'] = False
+        self.Processes['TestWavSubwinDVY']  = False
 
         # Experiments where F0 and phase shift info are predicted
         self.Processes['TrainWavSineV1'] = False
@@ -42,34 +42,18 @@ class configuration(object):
         self.Processes['TestWavSineV2']  = False
 
         # Experiments where F0 and phase shift info are predicted
-        # 200ms window is sliced into smaller windows
+        # 200ms window is sliced into smaller windows of 40ms
         self.Processes['TrainWavSineV3'] = False
         self.Processes['TestWavSineV3']  = False
 
 
 
-
-
-
-        self.Processes['TrainWavCNNDVY'] = False
-        self.Processes['TestWavCNNDVY']  = False
-
-
-
-        self.Processes['GenCMPDVY']   = False
-        self.Processes['GenWavDVY']   = False
-
-
+        '''
+        Processes For later
+        '''
         self.Processes['TrainWavCA'] = False
         self.Processes['TestWavCA']  = False
-        self.Processes['GenWavCA']   = False
-        self.Processes['GenWavAttenCA'] = False
-
         
-        
-        self.Processes['GenWavSine']   = False
-
-
         self.Processes['TrainAM'] = False
         self.Processes['GenAM']   = False
         self.Processes['CMP2Wav'] = False
@@ -95,7 +79,7 @@ class configuration(object):
         # TODO: hard code here; change after vectra2 is fixed
         self.file_id_list_file  = os.path.join(self.data_dir, 'file_id_list.scp')
         self.file_id_list_file  = os.path.join('/home/dawna/tts/mw545/TorchDV', 'file_id_list.scp')
-        self.frames_silence_to_keep = 50
+        self.frames_silence_to_keep = 0
         self.sil_pad = 5
         self.delta_win = [-0.5, 0.0, 0.5]
         self.acc_win   = [1.0, -2.0, 1.0]
@@ -216,10 +200,6 @@ def main_function(cfg):
         nn_resil_file_list = {}
         nn_resil_norm_file_list = {}
 
-    if cfg.Processes['copy_to_scratch']:
-        logger.info('copy_to_scratch')
-        copy_to_scratch(cfg, file_id_list)
-
     if cfg.Processes['MakeCmp']:
         logger.info('MakeCmp')
         from modules import acoustic_2_cmp_list
@@ -268,6 +248,10 @@ def main_function(cfg):
         logger.info('NormWav')
         norm_nn_file_list('wav', cfg, file_id_list, nn_resil_file_list, nn_resil_norm_file_list, compute_normaliser=True, norm_type='MinMax')
 
+    if cfg.Processes['copy_to_scratch']:
+        logger.info('copy_to_scratch')
+        copy_to_scratch(cfg, file_id_list)
+
     # if cfg.Processes['MuLawWav']:
     #     logger.info('MuLawWav')
     #     from modules import perform_mu_law_list
@@ -275,16 +259,6 @@ def main_function(cfg):
     #     nn_resil_norm_file_list[feat_name] = prepare_file_path_list(file_id_list, cfg.nn_feat_resil_norm_dirs[feat_name], '.'+feat_name)
     #     nn_resil_norm_file_list[feat_name+'_mu'] = prepare_file_path_list(file_id_list, cfg.nn_feat_resil_norm_dirs[feat_name], '.mu.'+feat_name)
     #     perform_mu_law_list(nn_resil_norm_file_list[feat_name], nn_resil_norm_file_list[feat_name+'_mu'], mu_value=255.)
-
-    # if cfg.Processes['TrainCMPTorch']:
-    #     from exp_mw545.exp_dv_cmp_baseline import train_dv_y_cmp_model
-    #     train_dv_y_cmp_model(cfg)
-
-    # if cfg.Processes['TestCMPTorch']:
-    #     from exp_mw545.exp_dv_cmp_baseline import test_dv_y_cmp_model
-    #     test_dv_y_cmp_model(cfg)
-
-
 
     if cfg.Processes['TrainCMPDVY']:
         from exp_mw545.exp_dv_cmp_baseline import train_dv_y_cmp_model
@@ -294,12 +268,6 @@ def main_function(cfg):
         from exp_mw545.exp_dv_cmp_baseline import test_dv_y_cmp_model
         test_dv_y_cmp_model(cfg)
 
-    
-
-
-
-        
-
     if cfg.Processes['TrainWavDVY']:
         from exp_mw545.exp_dv_wav_baseline import train_dv_y_wav_model
         train_dv_y_wav_model(cfg)
@@ -308,6 +276,13 @@ def main_function(cfg):
         from exp_mw545.exp_dv_wav_baseline import test_dv_y_wav_model
         test_dv_y_wav_model(cfg)
 
+    if cfg.Processes['TrainWavSubwinDVY']:
+        from exp_mw545.exp_dv_wav_subwin import train_dv_y_wav_model
+        train_dv_y_wav_model(cfg)
+
+    if cfg.Processes['TestWavSubwinDVY']:
+        from exp_mw545.exp_dv_wav_subwin import test_dv_y_wav_model
+        test_dv_y_wav_model(cfg)
 
     if cfg.Processes['TrainWavSineV1']:
         from exp_mw545.exp_dv_wav_sinenet_v1 import train_dv_y_wav_model
@@ -338,38 +313,6 @@ def main_function(cfg):
 
 
 
-
-
-
-
-
-
-
-    if cfg.Processes['TrainWavCNNDVY']:
-        from exp_mw545.exp_dv_wav_cnn import train_dv_y_wav_model
-        train_dv_y_wav_model(cfg)
-
-    if cfg.Processes['TestWavCNNDVY']:
-        from exp_mw545.exp_dv_wav_cnn import test_dv_y_wav_model
-        test_dv_y_wav_model(cfg)
-
-
-
-
-
-
-
-    if cfg.Processes['GenCMPDVY']:
-        from exp_mw545.exp_dv_cmp_baseline import gen_dv_y_cmp_model
-        gen_dv_y_cmp_model(cfg)
-
-    if cfg.Processes['GenWavDVY']:
-        from exp_mw545.exp_dv_wav_baseline import gen_dv_y_model
-        gen_dv_y_model(cfg)
-
-
-
-
     if cfg.Processes['TrainWavCA']:
         from exp_mw545.exp_dv_wav_cnn_atten import train_dv_y_wav_model
         train_dv_y_wav_model(cfg)
@@ -377,27 +320,6 @@ def main_function(cfg):
     if cfg.Processes['TestWavCA']:
         from exp_mw545.exp_dv_wav_cnn_atten import train_dv_y_wav_model
         train_dv_y_wav_model(cfg)
-
-    if cfg.Processes['GenWavCA']:
-        from exp_mw545.exp_dv_wav_cnn_atten import gen_dv_y_model
-        gen_dv_y_model(cfg)
-
-    if cfg.Processes['GenWavAttenCA']:
-        from exp_mw545.exp_dv_wav_cnn_atten import gen_atten_traj_dv_y_model
-        gen_atten_traj_dv_y_model(cfg)
-
-
-        
-
-    
-
-    if cfg.Processes['GenWavSine']:
-        from exp_mw545.exp_dv_wav_sine_atten import gen_dv_y_model
-        gen_dv_y_model(cfg)
-
-
-
-
 
 
     if cfg.Processes['TrainAM']:
@@ -448,7 +370,6 @@ def main_function(cfg):
 
 
 if __name__ == '__main__': 
-       
 
     if len(sys.argv) == 2:
         work_dir = sys.argv[1]
@@ -460,6 +381,5 @@ if __name__ == '__main__':
     logger = make_logger("PID")
     logger.info('PID is %i' % os.getpid())
     
-
     main_function(cfg)
 
