@@ -244,7 +244,7 @@ class dv_y_wav_cmp_configuration(dv_y_configuration):
         self.batch_seq_total_len = 12000 # Number of frames at 16kHz
         self.batch_seq_len   = 3200 # T
         self.batch_seq_shift = 5*80
-        self.dv_dim = 16
+        self.dv_dim = 8
         self.nn_layer_config_list = [
             # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
             {'type':'ReLUDV', 'size':256, 'dropout_p':0, 'batch_norm':False},
@@ -267,5 +267,5 @@ def train_dv_y_wav_model(cfg, dv_y_cfg=None):
 
 def test_dv_y_wav_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_wav_cmp_configuration(cfg)
-    # class_test_dv_y_model(cfg, dv_y_cfg)
+    class_test_dv_y_model(cfg, dv_y_cfg)
     distance_test_dv_y_model(cfg, dv_y_cfg)
