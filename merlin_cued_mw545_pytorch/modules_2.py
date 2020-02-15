@@ -1,8 +1,7 @@
 # modules_2.py
 
 import os, sys, pickle, time, shutil, logging
-import math, numpy, scipy
-import scipy.spatial
+import math, numpy, scipy, scipy.spatial, scipy.special
 numpy.random.seed(545)
 from io_funcs.binary_io import BinaryIOCollection
 io_fun = BinaryIOCollection()
@@ -55,21 +54,25 @@ def norm_nn_file_list(feat_name, cfg, file_id_list, nn_resil_file_list={}, nn_re
     except: nn_resil_norm_file_list[feat_name] = prepare_file_path_list(file_id_list, cfg.nn_feat_resil_norm_dirs[feat_name], '.'+feat_name)
     
     if compute_normaliser:
-        nn_resil_file_list[feat_name+'_train'] = keep_by_speaker(nn_resil_file_list[feat_name], cfg.train_speaker_list)
+        nn_resil_file_list[feat_name+'_train'] = keep_by_speaker(nn_resil_file_list[feat_name], cfg.speaker_id_list_dict['train'])
         nn_resil_file_list[feat_name+'_train'] = remove_by_file_number(nn_resil_file_list[feat_name+'_train'], held_out_file_number)
         if norm_type == 'MinMax':
             if feat_name == 'wav':
+                print('Computing %s norm file for wav' % norm_type)
                 from modules import make_wav_min_max_normaliser
                 make_wav_min_max_normaliser(cfg.nn_feat_resil_norm_files[feat_name], cfg.nn_feature_dims[feat_name])
-            else:    
+            else:
+                print('Computing %s norm file' % norm_type)
                 from modules import compute_min_max_normaliser
                 compute_min_max_normaliser(cfg.nn_feature_dims[feat_name], nn_resil_file_list[feat_name+'_train'], cfg.nn_feat_resil_norm_files[feat_name], min_value=0.01, max_value=0.99)
         elif norm_type == 'MeanVar':
             from modules import compute_mean_var_normaliser
             if feat_name == 'cmp':
+                print('Computing %s norm file for cmp' % norm_type)
                 var_file_dict = cfg.var_file_dict
                 acoustic_out_dimension_dict = cfg.acoustic_out_dimension_dict
             else:
+                print('Computing %s norm file' % norm_type)
                 var_file_dict = None
                 acoustic_out_dimension_dict = None
             compute_mean_var_normaliser(cfg.nn_feature_dims[feat_name], nn_resil_file_list[feat_name+'_train'], cfg.nn_feat_resil_norm_files[feat_name], var_file_dict, acoustic_out_dimension_dict)
@@ -194,18 +197,17 @@ def compute_cosine_distance(lambda_1, lambda_2):
                 d += d_ij
     return d, nan_count
 
-def compute_Euclidean_distance(lambda_1, lambda_2):
+def compute_Euclidean_distance(lambda_1, lambda_0):
     d = 0.
     S = lambda_1.shape[0]
     B = lambda_1.shape[1]
     D = lambda_1.shape[2]
-    nan_count = 0
     for i in range(S):
         for j in range(B):
-            d_ij = scipy.spatial.distance.euclidean(lambda_1[i,j], lambda_2[i,j])
+            d_ij = numpy.linalg.norm(lambda_1[i,j]-lambda_0[i,j])
             d += d_ij
-    return d, 0
-    
+    d = d / (S*B)
+    return d
 
 def get_file_id_from_file_name(file_name):
     file_id = file_name.split('/')[-1].split('.')[0]
