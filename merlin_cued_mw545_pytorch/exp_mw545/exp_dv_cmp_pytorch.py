@@ -57,6 +57,11 @@ class dv_y_configuration(object):
         self.nn_layer_config_list = None
         self.finetune_model = False
         self.prev_nnets_file_name = ''
+
+        self.train_by_window = True # Optimise lambda_w; False: optimise speaker level lambda
+        self.classify_in_training = True # Compute classification accuracy after validation errors during training
+        self.batch_output_form = 'mean' # Method to convert from SBD to SD
+        self.use_voiced_only = False # Use voiced regions only
         
         # Things no need to change
         self.learning_rate    = 0.0001
@@ -183,12 +188,16 @@ def make_dv_y_exp_dir_name(model_cfg, cfg):
         # {'type':'SinenetV3', 'size':80, 'num_freq':10, 'win_len':self.seq_win_len, 'num_win':self.seq_num_win, 'dropout_p':0, 'batch_norm':False},
         if 'num_freq' in nn_layer_config:
             layer_str = layer_str + 'f' + str(nn_layer_config['num_freq'])
+        if 'relu_size' in nn_layer_config:
+            layer_str = layer_str + 'r' + str(nn_layer_config['relu_size'])
         if 'batch_norm' in nn_layer_config and nn_layer_config['batch_norm']:
             layer_str = layer_str + 'BN'
         if 'dropout_p' in nn_layer_config and nn_layer_config['dropout_p'] > 0:
             layer_str = layer_str + 'DR'
         exp_dir = exp_dir + layer_str + "_"
     exp_dir = exp_dir + "DV%iS%iB%iT%iD%i" %(model_cfg.dv_dim, model_cfg.batch_num_spk, model_cfg.spk_num_seq, model_cfg.batch_seq_len, model_cfg.feat_dim)
+    if model_cfg.use_voiced_only:
+        exp_dir = exp_dir + "_vO"+str(model_cfg.use_voiced_threshold)
     return exp_dir
 
 def make_dv_file_list(file_id_list, speaker_id_list, data_split_file_number):
@@ -431,9 +440,13 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
         logger.info('Accuracy with %i utterances per speaker is %f' % (spk_num_utter, mean_accuracy))
 
 def distance_test_dv_y_model(cfg, dv_y_cfg, test_type='Euc'):
-    # Make a list of feed_dict, compute distance between them
-    # test_type='Euc': Generate lambdas, compute euclidean distance, [lambda_i - lambda_0]^2
-    # test_type='EucNorm': Generate lambdas, compute euclidean distance, [(lambda_i - lambda_0)/lambda_0]^2
+    '''
+        Make a list of feed_dict, compute distance between them
+        test_type='Euc': Generate lambdas, compute euclidean distance, [lambda_i - lambda_0]^2
+        test_type='EucNorm': Generate lambdas, compute euclidean distance, [(lambda_i - lambda_0)/lambda_0]^2; 
+            cannot implement, contain 0 issue
+        test_type='BiCE': Generate probabilities, make binary (correct/wrong), cross-entropy; -sum(p_0 log(p_i))
+    '''
     logger = make_logger("dv_y_config")
     dv_y_cfg = copy.deepcopy(dv_y_cfg)
     dv_y_cfg.change_to_distance_test_mode()
@@ -451,7 +464,7 @@ def distance_test_dv_y_model(cfg, dv_y_cfg, test_type='Euc'):
     dv_y_model.load_nn_model(dv_y_cfg.nnets_file_name)
     dv_y_model.eval()
     
-    distance_sum = [0.] * dv_y_cfg.num_to_plot
+    distance_sum = [0.] * (dv_y_cfg.num_to_plot+1) # First is 0.; keep here for easier plotting
     num_batch = dv_y_cfg.epoch_num_batch['test']
 
     for batch_idx in range(num_batch):
@@ -462,13 +475,143 @@ def distance_test_dv_y_model(cfg, dv_y_cfg, test_type='Euc'):
         feed_dict_list, batch_size = make_feed_dict_method_distance(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list, utter_tvt='train')
         with dv_y_model.no_grad():
             if test_type == 'Euc':
-                lambda_0 = dv_y_model.gen_lambda_SBD_value(feed_dict=feed_dict_list[0])
-                for plot_idx in range(dv_y_cfg.num_to_plot):
-                    lambda_temp = dv_y_model.gen_lambda_SBD_value(feed_dict=feed_dict_list[plot_idx+1])
-                    dist_temp = compute_Euclidean_distance(lambda_temp, lambda_0)
-                    distance_sum[plot_idx] += dist_temp
-        del feed_dict_list
+                for plot_idx in range(dv_y_cfg.num_to_plot+1):
+                    lambda_temp = dv_y_model.gen_lambda_SBD_value(feed_dict=feed_dict_list[plot_idx])
+                    if plot_idx == 0:
+                        lambda_0 = lambda_temp
+                    else:
+                        dist_temp = compute_Euclidean_distance(lambda_temp, lambda_0)
+                        distance_sum[plot_idx] += dist_temp
+            if test_type == 'BiCE':
+                for plot_idx in range(dv_y_cfg.num_to_plot+1):
+                    p_temp = dv_y_model.gen_p_SBD_value(feed_dict=feed_dict_list[plot_idx])
+                    # TODO: make binary p_temp_binary
+                    if plot_idx == 0:
+                        p_0_binary = p_temp_binary
+                    else:
+                        # TODO: implement cross entropy
+                        # dist_temp = compute_cross_entropy(p_temp_binary, p_0_binary)
+                        distance_sum[plot_idx] += dist_temp
+        del feed_dict_list # Save memory
 
     logger.info('Printing %s distances' % test_type)
     num_lambda = batch_size*num_batch
-    print([float(distance_sum[i]/(num_lambda)) for i in range(dv_y_cfg.num_to_plot)])
+    print([float(distance_sum[i]/(num_lambda)) for i in range(dv_y_cfg.num_to_plot+1)])
+
+def plot_sinenet(cfg, dv_y_cfg):
+    '''
+    Plot all filters in sinenet
+    If use real data, plot real data too
+    '''
+    logger = make_logger("dv_y_config")
+    dv_y_cfg = copy.deepcopy(dv_y_cfg)
+    dv_y_cfg.batch_num_spk = 1
+    dv_y_cfg.spk_num_seq   = 20 # Use this for different frequency
+    dv_y_cfg.seq_num_win   = 40 # Use this for different pitch locations    
+    log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
+
+    dv_y_model = torch_initialisation(dv_y_cfg)
+    dv_y_model.load_nn_model(dv_y_cfg.nnets_file_name)
+    dv_y_model.eval()
+
+    is_use_true_data = True
+    if is_use_true_data:
+        BTD_feat_remain = None
+        start_frame_index = int(51000)
+        speaker_id = 'p15'
+        file_name  = 'p15_003'
+        make_feed_dict_method_test = dv_y_cfg.make_feed_dict_method_test
+        feed_dict, gen_finish, batch_size, BTD_feat_remain = make_feed_dict_method_test(dv_y_cfg, cfg.nn_feat_scratch_dirs, speaker_id, file_name, start_frame_index, BTD_feat_remain)
+    else:
+        f_0     = 120.
+        f_inc   = 10.
+        tau_0   = 0.
+        tau_inc = 10./16000
+        f = numpy.zeros((dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.seq_num_win))
+        for i in range(dv_y_cfg.spk_num_seq):
+            f[0,i] = f_0 + i * f_inc
+        lf = numpy.log(f)
+        log_f_mean = 5.04418
+        log_f_std  = 0.358402
+        nlf = (lf - log_f_mean) / log_f_std
+        # lf = torch.add(torch.mul(nlf, self.log_f_std), self.log_f_mean) # S*B*M
+        tau = numpy.zeros((dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.seq_num_win))
+        for i in range(dv_y_cfg.seq_num_win):
+            tau[0,:,i] = tau_0 + i * tau_inc
+        feed_dict = {'nlf': nlf, 'tau': tau}
+
+    W = dv_y_model.gen_w_mul_w_sin_cos(feed_dict)
+
+    S = dv_y_cfg.batch_num_spk
+    B = dv_y_cfg.spk_num_seq
+    M = dv_y_cfg.seq_num_win
+    D = 80
+    
+    D_size = 5
+    D_tot  = int(D/D_size)
+
+    for d_1 in range(D_tot):
+        fig, ax_list = plt.subplots(D_size+1)        
+
+        for d_2 in range(D_size):
+            d = d_1 * D_size + d_2
+            ax_list[d_2].plot(W[0,0,0,d])
+        if is_use_true_data:
+            # Plot x as well
+            x = feed_dict['x']
+            ax_list[D_size].plot(x[0,0,0])
+
+        fig_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/' + "sinenet_filter_%i.png" % d_1
+        logger.info('Saving h to %s' % fig_name)
+        fig.savefig(fig_name)
+        plt.close(fig)
+
+def test_sinenet(cfg, dv_y_cfg):
+    '''
+    Run the evaluation part of the training procedure
+    Store the results based on v/uv
+    make_feed_dict_y_wav_sinenet_train(..., return_vuv=True)
+    Print: amount of data, and CE, vs amount of v/uv
+    '''
+    logger = make_logger("dv_y_config")
+    dv_y_cfg = copy.deepcopy(dv_y_cfg)
+    log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
+
+    logger = make_logger("test_dvy")
+    logger.info('Creating data lists')
+    speaker_id_list = dv_y_cfg.speaker_id_list_dict['train'] # For DV training and evaluation, use train speakers only
+    speaker_loader  = list_random_loader(speaker_id_list)
+    file_id_list    = read_file_list(cfg.file_id_list_file)
+    file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
+    make_feed_dict_method_train = dv_y_cfg.make_feed_dict_method_train
+
+    dv_y_model = torch_initialisation(dv_y_cfg)
+    dv_y_model.load_nn_model(dv_y_cfg.nnets_file_name)
+    dv_y_model.eval()
+
+    # vuv = numpy.zeros((dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.seq_num_win))
+    ce_holders = [[] for i in range(dv_y_cfg.seq_num_win+1)]
+
+    num_batch = dv_y_cfg.epoch_num_batch['valid'] * 10
+    # num_batch = 1
+
+    for batch_idx in range(num_batch):
+        # Draw random speakers
+        batch_speaker_list = speaker_loader.draw_n_samples(dv_y_cfg.batch_num_spk)
+        # Make feed_dict for evaluation
+        feed_dict, batch_size, vuv_SBM = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list, utter_tvt='train', return_vuv=True)
+        with dv_y_model.no_grad():
+            ce_SB = dv_y_model.gen_SB_loss_value(feed_dict=feed_dict) # 1D vector
+            vuv_SB = numpy.sum(vuv_SBM, axis=2).reshape(-1)
+            s_b = dv_y_cfg.batch_num_spk * dv_y_cfg.spk_num_seq
+            for i in range(s_b):
+                vuv = int(vuv_SB[i])
+                ce  = int(ce_SB[i])
+                ce_holders[vuv].append(ce)
+
+    len_list = [len(ce_list) for ce_list in ce_holders]
+    mean_list = [numpy.mean(ce_list) for ce_list in ce_holders]
+    print(len_list)
+    print(mean_list)
+
+
