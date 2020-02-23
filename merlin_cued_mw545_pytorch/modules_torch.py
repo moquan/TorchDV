@@ -150,7 +150,7 @@ class Build_NN_Layer(torch.nn.Module):
         y_dict['h'] = self.dropout_fn(y_dict['h'])
         return y_dict
 
-    def ReLUDV(self, layer_fn='ReLU'):
+    def ReLUDV(self, activation_fn='ReLU'):
         self.params["expect_input_dim_seq"] = ['S','B','D']
         self.reshape_fn = Tensor_Reshape(self.params)
         self.params = self.reshape_fn.update_layer_params()
@@ -162,15 +162,15 @@ class Build_NN_Layer(torch.nn.Module):
         input_dim  = self.params['expect_input_dim_values']['D']
         output_dim = self.params['output_dim_values']['D']
         batch_norm = self.params["layer_config"]["batch_norm"]
-        if layer_fn == 'ReLU':
+        if activation_fn == 'ReLU':
             self.layer_fn = ReLUDVLayer(input_dim, output_dim, batch_norm)
-        elif layer_fn == 'LReLU':
+        elif activation_fn == 'LReLU':
             self.layer_fn = LReLUDVLayer(input_dim, output_dim, batch_norm)
 
     def LReLUDV(self):
-        self.ReLUDV(layer_fn='LReLU')
+        self.ReLUDV(activation_fn='LReLU')
 
-    def ReLUDVMax(self, layer_fn='ReLU'):
+    def ReLUDVMax(self, activation_fn='ReLU'):
         self.params["expect_input_dim_seq"] = ['S','B','D']
         self.reshape_fn = Tensor_Reshape(self.params)
         self.params = self.reshape_fn.update_layer_params()
@@ -182,13 +182,13 @@ class Build_NN_Layer(torch.nn.Module):
         input_dim  = self.params['expect_input_dim_values']['D']
         output_dim = self.params['output_dim_values']['D']
         num_channels = self.params["layer_config"]["num_channels"]
-        if layer_fn == 'ReLU':
+        if activation_fn == 'ReLU':
             self.layer_fn = ReLUDVMaxLayer(input_dim, output_dim, num_channels)
-        elif layer_fn == 'LReLU':
+        elif activation_fn == 'LReLU':
             self.layer_fn = LReLUDVMaxLayer(input_dim, output_dim, batch_norm)
 
     def LReLUDVMax(self):
-        self.ReLUDVMax(layer_fn='LReLU')
+        self.ReLUDVMax(activation_fn='LReLU')
 
     def LinDV(self):
         self.params["expect_input_dim_seq"] = ['S','B','D']
@@ -203,7 +203,7 @@ class Build_NN_Layer(torch.nn.Module):
         output_dim = self.params['output_dim_values']['D']
         self.layer_fn = LinearDVLayer(input_dim, output_dim)
 
-    def ReLUSubWin(self, layer_fn='ReLU'):
+    def ReLUSubWin(self, activation_fn='ReLU'):
         self.params["expect_input_dim_seq"] = ['S','B','M','T']
         self.reshape_fn = Tensor_Reshape(self.params)
         self.params = self.reshape_fn.update_layer_params()
@@ -218,13 +218,13 @@ class Build_NN_Layer(torch.nn.Module):
         win_len    = layer_config['win_len']
         num_win    = layer_config['num_win']
         batch_norm = layer_config["batch_norm"]
-        if layer_fn == 'ReLU':
+        if activation_fn == 'ReLU':
             self.layer_fn = ReLUSubWinLayer(output_dim, win_len, num_win, batch_norm)
-        elif layer_fn == 'LReLU':
+        elif activation_fn == 'LReLU':
             self.layer_fn = LReLUSubWinLayer(output_dim, win_len, num_win, batch_norm)
 
     def LReLUSubWin(self):
-        self.ReLUSubWin(layer_fn='LReLU')
+        self.ReLUSubWin(activation_fn='LReLU')
 
     def Sinenet(self):
         self.params["expect_input_dim_seq"] = ['S','B','1','T']
@@ -240,7 +240,6 @@ class Build_NN_Layer(torch.nn.Module):
         num_channels = self.params["layer_config"]["num_channels"]
         time_len   = self.params['expect_input_dim_values']['T']
         self.layer_fn = SinenetLayer(time_len, output_dim, num_channels)
-
     
     def SinenetV1(self):
         self.params["expect_input_dim_seq"] = ['S','B','1','T']
@@ -293,8 +292,9 @@ class Build_NN_Layer(torch.nn.Module):
         num_freq   = layer_config['num_freq']
         win_len    = layer_config['win_len']
         num_win    = layer_config['num_win']
+        activation_fn = layer_config['activation_fn']
         
-        self.layer_fn = SinenetLayerV3(sine_size, num_freq, win_len, num_win)
+        self.layer_fn = SinenetLayerV3(sine_size, num_freq, win_len, num_win, activation_fn)
 
     def SinenetV4(self):
         self.params["expect_input_dim_seq"] = ['S','B','M','T']
@@ -628,7 +628,7 @@ class SinenetLayerV3(torch.nn.Module):
         3. Apply fc_relu
         4. Append f0
     '''
-    def __init__(self, output_dim, num_freq, win_len, num_win):
+    def __init__(self, output_dim, num_freq, win_len, num_win, activation_fn):
         super().__init__()
 
         self.t_wav = 1./16000
@@ -644,7 +644,10 @@ class SinenetLayerV3(torch.nn.Module):
         self.k_2pi_tensor = self.make_k_2pi_tensor() # K
         self.n_T_tensor   = self.make_n_T_tensor()   # T
         self.fc_fn = torch.nn.Linear(self.num_freq*2, output_dim)
-        self.relu_fn = torch.nn.ReLU()
+        if activation_fn == 'ReLU':
+            self.activation_fn = torch.nn.ReLU()
+        elif activation_fn == 'LReLU':
+            self.activation_fn = torch.nn.LeakyReLU()
 
     def forward(self, x_dict):
         
@@ -663,7 +666,7 @@ class SinenetLayerV3(torch.nn.Module):
         y_f_SBD = torch.cat([y_SBD, nlf], 2)
 
         # ReLU
-        h = self.relu_fn(y_f_SBD)
+        h = self.activation_fn(y_f_SBD)
         y_dict = {'h': h}
         return y_dict
 
@@ -962,6 +965,10 @@ class DV_Y_model(General_Model):
         self.optimiser = torch.optim.Adam(self.nn_model.parameters(), lr=self.learning_rate)
         # Zero gradients
         self.optimiser.zero_grad()
+
+    def build_optimiser_weighted(self):
+        # TODO: need to correctly pass the weight to the optimiser
+        pass
 
     def gen_loss(self, feed_dict):
         ''' Returns Tensor, not value! For value, use gen_loss_value '''
