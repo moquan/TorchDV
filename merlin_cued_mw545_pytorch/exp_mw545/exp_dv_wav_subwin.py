@@ -26,6 +26,8 @@ def make_feed_dict_y_wav_subwin_train(dv_y_cfg, file_list_dict, file_dir_dict, b
     Draw Utterances; Load Data
     Draw starting frame; Slice; Fit into numpy holders
     '''
+    load_time  = 0.
+    slice_time = 0.
     feat_name_list = ['wav'] # Load wav
     feat_dim_list  = [1]
     # Make i/o shape arrays
@@ -42,7 +44,7 @@ def make_feed_dict_y_wav_subwin_train(dv_y_cfg, file_list_dict, file_dir_dict, b
     min_file_len = dv_y_cfg.batch_seq_total_len + 2 * total_sil_one_side_wav # This is at 16kHz
 
     file_name_list = []
-    start_frame_index_list = [[]]*dv_y_cfg.batch_num_spk
+    start_frame_index_list = [[] for i in range(dv_y_cfg.batch_num_spk)]
     
     for speaker_idx in range(dv_y_cfg.batch_num_spk):
 
@@ -54,8 +56,11 @@ def make_feed_dict_y_wav_subwin_train(dv_y_cfg, file_list_dict, file_dir_dict, b
         # Draw multiple utterances per speaker: dv_y_cfg.spk_num_utter
         # Draw multiple windows per utterance:  dv_y_cfg.utter_num_seq
         # Stack them along B
+        speaker_start_time = time.time()
         speaker_file_name_list, speaker_utter_len_list, speaker_utter_list = get_utters_from_binary_dict(dv_y_cfg.spk_num_utter, file_list_dict[(speaker_id, utter_tvt)], file_dir_dict, feat_name_list=feat_name_list, feat_dim_list=feat_dim_list, min_file_len=min_file_len, random_seed=None)
         file_name_list.append(speaker_file_name_list)
+        speaker_load_time = time.time()
+        load_time += (speaker_load_time-speaker_start_time)
 
         for utter_idx in range(dv_y_cfg.spk_num_utter):
             file_name = speaker_file_name_list[utter_idx]
@@ -79,6 +84,9 @@ def make_feed_dict_y_wav_subwin_train(dv_y_cfg, file_list_dict, file_dir_dict, b
                     win_start = seq_start + win_idx * dv_y_cfg.seq_win_shift
                     win_end   = win_start + dv_y_cfg.seq_win_len - 1 # Inclusive index
                     wav[speaker_idx, spk_seq_index, win_idx, :] = wav_file[win_start:win_end+1]
+        speaker_slice_time = time.time()
+        slice_time += (speaker_slice_time-speaker_load_time)
+    print('Load time is %s, Slice time is %s' %(str(load_time), str(slice_time)))
 
     # S,B,M,D
     x_val = wav
@@ -210,7 +218,7 @@ def make_feed_dict_y_wav_subwin_distance(dv_y_cfg, file_list_dict, file_dir_dict
     min_file_len = min_file_len + dv_y_cfg.max_len_to_plot
 
     file_name_list = []
-    start_frame_index_list = [[]]*dv_y_cfg.batch_num_spk
+    start_frame_index_list = [[] for i in range(dv_y_cfg.batch_num_spk)]
     
     for speaker_idx in range(dv_y_cfg.batch_num_spk):
 
@@ -274,8 +282,8 @@ class dv_y_wav_subwin_configuration(dv_y_configuration):
         self.classify_in_training = True # Compute classification accuracy after validation errors during training
         self.batch_output_form = 'mean' # Method to convert from SBD to SD
         self.finetune_model = False
-        # self.learning_rate  = 0.0000001
-        # self.prev_nnets_file_name = '/home/dawna/tts/mw545/TorchDV/debug_nausicaa/dv_y_wav_lr_0.000100_Sin80_ReL256BN_ReL256BNDR_LRe16DR_DV16S100B10T3200D1_smallbatch/Model'
+        # self.learning_rate  = 0.0001
+        # self.prev_nnets_file_name = '/home/dawna/tts/mw545/TorchDV/dv_wav_subwin/dv_y_wav_lr_0.000100_ReL80_LRe256BN_LRe256BN_LRe8DR_DV8S100B23T3200D1/Model'
         self.python_script_name = os.path.realpath(__file__)
 
         # Waveform-level input configuration
@@ -288,14 +296,13 @@ class dv_y_wav_subwin_configuration(dv_y_configuration):
         self.seq_win_shift = 80
         self.seq_num_win   = int((self.batch_seq_len - self.seq_win_len) / self.seq_win_shift) + 1
 
-        self.learning_rate = 0.0001
         self.batch_num_spk = 100
-        self.dv_dim = 16
+        self.dv_dim = 8
         self.nn_layer_config_list = [
             # Must contain: type, size; num_channels, dropout_p are optional, default 0, 1
             {'type':'ReLUSubWin', 'size':80, 'win_len':self.seq_win_len, 'num_win':self.seq_num_win, 'dropout_p':0, 'batch_norm':False},
-            {'type':'ReLUDV', 'size':256, 'dropout_p':0, 'batch_norm':True},
-            {'type':'ReLUDV', 'size':256, 'dropout_p':0.2, 'batch_norm':True},
+            {'type':'LReLUDV', 'size':256, 'dropout_p':0, 'batch_norm':True},
+            {'type':'LReLUDV', 'size':256, 'dropout_p':0, 'batch_norm':True},
             {'type':'LReLUDV', 'size':self.dv_dim, 'dropout_p':0.2, 'batch_norm':False}
         ]
 
