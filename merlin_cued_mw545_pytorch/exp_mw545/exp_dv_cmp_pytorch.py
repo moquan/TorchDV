@@ -250,32 +250,48 @@ def train_dv_y_model(cfg, dv_y_cfg):
 
         logger.info('start training Epoch '+str(epoch))
         epoch_start_time = time.time()
+        epoch_train_load_time = 0.
+        epoch_train_model_time = 0.
 
         for batch_idx in range(dv_y_cfg.epoch_num_batch['train']):
+            batch_start_time = time.time()
             # logger.info('start loading batch '+str(batch_idx))
             # Draw random speakers
             batch_speaker_list = speaker_loader.draw_n_samples(dv_y_cfg.batch_num_spk)
             # Make feed_dict for training
             feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list, utter_tvt='train')
+            batch_load_time = time.time()
+            epoch_train_load_time += (batch_load_time - batch_start_time)
             # logger.info('start training batch '+str(batch_idx))
             dv_y_model.nn_model.train()
             dv_y_model.update_parameters(feed_dict=feed_dict)
+            batch_train_time = time.time()
+            epoch_train_model_time += (batch_train_time - batch_load_time)
         epoch_train_time = time.time()
+
+        logger.info('epoch train load time is %s, train model time is %s' % (str(epoch_train_load_time), str(epoch_train_model_time)))
 
         logger.info('start evaluating Epoch '+str(epoch))
         output_string = {'loss':'epoch %i' % epoch, 'accuracy':'epoch %i' % epoch, 'time':'epoch %i' % epoch}
+        epoch_valid_load_time = 0.
+        epoch_valid_model_time = 0.
         for utter_tvt_name in ['train', 'valid', 'test']:
             total_batch_size = 0.
             total_loss       = 0.
             total_accuracy   = 0.
             for batch_idx in range(dv_y_cfg.epoch_num_batch['valid']):
+                batch_start_time = time.time()
                 # Draw random speakers
                 batch_speaker_list = speaker_loader.draw_n_samples(dv_y_cfg.batch_num_spk)
                 # Make feed_dict for evaluation
                 feed_dict, batch_size = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list, utter_tvt=utter_tvt_name)
+                batch_load_time = time.time()
+                epoch_valid_load_time += (batch_load_time - batch_start_time)
                 dv_y_model.eval()
                 with dv_y_model.no_grad():
                     batch_mean_loss = dv_y_model.gen_loss_value(feed_dict=feed_dict)
+                    batch_train_time = time.time()
+                    epoch_valid_model_time += (batch_train_time - batch_load_time)
                     total_batch_size += batch_size
                     total_loss       += batch_mean_loss
                     if dv_y_cfg.classify_in_training:
@@ -322,6 +338,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
         if dv_y_cfg.classify_in_training:
             logger.info(output_string['accuracy'])
         logger.info(output_string['time'])
+        logger.info('epoch valid load time is %s, train model time is %s' % (str(epoch_valid_load_time), str(epoch_valid_model_time)))
 
         dv_y_cfg.additional_action_epoch(logger, dv_y_model)
 
@@ -577,41 +594,47 @@ def test_sinenet(cfg, dv_y_cfg):
     dv_y_cfg = copy.deepcopy(dv_y_cfg)
     log_class_attri(dv_y_cfg, logger, except_list=dv_y_cfg.log_except_list)
 
-    logger = make_logger("test_dvy")
+    logger = make_logger("vuv_test_dvy")
     logger.info('Creating data lists')
     speaker_id_list = dv_y_cfg.speaker_id_list_dict['train'] # For DV training and evaluation, use train speakers only
     speaker_loader  = list_random_loader(speaker_id_list)
     file_id_list    = read_file_list(cfg.file_id_list_file)
     file_list_dict  = make_dv_file_list(file_id_list, speaker_id_list, dv_y_cfg.data_split_file_number) # In the form of: file_list[(speaker_id, 'train')]
-    make_feed_dict_method_train = dv_y_cfg.make_feed_dict_method_train
+    make_feed_dict_method_vuv_test = dv_y_cfg.make_feed_dict_method_vuv_test
 
     dv_y_model = torch_initialisation(dv_y_cfg)
     dv_y_model.load_nn_model(dv_y_cfg.nnets_file_name)
     dv_y_model.eval()
 
-    # vuv = numpy.zeros((dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.seq_num_win))
-    ce_holders = [[] for i in range(dv_y_cfg.seq_num_win+1)]
+    for utter_tvt_name in ['train', 'valid', 'test']:
+        ce_holders = [[] for i in range(dv_y_cfg.seq_num_win+1)]
+        # vuv = numpy.zeros((dv_y_cfg.batch_num_spk, dv_y_cfg.spk_num_seq, dv_y_cfg.seq_num_win))
+        num_batch = dv_y_cfg.epoch_num_batch['valid'] * 10
+        # num_batch = 1
+        for batch_idx in range(num_batch):
+            # Draw random speakers
+            batch_speaker_list = speaker_loader.draw_n_samples(dv_y_cfg.batch_num_spk)
+            # Make feed_dict for evaluation
+            feed_dict, batch_size, vuv_SBM = make_feed_dict_method_vuv_test(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list, utter_tvt=utter_tvt_name, return_vuv=True)
+            with dv_y_model.no_grad():
+                ce_SB = dv_y_model.gen_SB_loss_value(feed_dict=feed_dict) # 1D vector
+                vuv_SB = numpy.sum(vuv_SBM, axis=2).reshape(-1)
+                s_b = dv_y_cfg.batch_num_spk * dv_y_cfg.spk_num_seq
+                for i in range(s_b):
+                    vuv = int(vuv_SB[i])
+                    ce  = int(ce_SB[i])
+                    ce_holders[vuv].append(ce)
 
-    num_batch = dv_y_cfg.epoch_num_batch['valid'] * 10
-    # num_batch = 1
-
-    for batch_idx in range(num_batch):
-        # Draw random speakers
-        batch_speaker_list = speaker_loader.draw_n_samples(dv_y_cfg.batch_num_spk)
-        # Make feed_dict for evaluation
-        feed_dict, batch_size, vuv_SBM = make_feed_dict_method_train(dv_y_cfg, file_list_dict, cfg.nn_feat_scratch_dirs, batch_speaker_list, utter_tvt='train', return_vuv=True)
-        with dv_y_model.no_grad():
-            ce_SB = dv_y_model.gen_SB_loss_value(feed_dict=feed_dict) # 1D vector
-            vuv_SB = numpy.sum(vuv_SBM, axis=2).reshape(-1)
-            s_b = dv_y_cfg.batch_num_spk * dv_y_cfg.spk_num_seq
-            for i in range(s_b):
-                vuv = int(vuv_SB[i])
-                ce  = int(ce_SB[i])
-                ce_holders[vuv].append(ce)
-
-    len_list = [len(ce_list) for ce_list in ce_holders]
-    mean_list = [numpy.mean(ce_list) for ce_list in ce_holders]
-    print(len_list)
-    print(mean_list)
+        len_list = [len(ce_list) for ce_list in ce_holders]
+        mean_list = [numpy.mean(ce_list) for ce_list in ce_holders]
+        print(len_list)
+        print(mean_list)
+        ce_sum = 0.
+        num_sum = 0
+        for (l,m) in zip(len_list, mean_list):
+            ce_sum += l*m
+            num_sum += l
+        ce_mean = ce_sum / float(num_sum)
+        logger.info('Mean Cross Entropy Results of %s Dataset is %s' % (utter_tvt_name, str(ce_mean)))
 
 
