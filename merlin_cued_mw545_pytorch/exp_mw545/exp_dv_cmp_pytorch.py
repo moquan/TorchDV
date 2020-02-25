@@ -72,7 +72,7 @@ class dv_y_configuration(object):
         self.epoch_num_batch  = {'train': 400, 'valid':400}
 
         self.batch_num_spk = 64 # S
-        self.spk_num_utter = 1 # When >1, windows from different utterances are stacked along B
+        self.spk_num_utter = 1  # Deprecated and useless; to use multiple utterances from same speaker, use same speaker along self.batch_num_spk
         
         self.data_split_file_number = {}
         self.data_split_file_number['train'] = make_held_out_file_number(1000, 120)
@@ -93,8 +93,7 @@ class dv_y_configuration(object):
 
     def auto_complete(self, cfg):
         ''' Remember to call this after __init__ !!! '''
-        self.utter_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1  # Outputs of each sequence is then averaged
-        self.spk_num_seq   = self.spk_num_utter * self.utter_num_seq # B
+        self.spk_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1  # B
 
         # Features
         self.nn_feature_dims = cfg.nn_feature_dims[self.y_feat_name]
@@ -120,6 +119,11 @@ class dv_y_configuration(object):
         self.cfg = cfg
         # self.sil_index_dict = read_sil_index_file(sil_index_file='/home/dawna/tts/mw545/TorchDV/sil_index_list.scp')
 
+    def reload_model_param(self):
+        ''' Change model parameters '''
+        ''' Possible changes: sizes of S,B '''
+        pass
+
     def change_to_debug_mode(self, process=None):
         if 'debug' in self.work_dir:
             for k in self.epoch_num_batch:
@@ -131,7 +135,6 @@ class dv_y_configuration(object):
     def change_to_class_test_mode(self):
         self.epoch_num_batch = {'test':40}
         self.batch_num_spk = 1
-        self.spk_num_utter = 1
         spk_num_utter_list = [1,2,5,10]
         self.spk_num_utter_list = check_and_change_to_list(spk_num_utter_list)
         lambda_u_dict_file_name = 'lambda_u_class_test.dat'
@@ -142,8 +145,9 @@ class dv_y_configuration(object):
         elif self.y_feat_name == 'wav':
             self.batch_seq_shift = 80
 
-        self.utter_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1
-        # self.spk_num_seq = self.spk_num_utter * self.utter_num_seq
+        self.spk_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1
+
+        self.reload_model_param()
         if 'debug' in self.work_dir: self.change_to_debug_mode(process="class_test")
 
     def change_to_distance_test_mode(self):
@@ -162,17 +166,16 @@ class dv_y_configuration(object):
 
         self.epoch_num_batch = {'test':10*4}
         self.batch_num_spk = int(self.batch_num_spk / 4)
-        self.utter_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1
-        self.spk_num_seq = self.spk_num_utter * self.utter_num_seq
+        self.spk_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1
         self.num_to_plot = int(self.max_len_to_plot / self.gap_len_to_plot)
 
+        self.reload_model_param()
         if 'debug' in self.work_dir: self.change_to_debug_mode()
 
     def change_to_gen_h_mode(self):
         self.batch_speaker_list = ['p15', 'p28', 'p122', 'p68'] # Males 2, Females 2
         self.utter_name = '003'
         self.batch_num_spk = len(self.batch_speaker_list)
-        self.spk_num_utter = 1
         self.h_list_file_name = os.path.join(self.exp_dir, "h_spk_list.dat")
         self.file_list_dict = {(spk_id, 'gen'): [spk_id+'_'+self.utter_name] for spk_id in self.batch_speaker_list}
 
@@ -298,7 +301,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
                         _c, _t, accuracy = dv_y_model.cal_accuracy(feed_dict=feed_dict)
                         total_accuracy   += accuracy
             average_loss = total_loss/float(dv_y_cfg.epoch_num_batch['valid'])
-            output_string['loss'] = output_string['loss'] + '; '+utter_tvt_name+' loss '+str(average_loss)
+            output_string['loss'] = output_string['loss'] + ';  %s loss %.4f' % (utter_tvt_name, average_loss)
 
             if dv_y_cfg.classify_in_training:
                 average_accu = total_accuracy/float(dv_y_cfg.epoch_num_batch['valid'])
@@ -454,7 +457,7 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
             logger.info('speaker %s accuracy is %f' % (speaker_id, speaker_accuracy))
             accuracy_list.append(speaker_accuracy)
         mean_accuracy = numpy.mean(accuracy_list)
-        logger.info('Accuracy with %i utterances per speaker is %f' % (spk_num_utter, mean_accuracy))
+        logger.info('Accuracy with %i utterances per speaker is %.4f' % (spk_num_utter, mean_accuracy))
 
 def distance_test_dv_y_model(cfg, dv_y_cfg, test_type='Euc'):
     '''
@@ -583,7 +586,7 @@ def plot_sinenet(cfg, dv_y_cfg):
         fig.savefig(fig_name)
         plt.close(fig)
 
-def test_sinenet(cfg, dv_y_cfg):
+def vuv_test_sinenet(cfg, dv_y_cfg):
     '''
     Run the evaluation part of the training procedure
     Store the results based on v/uv
