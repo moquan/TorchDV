@@ -217,7 +217,7 @@ def make_dv_file_list(file_id_list, speaker_id_list, data_split_file_number):
 #############
 
 def train_dv_y_model(cfg, dv_y_cfg):
-
+    numpy.random.seed(545)
     # Feed data use feed_dict style
 
     logger = make_logger("dv_y_config")
@@ -349,7 +349,7 @@ def train_dv_y_model(cfg, dv_y_cfg):
     return best_valid_loss
 
 def class_test_dv_y_model(cfg, dv_y_cfg):
-
+    numpy.random.seed(546)
     # Classification test
     # Also generates lambda_u per utterance; store in lambda_u_dict[file_name]
     # Use test utterances only
@@ -460,6 +460,7 @@ def class_test_dv_y_model(cfg, dv_y_cfg):
         logger.info('Accuracy with %i utterances per speaker is %.4f' % (spk_num_utter, mean_accuracy))
 
 def distance_test_dv_y_model(cfg, dv_y_cfg, test_type='Euc'):
+    numpy.random.seed(547)
     '''
         Make a list of feed_dict, compute distance between them
         test_type='Euc': Generate lambdas, compute euclidean distance, [lambda_i - lambda_0]^2
@@ -519,6 +520,7 @@ def distance_test_dv_y_model(cfg, dv_y_cfg, test_type='Euc'):
     print([float(distance_sum[i]/(num_lambda)) for i in range(dv_y_cfg.num_to_plot+1)])
 
 def plot_sinenet(cfg, dv_y_cfg):
+    numpy.random.seed(548)
     '''
     Plot all filters in sinenet
     If use real data, plot real data too
@@ -587,6 +589,7 @@ def plot_sinenet(cfg, dv_y_cfg):
         plt.close(fig)
 
 def vuv_test_sinenet(cfg, dv_y_cfg):
+    numpy.random.seed(549)
     '''
     Run the evaluation part of the training procedure
     Store the results based on v/uv
