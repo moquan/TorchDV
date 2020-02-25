@@ -38,6 +38,9 @@ class Tensor_Reshape(torch.nn.Module):
             elif input_dim_seq == ['S', 'B', 'D']:
                 # Add T and make it 1
                 temp_input_dim_values = {'S':input_dim_values['S'], 'B':input_dim_values['B'], 'T':1, 'D':input_dim_values['D']}
+            elif input_dim_seq == ['S', 'T']:
+                # Add T and make it 1
+                temp_input_dim_values = {'S':input_dim_values['S'], 'B':1, 'T':input_dim_values['T'], 'D':1}
 
         # Then, make from ['S', 'B', 'T', 'D']
         if expect_input_dim_seq == ['S', 'B', 'D']:
@@ -113,6 +116,17 @@ class Build_S_B_M_T_Input_Layer(object):
         v = self.params["output_dim_values"]
         self.params["output_shape_values"] = [v['S'], v['B'], v['M'], v['T']]
 
+class Build_S_T_Input_Layer(object):
+    ''' This layer has only parameters, no torch.nn.module '''
+    ''' Mainly for the prev_layer argument '''
+    def __init__(self, dv_y_cfg):
+        self.input_dim = dv_y_cfg.batch_seq_total_len
+        self.params = {}
+        self.params["output_dim_seq"]      = ['S', 'T']
+        self.params["output_dim_values"]   = {'S':dv_y_cfg.batch_num_spk, 'T':dv_y_cfg.batch_seq_total_len}
+        v = self.params["output_dim_values"]
+        self.params["output_shape_values"] = [v['S'], v['T']]
+
 class Build_NN_Layer(torch.nn.Module):
     def __init__(self, layer_config, prev_layer):
         super().__init__()
@@ -165,7 +179,7 @@ class Build_NN_Layer(torch.nn.Module):
         if activation_fn == 'ReLU':
             self.layer_fn = ReLUDVLayer(input_dim, output_dim, batch_norm)
         elif activation_fn == 'LReLU':
-            self.layer_fn = LReLUDVLayer(input_dim, output_dim, batch_norm)
+            self.layer_fn = ReLUDVLayer(input_dim, output_dim, batch_norm, activation_fn=torch.nn.LeakyReLU())
 
     def LReLUDV(self):
         self.ReLUDV(activation_fn='LReLU')
@@ -185,7 +199,7 @@ class Build_NN_Layer(torch.nn.Module):
         if activation_fn == 'ReLU':
             self.layer_fn = ReLUDVMaxLayer(input_dim, output_dim, num_channels)
         elif activation_fn == 'LReLU':
-            self.layer_fn = LReLUDVMaxLayer(input_dim, output_dim, batch_norm)
+            self.layer_fn = ReLUDVMaxLayer(input_dim, output_dim, num_channels, activation_fn=torch.nn.LeakyReLU())
 
     def LReLUDVMax(self):
         self.ReLUDVMax(activation_fn='LReLU')
@@ -221,10 +235,42 @@ class Build_NN_Layer(torch.nn.Module):
         if activation_fn == 'ReLU':
             self.layer_fn = ReLUSubWinLayer(output_dim, win_len, num_win, batch_norm)
         elif activation_fn == 'LReLU':
-            self.layer_fn = LReLUSubWinLayer(output_dim, win_len, num_win, batch_norm)
+            self.layer_fn = ReLUSubWinLayer(output_dim, win_len, num_win, batch_norm, activation_fn=torch.nn.LeakyReLU())
 
     def LReLUSubWin(self):
         self.ReLUSubWin(activation_fn='LReLU')
+
+    def ReLUSubWin_ST(self, activation_fn='ReLU'):
+        '''
+        Input ST
+        ST --> SBT --> SBMT, 2 unfold ops
+        '''
+        self.params["expect_input_dim_seq"] = ['S','T']
+        self.reshape_fn = Tensor_Reshape(self.params)
+        self.params = self.reshape_fn.update_layer_params()
+
+        self.params["output_dim_seq"] = ['S', 'B', 'D']
+        v = self.params["expect_input_dim_values"]
+        layer_config = self.params["layer_config"]
+        T = v['T']
+        batch_seq_len, batch_seq_shift = layer_config['win_len_shift_list'][0]
+        B = int((T - batch_seq_len) / batch_seq_shift) + 1
+        seq_win_len, seq_win_shift = layer_config['win_len_shift_list'][1]
+        M = int((batch_seq_len - seq_win_len) / seq_win_shift) + 1
+        total_output_dim = layer_config['size'] * M
+        self.params["output_dim_values"] = {'S': v['S'], 'B': B, 'D': total_output_dim} 
+
+        output_dim = layer_config['size']
+        win_len_shift_list = layer_config['win_len_shift_list']
+        total_length = layer_config['total_length']
+        assert total_length == T
+        num_win = B
+        batch_norm = layer_config["batch_norm"]
+        if activation_fn == 'ReLU':
+            self.layer_fn = ReLUSubWinLayer_ST(output_dim, win_len_shift_list, total_length, num_win, batch_norm)
+        elif activation_fn == 'LReLU':
+            self.layer_fn = ReLUSubWinLayer_ST(output_dim, win_len_shift_list, total_length, num_win, batch_norm, activation_fn=torch.nn.LeakyReLU())
+        pass
 
     def Sinenet(self):
         self.params["expect_input_dim_seq"] = ['S','B','1','T']
@@ -349,10 +395,6 @@ class ReLUDVLayer(torch.nn.Module):
         y_dict = {'h': h}
         return y_dict
 
-class LReLUDVLayer(ReLUDVLayer):
-    def __init__(self, input_dim, output_dim, batch_norm=False):
-        super().__init__(input_dim, output_dim, batch_norm, activation_fn=torch.nn.LeakyReLU())
-
 class ReLUDVMaxLayer(torch.nn.Module):
     def __init__(self, input_dim, output_dim, num_channels, activation_fn=torch.nn.ReLU()):
         super().__init__()
@@ -381,11 +423,6 @@ class ReLUDVMaxLayer(torch.nn.Module):
         h_max, _indices = torch.max(h_stack, dim=0, keepdim=False)
         y_dict = {'h': h_max, 'h_stack':h_stack}
         return y_dict
-
-class LReLUDVMaxLayer(torch.nn.Module):
-    ''' Leaky ReLU, then MaxOut '''
-    def __init__(self, input_dim, output_dim, num_channels):
-        super().__init__(input_dim, output_dim, num_channels, activation_fn=torch.nn.LeakyReLU())
 
 class LinearDVLayer(torch.nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -450,10 +487,41 @@ class ReLUSubWinLayer(torch.nn.Module):
         y_dict = {'h': h}
         return y_dict
 
-class LReLUSubWinLayer(ReLUSubWinLayer):
-    ''' Leaky ReLU, then MaxOut '''
-    def __init__(self, output_dim, win_len, num_win, batch_norm):
-        super().__init__(output_dim, win_len, num_win, batch_norm, activation_fn=torch.nn.LeakyReLU())
+class ReLUSubWinLayer_ST(torch.nn.Module):
+    ''' Input dimensions
+            x: S*T
+            Output dimensions
+            y: S*B*M*D
+            h: S*B*(M*(D+1))
+        Apply ReLU on each sub-window within 
+        Then stack the outputs, S_B_M_D --> S_B_MD
+    '''
+    def __init__(self, output_dim, win_len_shift_list, total_length, num_win, batch_norm, activation_fn=torch.nn.ReLU()):
+        super().__init__()
+
+        assert len(win_len_shift_list) == 2
+        self.win_len_shift_list = win_len_shift_list
+        win_len = win_len_shift_list[1][0]
+        self.relu_subwin_layer = ReLUSubWinLayer(output_dim, win_len, num_win, batch_norm, activation_fn)
+
+    def forward(self, x_dict):
+        if 'h_reshape' in x_dict:
+            x = x_dict['h_reshape']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+
+        '''
+        1. Unfold x twice; S*T --> S*B*M*T
+        2. relu_subwin_function
+        '''
+        for i in range(2):
+            win_len_shift = self.win_len_shift_list[i]
+            win_len, win_shift = win_len_shift
+            x = x.unfold(i+1, win_len, win_shift)
+
+        x_new_dict = {'h_reshape': x}
+        y_dict = self.relu_subwin_layer(x_new_dict)
+        return y_dict
 
 class SinenetLayer(torch.nn.Module):
     ''' f tau dependent sine waves, convolve and stack '''
@@ -817,10 +885,13 @@ class DV_Y_CMP_NN_model(DV_Y_NN_model):
     def __init__(self, dv_y_cfg):
         super().__init__(dv_y_cfg, input_layer=Build_S_B_TD_Input_Layer)
 
-
 class DV_Y_SubWin_NN_model(DV_Y_NN_model):
     def __init__(self, dv_y_cfg):
         super().__init__(dv_y_cfg, input_layer=Build_S_B_M_T_Input_Layer)
+
+class DV_Y_ST_NN_model(DV_Y_NN_model):
+    def __init__(self, dv_y_cfg):
+        super().__init__(dv_y_cfg, input_layer=Build_S_T_Input_Layer)
         
 
 
@@ -968,6 +1039,7 @@ class DV_Y_model(General_Model):
 
     def build_optimiser_weighted(self):
         # TODO: need to correctly pass the weight to the optimiser
+        # https://pytorch.org/docs/stable/tensors.html?highlight=masked%20fill#torch.Tensor.masked_fill
         pass
 
     def gen_loss(self, feed_dict):
@@ -1054,7 +1126,6 @@ class DV_Y_CMP_model(DV_Y_model):
         super().__init__(dv_y_cfg)
         self.nn_model = DV_Y_CMP_NN_model(dv_y_cfg)
 
-
 class DV_Y_Wav_SubWin_model(DV_Y_model):
     ''' S_B_M_T input, SB_D logit output, classification, cross-entropy '''
     def __init__(self, dv_y_cfg):
@@ -1072,6 +1143,11 @@ class DV_Y_Wav_SubWin_Sinenet_model(DV_Y_Wav_SubWin_model):
     def __init__(self, dv_y_cfg):
         super().__init__(dv_y_cfg)
 
+class DV_Y_ST_model(DV_Y_model):
+    ''' S_T input, SB_D logit output, classification, cross-entropy '''
+    def __init__(self, dv_y_cfg):
+        super().__init__(dv_y_cfg)
+        self.nn_model = DV_Y_ST_NN_model(dv_y_cfg)
 
 
 
