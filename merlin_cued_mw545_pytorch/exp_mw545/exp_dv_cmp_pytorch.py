@@ -90,11 +90,11 @@ class dv_y_configuration(object):
         self.num_speaker_dict     = cfg.num_speaker_dict
 
         self.log_except_list = ['data_split_file_number', 'speaker_id_list_dict', 'feat_index', 'sil_index_dict']
+        self.log_except_list.extend(['n_mid_0', 'win_start_matrix'])
 
     def auto_complete(self, cfg):
         ''' Remember to call this after __init__ !!! '''
-        self.spk_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1  # B
-
+        self.compute_spk_num_seq() # B
         # Features
         self.nn_feature_dims = cfg.nn_feature_dims[self.y_feat_name]
         self.feat_dim, self.feat_index = compute_feat_dim(self, cfg, self.out_feat_list) # D
@@ -119,9 +119,12 @@ class dv_y_configuration(object):
         self.cfg = cfg
         # self.sil_index_dict = read_sil_index_file(sil_index_file='/home/dawna/tts/mw545/TorchDV/sil_index_list.scp')
 
+    def compute_spk_num_seq(self):
+        self.spk_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1  # B
+
     def reload_model_param(self):
         ''' Change model parameters '''
-        ''' Possible changes: sizes of S,B '''
+        ''' Possible changes: sizes of S,B,M '''
         pass
 
     def change_to_debug_mode(self, process=None):
@@ -130,7 +133,7 @@ class dv_y_configuration(object):
                 self.epoch_num_batch[k] = 10 
             if '_smallbatch' not in self.exp_dir:
                 self.exp_dir = self.exp_dir + '_smallbatch'
-            self.num_train_epoch = 10
+            self.num_train_epoch = 5
 
     def change_to_class_test_mode(self):
         self.epoch_num_batch = {'test':40}
@@ -145,8 +148,7 @@ class dv_y_configuration(object):
         elif self.y_feat_name == 'wav':
             self.batch_seq_shift = 80
 
-        self.spk_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1
-
+        self.compute_spk_num_seq() # B
         self.reload_model_param()
         if 'debug' in self.work_dir: self.change_to_debug_mode(process="class_test")
 
@@ -166,9 +168,9 @@ class dv_y_configuration(object):
 
         self.epoch_num_batch = {'test':10*4}
         self.batch_num_spk = int(self.batch_num_spk / 4)
-        self.spk_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1
         self.num_to_plot = int(self.max_len_to_plot / self.gap_len_to_plot)
 
+        self.compute_spk_num_seq() # B
         self.reload_model_param()
         if 'debug' in self.work_dir: self.change_to_debug_mode()
 
@@ -335,13 +337,15 @@ def train_dv_y_model(cfg, dv_y_cfg):
                     # dv_y_model.update_learning_rate(new_learning_rate)
                 previous_valid_loss = valid_error
 
+        logger.info('epoch valid load time is %s, train model time is %s' % (str(epoch_valid_load_time), str(epoch_valid_model_time)))
+
         epoch_valid_time = time.time()
         output_string['time'] = output_string['time'] + '; train time is %.2f, valid time is %.2f' %((epoch_train_time - epoch_start_time), (epoch_valid_time - epoch_train_time))
         logger.info(output_string['loss'])
         if dv_y_cfg.classify_in_training:
             logger.info(output_string['accuracy'])
         logger.info(output_string['time'])
-        logger.info('epoch valid load time is %s, train model time is %s' % (str(epoch_valid_load_time), str(epoch_valid_model_time)))
+        
 
         dv_y_cfg.additional_action_epoch(logger, dv_y_model)
 
@@ -641,6 +645,4 @@ def vuv_test_sinenet(cfg, dv_y_cfg):
             ce_sum += l*m
             num_sum += l
         ce_mean = ce_sum / float(num_sum)
-        logger.info('Mean Cross Entropy Results of %s Dataset is %s' % (utter_tvt_name, str(ce_mean)))
-
-
+        logger.info('Mean Cross Entropy Results of %s Dataset is %.4f' % (utter_tvt_name, ce_mean))
