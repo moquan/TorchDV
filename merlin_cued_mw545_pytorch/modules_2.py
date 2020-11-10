@@ -1,6 +1,6 @@
 # modules_2.py
 
-import os, sys, pickle, time, shutil, logging
+import os, sys, pickle, time, shutil, logging, copy 
 import math, numpy, scipy, scipy.spatial, scipy.special
 numpy.random.seed(545)
 from io_funcs.binary_io import BinaryIOCollection
@@ -8,6 +8,7 @@ io_fun = BinaryIOCollection()
 
 from modules import make_logger, read_file_list, prepare_file_path, prepare_file_path_list, make_held_out_file_number, copy_to_scratch
 from modules import keep_by_speaker, remove_by_speaker, keep_by_file_number, remove_by_file_number
+
 
 
 def compute_feat_dim(model_cfg, cfg, feat_list):
@@ -37,6 +38,8 @@ def log_class_attri(cfg, logger, except_list=['feat_index']):
     for i in attri_list.keys():
         if i not in except_list:
             logger.info(i+ ' is '+str(attri_list[i]))
+
+            
 
 def resil_nn_file_list(feat_name, cfg, file_id_list, nn_file_list={}, nn_resil_file_list={}):
     from modules import reduce_silence_list
@@ -247,3 +250,4 @@ def print_f0_mean_var(norm_file=None):
     print(mean_vector[60])
     print(std_vector[60])
     return mean_vector[60], std_vector[60]
+
