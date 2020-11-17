@@ -46,10 +46,10 @@ class dv_y_configuration(object):
         self.out_feat_list = ['wav_ST', 'f_SBM', 'tau_SBM', 'vuv_SBM']
         
         self.input_data_dim['T_S'] = 16000
-        self.input_data_dim['B_shift'] = 80
         self.input_data_dim['T_B'] = 3200
-        self.input_data_dim['M_shift'] = 80
+        self.input_data_dim['B_shift'] = 80
         self.input_data_dim['T_M'] = 640
+        self.input_data_dim['M_shift'] = 80
 
     def init_cmp_data(self):
         self.y_feat_name   = 'cmp'
@@ -61,16 +61,7 @@ class dv_y_configuration(object):
         self.input_data_dim['B_shift'] = 1
         self.input_data_dim['D'] =  self.input_data_dim['T_B'] * self.cfg.nn_feature_dims['cmp']
 
-    def update_cmp_dim(self):
-        '''
-        Compute new acoustic feature dimension
-        Based on the features in out_feat_list
-        '''
-        self.cmp_dim = 0
-        for feat_name in self.out_feat_list:
-            feat_dim = self.cfg.acoustic_in_dimension_dict[feat_name]
-            self.cmp_dim += feat_dim
-        self.input_data_dim['D'] = self.input_data_dim['T_B'] * self.cmp_dim
+    
 
     def init_model(self):
         self.nn_layer_config_list = []
@@ -95,7 +86,7 @@ class dv_y_configuration(object):
         self.warmup_epoch     = 10
         self.early_stop_epoch = 2    # After this number of non-improvement, roll-back to best previous model and decay learning rate
         self.max_num_decay    = 10
-        self.epoch_num_batch  = {'train': 4000, 'valid':4000}
+        self.epoch_num_batch  = {'train': 13000, 'valid':2000}
         
         self.data_split_file_number = {}
         self.data_split_file_number['train'] = [120, 3000]
@@ -141,6 +132,16 @@ class dv_y_configuration(object):
 
 
 
+    def update_cmp_dim(self):
+        '''
+        Compute new acoustic feature dimension
+        Based on the features in out_feat_list
+        '''
+        self.cmp_dim = 0
+        for feat_name in self.out_feat_list:
+            feat_dim = self.cfg.acoustic_in_dimension_dict[feat_name]
+            self.cmp_dim += feat_dim
+        self.input_data_dim['D'] = self.input_data_dim['T_B'] * self.cmp_dim
 
     def change_to_class_test_mode(self):
         self.epoch_num_batch = {'test':40}
