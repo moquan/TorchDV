@@ -60,7 +60,7 @@ class Build_dv_selecter(object):
 
         return file_list_random_loader_dict
 
-    def draw_n_samples(self, n):
+    def draw_n_speakers(self, n):
         return self.speaker_random_loader.draw_n_samples(n)
 
     def draw_n_files(self, speaker_id, utter_tvt_name, n):
@@ -76,7 +76,7 @@ class Build_dv_selecter(object):
             speaker_id = speaker_id_list[i]
             try:
                 true_speaker_index = ref_speaker_id_list.index(speaker_id)
-            except ValueError:
+            except ValueError: # New speaker, not in the training set
                 true_speaker_index = -1
             self.one_hot_S[i] = true_speaker_index
         if dv_y_cfg.train_by_window:
@@ -114,7 +114,7 @@ class Build_dv_y_wav_data_loader_Ref(object):
     The f0 method extract f0 in the middle (round down) of the window
     """
     def __init__(self, cfg=None, dv_y_cfg=None):
-        super(Build_dv_y_wav_data_loader_Ref, self).__init__()
+        super().__init__()
         self.logger = make_logger("Data_Loader Ref")
 
         self.cfg = cfg
@@ -146,6 +146,13 @@ class Build_dv_y_wav_data_loader_Ref(object):
         self.input_data_dim['B'] = int((self.input_data_dim['T_S'] - self.input_data_dim['T_B']) / self.input_data_dim['B_shift']) + 1
         self.input_data_dim['M'] = int((self.input_data_dim['T_B'] - self.input_data_dim['T_M']) / self.input_data_dim['M_shift']) + 1
 
+        wav_sr  = self.cfg.wav_sr
+        cmp_sr  = self.cfg.frame_sr
+        wav_cmp_ratio = int(wav_sr / cmp_sr)
+        # Do not use silence frames at the beginning or the end
+        total_sil_one_side_cmp = self.cfg.frames_silence_to_keep + self.cfg.sil_pad   # This is at 200Hz
+        self.total_sil_one_side_wav = total_sil_one_side_cmp * wav_cmp_ratio          # This is at 16kHz
+
     def make_feed_dict(self, file_id, start_sample_no_sil):
         '''
         1. Compute start_sample_include_sil
@@ -156,11 +163,11 @@ class Build_dv_y_wav_data_loader_Ref(object):
         '''
         feed_dict = {}
 
-        start_sample_include_sil = self.compute_start_sample_include_sil(file_id, start_sample_no_sil)
-
         wav_resil_norm_file_name = os.path.join(self.cfg.nn_feat_resil_norm_dirs['wav'], file_id+'.wav')
         wav_T = self.make_wav_T(wav_resil_norm_file_name, start_sample_no_sil)
         feed_dict['wav_T'] = wav_T
+
+        start_sample_include_sil = self.compute_start_sample_include_sil(file_id, start_sample_no_sil)
 
         pitch_text_file_name = os.path.join(self.cfg.pitch_dir, file_id+'.pitch')
         tau_BM, vuv_BM = self.make_tau_BM(pitch_text_file_name, start_sample_include_sil)
@@ -172,6 +179,19 @@ class Build_dv_y_wav_data_loader_Ref(object):
         feed_dict['f_BM'] = f_BM
 
         return feed_dict
+
+    def make_wav_T(self, wav_resil_norm_file_name, start_sample_no_sil):
+        '''
+        Waveform data is S*T; window slicing is done in Pytorch
+        '''
+        wav_data, sample_number = self.DIO.load_data_file_frame(wav_resil_norm_file_name, 1)
+        wav_data = numpy.squeeze(wav_data)
+
+        start_sample_include_sil = start_sample_no_sil+self.total_sil_one_side_wav
+
+        wav_T = wav_data[start_sample_include_sil:start_sample_include_sil+self.input_data_dim['T_S']]
+
+        return wav_T
 
     def compute_start_sample_include_sil(self, file_id, start_sample_no_sil):
         '''
@@ -189,17 +209,7 @@ class Build_dv_y_wav_data_loader_Ref(object):
         wav_cmp_ratio = int(wav_sr / cmp_sr)
         start_sample_include_sil = start_sample_no_sil + first_non_sil_index * wav_cmp_ratio
         return start_sample_include_sil
-
-    def make_wav_T(self, wav_resil_norm_file_name, start_sample_no_sil):
-        '''
-        Waveform data is S*T; window slicing is done in Pytorch
-        '''
-        wav_data, sample_number = self.DIO.load_data_file_frame(wav_resil_norm_file_name, 1)
-        wav_data = numpy.squeeze(wav_data)
-        
-        x_matrix = wav_data[start_sample_no_sil:start_sample_no_sil+self.input_data_dim['T_S']]
-
-        return x_matrix
+    
 
     def make_tau_BM(self, pitch_text_file_name, start_sample_include_sil):
         '''
@@ -255,7 +265,7 @@ class Build_dv_y_wav_data_loader_Single_File(object):
     start_sample_no_sil >= 0; sil_pad included
     """
     def __init__(self, cfg=None, dv_y_cfg=None):
-        super(Build_dv_y_wav_data_loader_Single_File, self).__init__()
+        super().__init__()
         self.logger = make_logger("Data_Loader Single")
 
         self.cfg = cfg
@@ -270,25 +280,14 @@ class Build_dv_y_wav_data_loader_Single_File(object):
         '''
         Load from dv_y_cfg, or hard-code here
         '''
-        self.input_data_dim = {}
         if dv_y_cfg is None:
-            self.input_data_dim['T_S'] = 6000 # Number of frames at 16kHz
-            self.input_data_dim['T_B']   = 3200 # T
-            self.input_data_dim['B_shift'] = 80
-            self.input_data_dim['T_M']   = 640
-            self.input_data_dim['M_shift'] = 80
+            self.input_data_dim = {'T_S': 6000, 'T_B': 3200, 'B_shift': 80, 'T_M': 640, 'M_shift': 80}
+            self.input_data_dim['B'] = int((self.input_data_dim['T_S'] - self.input_data_dim['T_B']) / self.input_data_dim['B_shift']) + 1
+            self.input_data_dim['M'] = int((self.input_data_dim['T_B'] - self.input_data_dim['T_M']) / self.input_data_dim['M_shift']) + 1
             self.out_feat_list = ['wav_ST', 'f_SBM', 'tau_SBM', 'vuv_SBM']
         else:
-            self.input_data_dim['T_S'] = dv_y_cfg.input_data_dim['T_S']
-            self.input_data_dim['T_B']   = dv_y_cfg.input_data_dim['T_B']
-            self.input_data_dim['B_shift'] = dv_y_cfg.input_data_dim['B_shift']
-            self.input_data_dim['T_M']   = dv_y_cfg.input_data_dim['T_M']
-            self.input_data_dim['M_shift'] = dv_y_cfg.input_data_dim['M_shift']
+            self.input_data_dim = dv_y_cfg.input_data_dim
             self.out_feat_list = dv_y_cfg.out_feat_list
-        
-        # Parameters
-        self.input_data_dim['B'] = int((self.input_data_dim['T_S'] - self.input_data_dim['T_B']) / self.input_data_dim['B_shift']) + 1
-        self.input_data_dim['M'] = int((self.input_data_dim['T_B'] - self.input_data_dim['T_M']) / self.input_data_dim['M_shift']) + 1
 
         self.win_T = float(self.input_data_dim['T_M']) / float(self.cfg.wav_sr)
 
@@ -304,9 +303,10 @@ class Build_dv_y_wav_data_loader_Single_File(object):
         Make matrices of index, B*M
         '''
         B_M_grid = numpy.mgrid[0:self.input_data_dim['B'],0:self.input_data_dim['M']]
-        self.start_n_matrix = self.input_data_dim['B_shift'] * B_M_grid[0] + self.input_data_dim['M_shift'] * B_M_grid[1]
-        self.start_n_matrix = self.start_n_matrix + self.total_sil_one_side_wav
-        self.mid_n_matrix   = self.start_n_matrix + self.input_data_dim['T_M'] / 2
+        start_n_matrix = self.input_data_dim['B_shift'] * B_M_grid[0] + self.input_data_dim['M_shift'] * B_M_grid[1]
+        self.start_n_matrix = start_n_matrix.astype(int)
+        mid_n_matrix   = start_n_matrix + self.input_data_dim['T_M'] / 2
+        self.mid_n_matrix = mid_n_matrix.astype(int)
 
     def make_feed_dict(self, file_id, start_sample_no_sil):
         '''
@@ -340,7 +340,8 @@ class Build_dv_y_wav_data_loader_Single_File(object):
         wav_data, sample_number = self.DIO.load_data_file_frame(wav_resil_norm_file_name, 1)
         wav_data = numpy.squeeze(wav_data)
 
-        wav_T = wav_data[start_sample_no_sil:start_sample_no_sil+self.input_data_dim['T_S']]
+        start_sample_include_sil = start_sample_no_sil+self.total_sil_one_side_wav
+        wav_T = wav_data[start_sample_include_sil:start_sample_include_sil+self.input_data_dim['T_S']]
 
         return wav_T
 
@@ -355,12 +356,14 @@ class Build_dv_y_wav_data_loader_Single_File(object):
         pitch_16k_data, sample_number = self.DIO.load_data_file_frame(pitch_resil_norm_file_name, 1)
         pitch_16k_data = numpy.squeeze(pitch_16k_data)
 
-        start_n_matrix = self.start_n_matrix + start_sample_no_sil
-        tau_BM = pitch_16k_data[start_n_matrix.astype(int)]
-        vuv_BM[tau_BM<0] = 0
-        vuv_BM[tau_BM>=self.win_T] = 0
+        start_sample_include_sil = start_sample_no_sil+self.total_sil_one_side_wav
+        pitch_T = pitch_16k_data[start_sample_include_sil:start_sample_include_sil+self.input_data_dim['T_S']]
 
-        tau_BM[vuv_BM==0] = 0
+        tau_BM = pitch_T[self.start_n_matrix]
+        vuv_BM[tau_BM<0] = 0.
+        vuv_BM[tau_BM>=self.win_T] = 0.
+
+        tau_BM[vuv_BM==0] = 0.
 
         return tau_BM, vuv_BM
 
@@ -371,8 +374,12 @@ class Build_dv_y_wav_data_loader_Single_File(object):
         f0_16k_data, sample_number = self.DIO.load_data_file_frame(f0_16k_file_name, 1)
         f0_16k_data = numpy.squeeze(f0_16k_data)
 
-        mid_n_matrix = self.mid_n_matrix + start_sample_no_sil
-        f_BM = f0_16k_data[mid_n_matrix.astype(int)]
+        start_sample_include_sil = start_sample_no_sil+self.total_sil_one_side_wav
+        f0_T = f0_16k_data[start_sample_include_sil:start_sample_include_sil+self.input_data_dim['T_S']]
+
+        f_BM = f0_T[self.mid_n_matrix]
+        # mid_n_matrix = self.mid_n_matrix + start_sample_no_sil
+        # f_BM = f0_16k_data[mid_n_matrix.astype(int)]
         return f_BM
 
 class Build_dv_y_wav_data_loader_Multi_Speaker(object):
@@ -673,7 +680,7 @@ class Build_dv_y_train_data_loader(object):
         '''
 
         if file_id_list is None:
-            batch_speaker_id_list = self.dv_selecter.draw_n_samples(self.dv_y_cfg.input_data_dim['S'])
+            batch_speaker_id_list = self.dv_selecter.draw_n_speakers(self.dv_y_cfg.input_data_dim['S'])
             self.file_id_list = self.draw_n_files(batch_speaker_id_list, utter_tvt_name)
         else:
             self.file_id_list = file_id_list
