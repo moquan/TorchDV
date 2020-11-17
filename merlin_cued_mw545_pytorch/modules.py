@@ -1,6 +1,6 @@
 # modules.py
 
-import os, sys, pickle, time, shutil, logging
+import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy, scipy.io.wavfile #, sigproc, sigproc.pystraight
 numpy.random.seed(545)
 
@@ -24,21 +24,11 @@ def make_logger(logger_name):
         logger.addHandler(ch)
     return logger
 
-def find_index_list_for_parallel(num_threads, in_file_list):
-    num_files = len(in_file_list)
-    num_files_per_thread = int(num_files/num_threads)
-    index_list = []
-    start_index = 0
-    for i in range(num_threads-1):
-        end_index = start_index + num_files_per_thread
-        index_list.append([start_index, end_index])
-        start_index = start_index + num_files_per_thread
-    end_index = num_files
-    index_list.append([start_index, end_index])
-    assert len(index_list) == num_threads
-    return index_list
-
 def make_held_out_file_number(last_index, start_index=1):
+    '''
+    List of 3-digit strings of file numbers
+    pad 0 in front if needed e.g. 3 --> 003
+    '''
     held_out_file_number = []
     for i in range(start_index, last_index+1):
         held_out_file_number.append('0'*(3-len(str(i)))+str(i))
@@ -55,7 +45,7 @@ def read_file_list(file_name):
         file_lists.append(line)
     fid.close()
     logger.info('Read file list from %s' % file_name)
-    return  file_lists
+    return file_lists
 
 def read_sil_index_file(sil_index_file='/home/dawna/tts/mw545/TorchDV/sil_index_list.scp'):
     logger = make_logger("read_sil_index")
@@ -106,13 +96,36 @@ def check_and_change_to_list(sub_list):
     return sub_list
 
 def keep_by_speaker(source_list, sub_list):
+    '''
+    Return 2 lists, one "keep" list, one "discard" list
+    '''
     target_list = []
+    discard_list = []
     sub_list = check_and_change_to_list(sub_list)
     for y in source_list:
         speaker_id = y.split('/')[-1].split('.')[0].split('_')[0]
         if speaker_id in sub_list:
             target_list.append(y)
-    return target_list
+        else:
+            discard_list.append(y)
+    return target_list, discard_list
+
+def sort_by_speaker_list(source_list, speaker_list):
+    '''
+    Return a dict of lists
+    target_list[speaker_id] = [file_name_1, ...]
+    '''
+    target_list_dict = {}
+    speaker_list = check_and_change_to_list(speaker_list)
+    for speaker_id in speaker_list:
+        target_list[speaker_id] = []
+    for file_name in source_list:
+        speaker_id = file_name.split('_')[0]
+        try:
+            target_list[speaker_id].append(file_name)
+        except KeyError:
+            print('speaker ID not exist; file name is %s' % file_name)
+    return target_list_dict
 
 def remove_by_speaker(source_list, sub_list):
     target_list = []
@@ -125,12 +138,15 @@ def remove_by_speaker(source_list, sub_list):
 
 def keep_by_file_number(source_list, sub_list):
     target_list = []
+    discard_list = []
     sub_list = check_and_change_to_list(sub_list)
     for y in source_list:
         file_number = y.split('/')[-1].split('.')[0].split('_')[1]
         if file_number in sub_list:
             target_list.append(y)
-    return target_list
+        else:
+            discard_list.append(y)
+    return target_list, discard_list
 
 def remove_by_file_number(source_list, sub_list):
     target_list = []
@@ -285,19 +301,6 @@ def compute_mean_var_normaliser(feature_dim, in_file_list, norm_file, var_file_d
     fid.close()
     logger.info('saved %s vectors to %s' %('MVN', norm_file))
 
-    # Store variance for each feature separately
-    # Store Variance instead of STD
-    if var_file_dict:
-        feature_index = 0
-        for feature_name in var_file_dict.keys():
-            feature_std_vector = numpy.array(std_vector[:,feature_index:feature_index+acoustic_out_dimension_dict[feature_name]], 'float32')
-            fid = open(var_file_dict[feature_name], 'w')
-            feature_var_vector = feature_std_vector ** 2
-            feature_var_vector.tofile(fid)
-            fid.close()
-            logger.info('saved %s variance vector to %s' %(feature_name, var_file_dict[feature_name]))
-            feature_index += acoustic_out_dimension_dict[feature_name]
-
 def perform_mean_var_normlisation_list(feature_dim, norm_file, in_file_list, out_file_list):
     from frontend.mean_variance_norm import MeanVarianceNorm
     mean_var_normaliser = MeanVarianceNorm(feature_dimension=feature_dim)
@@ -348,7 +351,7 @@ def wav_2_wav_cmp(in_file_name, out_file_name, label_rate=200):
     assert len(data.shape) == 1
     num_frames = int(data.shape[0] / dim)
     # remove residual samples i.e. less than a frame
-    num_samples = dim * num_frames
+    num_samples = int(dim * num_frames)
     new_data = numpy.array(data[:num_samples], dtype='float32')
     BIC = BinaryIOCollection()
     BIC.array_to_binary_file(new_data, out_file_name)
@@ -408,7 +411,7 @@ def wav_2_acoustic(in_file_name, out_file_dict, acoustic_in_dimension_dict, verb
         fpdd=None, pdd_mceporder=None, fnm=out_file_dict['bap'], nm_nbfwbnds=acoustic_in_dimension_dict['bap'],
         verbose=verbose_level)
 
-def acoustic_2_wav(in_file_dict, synthesis_wav_sr, out_file_name, verbose_level=0):
+def acoustic_2_wav(in_file_dict, out_file_name, synthesis_wav_sr, verbose_level=0):
     from pulsemodel.synthesis import synthesizef
     synthesizef(synthesis_wav_sr, shift=0.005, dftlen=4096, 
         ff0=None, flf0=in_file_dict['lf0'], 
@@ -417,7 +420,7 @@ def acoustic_2_wav(in_file_dict, synthesis_wav_sr, out_file_name, verbose_level=
         fsyn=out_file_name, verbose=verbose_level)
 
 def acoustic_2_wav_cfg(cfg, in_file_dict, out_file_name, verbose_level=0):
-    acoustic_2_wav(in_file_dict, cfg.synthesis_wav_sr, out_file_name, verbose_level=0)
+    acoustic_2_wav(in_file_dict, out_file_name, cfg.synthesis_wav_sr, verbose_level=0)
 
 def wav_2_acoustic_cfg(cfg, in_file_name, out_file_dict, verbose_level=0):
     wav_2_acoustic(in_file_name, out_file_dict, cfg.acoustic_in_dimension_dict, verbose_level=0)
@@ -512,35 +515,7 @@ def cal_mcd_dir(cfg, ref_data_dir, gen_denorm_no_sil_dir, file_id_list):
     logger.info('Test : DNN -- MCD: %.3f dB; BAP: %.3f dB; F0:- RMSE: %.3f Hz; CORR: %.3f; VUV: %.3f%%' \
                 %(test_spectral_distortion , test_bap_mse , test_f0_mse , test_f0_corr, test_vuv_error*100.))
 
-
-
-
-
-
-
-
-
-
 def reduce_silence(cfg, feature_dim, in_file, label_align_file, out_file, silence_pattern=['*-#+*']):
     from frontend.silence_reducer_keep_sil import SilenceReducer
     remover = SilenceReducer(n_cmp = feature_dim, silence_pattern = silence_pattern)
     remover.reduce_silence([in_file], [label_align_file], [out_file], frames_silence_to_keep=cfg.frames_silence_to_keep,sil_pad=cfg.sil_pad)
-
-def reduce_silence_list_parallel(cfg, feature_dim, in_file_list, label_align_file_list, out_file_list, silence_pattern=['*-#+*'], num_threads=20):
-    logger = make_logger("reduce_silence_list_parallel")
-    # from multiprocessing import Pool
-    from pathos.multiprocessing import ProcessingPool as Pool
-    def reduce_silence_list_wrapper(args):
-        cfg, feature_dim, in_file_list, label_align_file_list, out_file_list, silence_pattern = args
-        reduce_silence_list(cfg, feature_dim, in_file_list, label_align_file_list, out_file_list)
-
-    args_list = []
-    index_list = find_index_list_for_parallel(num_threads, in_file_list)
-    for i in range(num_threads):
-        # Make sub-lists
-        x = index_list[i][0]
-        y = index_list[i][1]
-        args = (cfg, feature_dim, in_file_list[x: y], label_align_file_list[x: y], out_file_list[x: y])
-        args_list.append(args)
-    with Pool(num_threads) as p:
-        p.map(reduce_silence_list_wrapper, args_list)
