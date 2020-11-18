@@ -421,12 +421,28 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(object):
     def init_feed_dict(self):
         dv_y_cfg = self.dv_y_cfg
         self.feed_dict = {}
-        self.feed_dict['wav_ST'] = numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['T_S']))
+        S = dv_y_cfg.input_data_dim['S']
+        B = dv_y_cfg.input_data_dim['B']
+        M = dv_y_cfg.input_data_dim['M']
+        if 'wav_ST' in dv_y_cfg.out_feat_list:
+            self.feed_dict['wav_ST'] = numpy.zeros((S, dv_y_cfg.input_data_dim['T_S']))
+        if 'wav_SBT' in dv_y_cfg.out_feat_list:
+            self.feed_dict['wav_SBT'] = numpy.zeros((S, B, dv_y_cfg.input_data_dim['T_B']))
+        if 'wav_SBMT' in dv_y_cfg.out_feat_list:
+            self.feed_dict['wav_SBMT'] = numpy.zeros((S, B, M, dv_y_cfg.input_data_dim['T_M']))
         if ('tau_SBM' in dv_y_cfg.out_feat_list) or ('vuv_SBM' in dv_y_cfg.out_feat_list):
-            self.feed_dict['tau_SBM'] = numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['B'], dv_y_cfg.input_data_dim['M']))
-            self.feed_dict['vuv_SBM'] = numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['B'], dv_y_cfg.input_data_dim['M']))
+            self.feed_dict['tau_SBM'] = numpy.zeros((S,B,M))
+            self.feed_dict['vuv_SBM'] = numpy.zeros((S,B,M))
         if 'f_SBM' in dv_y_cfg.out_feat_list:
-            self.feed_dict['f_SBM'] = numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['B'], dv_y_cfg.input_data_dim['M']))
+            self.feed_dict['f_SBM'] = numpy.zeros((S,B,M))
+
+        B_T_grid = numpy.mgrid[0:B,0:self.dv_y_cfg.input_data_dim['T_B']]
+        B_T_matrix = self.dv_y_cfg.input_data_dim['B_shift'] * B_T_grid[0] + B_T_grid[1]
+        self.B_T_matrix = B_T_matrix.astype(int)
+
+        B_M_T_grid = numpy.mgrid[0:B,0:M,0:self.dv_y_cfg.input_data_dim['T_M']]
+        B_M_T_matrix = self.dv_y_cfg.input_data_dim['B_shift'] * B_M_T_grid[0] + self.dv_y_cfg.input_data_dim['M_shift'] * B_M_T_grid[1] + B_M_T_grid[2]
+        self.B_M_T_matrix = B_M_T_matrix.astype(int)
 
     def make_feed_dict(self, file_id_list, start_sample_no_sil_list=None):
         '''
@@ -447,8 +463,15 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(object):
             start_sample_no_sil  = start_sample_no_sil_list[i]
             extra_file_len_ratio = extra_file_len_ratio_list[i]
             wav_resil_norm_file_name = os.path.join(self.wav_dir, file_id+'.wav')
-            wav_T, start_sample_no_sil = self.make_wav_T(wav_resil_norm_file_name, start_sample_no_sil, extra_file_len_ratio)
-            self.feed_dict['wav_ST'][i] = wav_T
+            if 'wav_ST' in dv_y_cfg.out_feat_list:
+                wav_T, start_sample_no_sil = self.make_wav_T(wav_resil_norm_file_name, start_sample_no_sil, extra_file_len_ratio)
+                self.feed_dict['wav_ST'][i] = wav_T
+            if 'wav_SBT' in dv_y_cfg.out_feat_list:
+                wav_BT, start_sample_no_sil = self.make_wav_BT(wav_resil_norm_file_name, start_sample_no_sil, extra_file_len_ratio)
+                self.feed_dict['wav_SBT'][i] = wav_BT
+            if 'wav_SBMT' in dv_y_cfg.out_feat_list:
+                wav_BMT, start_sample_no_sil = self.make_wav_BMT(wav_resil_norm_file_name, start_sample_no_sil, extra_file_len_ratio)
+                self.feed_dict['wav_SBMT'][i] = wav_BMT
             # try:
             #     self.feed_dict['wav_ST'][i] = wav_T
             # except:
@@ -482,8 +505,48 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(object):
             extra_file_len = sample_number - self.min_file_len
             start_sample_no_sil = int(extra_file_len_ratio * (extra_file_len+1))
 
-        wav_T = wav_data[start_sample_no_sil:start_sample_no_sil+self.dv_y_cfg.input_data_dim['T_S']]
+        start_sample_include_sil = start_sample_no_sil+self.total_sil_one_side_wav
+
+        wav_T = wav_data[start_sample_include_sil:start_sample_include_sil+self.dv_y_cfg.input_data_dim['T_S']]
         return wav_T, start_sample_no_sil
+
+    def make_wav_BT(self, wav_resil_norm_file_name, start_sample_no_sil, extra_file_len_ratio):
+        '''
+        Load waveform data
+        If start index is given, simply extract T samples; unfolding is done in Pytorch
+        If not, use random ratio
+        '''
+        wav_data, sample_number = self.DIO.load_data_file_frame(wav_resil_norm_file_name, 1)
+        wav_data = numpy.squeeze(wav_data)
+
+        if start_sample_no_sil is None:
+            extra_file_len = sample_number - self.min_file_len
+            start_sample_no_sil = int(extra_file_len_ratio * (extra_file_len+1))
+
+        start_sample_include_sil = start_sample_no_sil+self.total_sil_one_side_wav
+
+        wav_T = wav_data[start_sample_include_sil:start_sample_include_sil+self.dv_y_cfg.input_data_dim['T_S']]
+        wav_BT = wav_T[self.B_T_matrix]
+        return wav_BT, start_sample_no_sil
+
+    def make_wav_BMT(self, wav_resil_norm_file_name, start_sample_no_sil, extra_file_len_ratio):
+        '''
+        Load waveform data
+        If start index is given, simply extract T samples; unfolding is done in Pytorch
+        If not, use random ratio
+        '''
+        wav_data, sample_number = self.DIO.load_data_file_frame(wav_resil_norm_file_name, 1)
+        wav_data = numpy.squeeze(wav_data)
+
+        if start_sample_no_sil is None:
+            extra_file_len = sample_number - self.min_file_len
+            start_sample_no_sil = int(extra_file_len_ratio * (extra_file_len+1))
+
+        start_sample_include_sil = start_sample_no_sil+self.total_sil_one_side_wav
+
+        wav_T = wav_data[start_sample_include_sil:start_sample_include_sil+self.dv_y_cfg.input_data_dim['T_S']]
+        wav_BMT = wav_T[self.B_M_T_matrix]
+        return wav_BMT, start_sample_no_sil
 
 ############################
 # Methods for vocoder data #

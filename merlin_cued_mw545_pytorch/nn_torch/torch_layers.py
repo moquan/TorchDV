@@ -18,13 +18,19 @@ Pytorch Based Layers
 
 def batch_norm_D_tensor(input_tensor, bn_fn, D_index):
     # Move D_index to 1, to norm D
-    h_SDB = torch.transpose(input_tensor, 1, D_index)
-    h_SDB = bn_fn(h_SDB)
+    if D_index == 1:
+        h_SDB = input_tensor
+    else:
+        h_SDB = torch.transpose(input_tensor, 1, D_index)
+    h_SDB_norm = bn_fn(h_SDB)
     # Reshape back, swap 1 and D_index again
-    h_SBD = torch.transpose(h_SDB, 1, D_index)
-    if D_index > 2:
-        h_SBD = h_SBD.contiguous()
-    return h_SBD
+    if D_index == 1:
+        return h_SDB_norm
+    else:
+        h_SBD_norm = torch.transpose(h_SDB_norm, 1, D_index)
+        if D_index > 2:
+            h_SBD_norm = h_SBD_norm.contiguous()
+        return h_SBD_norm
 
 def compute_f_nlf(x_dict):
     log_f_mean = 5.04418
@@ -53,7 +59,13 @@ class Build_DV_Y_Input_Layer(object):
     def init_wav(self, dv_y_cfg):
         self.params = {}
         self.params["output_dim_seq"]      = ['S', 'B', 'M', 'T']
-        self.params["output_dim_values"]   = {'S':dv_y_cfg.input_data_dim['S'], 'B':dv_y_cfg.input_data_dim['B'], 'M':dv_y_cfg.input_data_dim['M'], 'T':dv_y_cfg.input_data_dim['T_S']}
+        if 'wav_ST' in dv_y_cfg.out_feat_list:
+            T = dv_y_cfg.input_data_dim['T_S']
+        elif 'wav_SBT' in dv_y_cfg.out_feat_list:
+            T = dv_y_cfg.input_data_dim['T_B']
+        elif 'wav_SBMT' in dv_y_cfg.out_feat_list:
+            T = dv_y_cfg.input_data_dim['T_M']
+        self.params["output_dim_values"]   = {'S':dv_y_cfg.input_data_dim['S'], 'B':dv_y_cfg.input_data_dim['B'], 'M':dv_y_cfg.input_data_dim['M'], 'T':T}
 
     def init_cmp(self, dv_y_cfg):
         self.params = {}
@@ -163,6 +175,33 @@ class Build_Tensor_Reshape(torch.nn.Module):
             win_len, win_shift = win_len_shift_list[i]
             wav = wav.unfold(i+1, win_len, win_shift)
         y_dict = self.copy_dict(x_dict, except_List=['wav_ST'])
+        y_dict['wav_SBMT'] = wav
+        return y_dict
+
+    def wav_SBT_2_wav_SBMT(self):
+        '''
+        Compute SBMT from SBT
+        '''
+        win_len_shift = self.params["layer_config"]["win_len_shift"]
+        S = self.params["input_dim_values"]['S']
+        B = self.params["input_dim_values"]['B']
+        T = self.params["input_dim_values"]['T']        
+        M = self.compute_num_seq(T, win_len_shift[0], win_len_shift[1])
+
+        self.params["output_dim_seq"] = ['S', 'B', 'M', 'T']
+        self.params['output_dim_values'] = {'S': S, 'B': B, 'M': M, 'T': win_len_shift[0]}
+
+        self.forward = self.wav_SBT_2_wav_SBMT_fn
+
+    def wav_SBT_2_wav_SBMT_fn(self, x_dict):
+        '''
+        Unfold wav once; S*B*T --> S*B*M*T
+        '''
+        wav = x_dict['wav_SBT']
+        win_len_shift = self.params["layer_config"]["win_len_shift"]
+        win_len, win_shift = win_len_shift
+        wav = wav.unfold(2, win_len, win_shift)
+        y_dict = self.copy_dict(x_dict, except_List=['wav_SBT'])
         y_dict['wav_SBMT'] = wav
         return y_dict
 
