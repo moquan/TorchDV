@@ -29,6 +29,7 @@ class Build_Model_Trainer(object):
         # Initialise optimisation process
         self.best_valid_loss = sys.float_info.max
         self.prev_valid_loss = sys.float_info.max
+        self.best_epoch_num  = 0
         self.warmup_epoch = train_cfg.warmup_epoch
         self.early_stop = 0
         self.early_stop_epoch = train_cfg.early_stop_epoch
@@ -62,7 +63,8 @@ class Build_Model_Trainer(object):
             self.logger.info('epoch %i; train time is %.2f, valid time is %.2f' %(epoch_num, (epoch_train_time - epoch_start_time), (epoch_valid_time - epoch_train_time)))
             self.train_cfg.additional_action_epoch(self.logger, self.model)
 
-        self.logger.info('Reach num_train_epoch, best model, %s, best valid error %.4f' % (nnets_file_name, self.best_valid_loss))
+        self.logger.info('Reach num_train_epoch, best epoch %i, best valid error %.4f' % (self.best_epoch_num, self.best_valid_loss))
+        self.logger.info('Model: %s' % (nnets_file_name))
         return self.best_valid_loss
 
     def train_no_validation(self):
@@ -132,7 +134,7 @@ class Build_Model_Trainer(object):
         Generate all 3 losses
         Optimisation decision based on valid_loss, and epoch_num to check warmup
         '''
-        output_string = {'loss':'epoch %i loss:' % epoch_num}
+        output_string = {'loss':'epoch %i train & valid & test loss:' % epoch_num}
         epoch_valid_load_time  = 0.
         epoch_valid_model_time = 0.
         epoch_num_batch = self.train_cfg.epoch_num_batch['valid']
@@ -148,12 +150,12 @@ class Build_Model_Trainer(object):
                 epoch_valid_model_time += batch_model_time
 
             mean_loss = total_loss/float(epoch_num_batch)
-            output_string['loss'] = output_string['loss'] + ' %s %.4f;' % (utter_tvt_name, mean_loss)
+            output_string['loss'] = output_string['loss'] + ' %.4f &' % (mean_loss)
 
             if utter_tvt_name == 'valid':
                 valid_loss = mean_loss
 
-        self.logger.info('valid load time %.2f, valid model time %.2f' % (epoch_valid_load_time, epoch_valid_model_time))
+        self.logger.info('valid load & model time: %.2f & %.2f' % (epoch_valid_load_time, epoch_valid_model_time))
         self.logger.info(output_string['loss'])
         return valid_loss
 
@@ -182,6 +184,7 @@ class Build_Model_Trainer(object):
             self.logger.info('valid error reduced, saving model, %s' % nnets_file_name)
             self.model.save_nn_model_optim(nnets_file_name)
             self.best_valid_loss = valid_loss
+            self.best_epoch_num = epoch_num
         elif valid_loss > self.previous_valid_loss:
             self.early_stop += 1
             self.logger.info('valid error increased, early stop %i' % self.early_stop)
