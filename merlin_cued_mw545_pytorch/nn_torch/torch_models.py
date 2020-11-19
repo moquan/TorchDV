@@ -132,6 +132,9 @@ class General_Model(object):
         ''' Maybe need different precisions '''
         pass
 
+    def print_output_dim_values(self, logger):
+        pass
+
     ###################
     # Things can stay #
     ###################
@@ -382,3 +385,8 @@ class Build_DV_Y_model(General_Model):
     def tensor_to_numpy(self, x_tensor):
         return x_tensor.cpu().detach().numpy()
 
+    def print_output_dim_values(self, logger):
+        logger.info('Print Output Dim Values')
+        print(self.nn_model.input_layer.params["output_dim_values"])
+        for nn_layer in self.nn_model.layer_list:
+            print(nn_layer.params["output_dim_values"])
