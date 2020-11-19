@@ -60,7 +60,7 @@ class Build_Model_Trainer(object):
                 self.logger.info('Best model, %s, best valid error %.4f' % (nnets_file_name, self.best_valid_loss))
                 return self.best_valid_loss
 
-            self.logger.info('epoch %i; train time is %.2f, valid time is %.2f' %(epoch_num, (epoch_train_time - epoch_start_time), (epoch_valid_time - epoch_train_time)))
+            self.logger.info('epoch %i train & valid time: %.2f & %.2f' %(epoch_num, (epoch_train_time - epoch_start_time), (epoch_valid_time - epoch_train_time)))
             self.train_cfg.additional_action_epoch(self.logger, self.model)
 
         self.logger.info('Reach num_train_epoch, best epoch %i, best valid error %.4f' % (self.best_epoch_num, self.best_valid_loss))
@@ -90,7 +90,7 @@ class Build_Model_Trainer(object):
             valid_loss = self.eval_action_epoch(epoch_num)
             epoch_valid_time = time.time()
 
-            self.logger.info('epoch %i; train time is %.2f, valid time is %.2f' %(epoch_num, (epoch_train_time - epoch_start_time), (epoch_valid_time - epoch_train_time)))
+            self.logger.info('epoch %i train & valid time %.2f & %.2f' %(epoch_num, (epoch_train_time - epoch_start_time), (epoch_valid_time - epoch_train_time)))
             self.train_cfg.additional_action_epoch(self.logger, self.model)
 
         self.logger.info('Reach num_train_epoch, best model, %s, best valid error %.4f' % (nnets_file_name, self.best_valid_loss))
@@ -113,7 +113,7 @@ class Build_Model_Trainer(object):
             batch_load_time, batch_model_time = self.train_action_batch()
             epoch_train_load_time  += batch_load_time
             epoch_train_model_time += batch_model_time
-        self.logger.info('train load time %.2f, train model time %.2f' % (epoch_train_load_time, epoch_train_model_time))
+        self.logger.info('train load & model time %.2f & %.2f' % (epoch_train_load_time, epoch_train_model_time))
 
     def train_action_batch(self):
         batch_start_time = time.time()
