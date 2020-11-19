@@ -150,7 +150,7 @@ class Build_Model_Trainer(object):
                 epoch_valid_model_time += batch_model_time
 
             mean_loss = total_loss/float(epoch_num_batch)
-            output_string['loss'] = output_string['loss'] + ' %.4f &' % (mean_loss)
+            output_string['loss'] = output_string['loss'] + ' & %.4f' % (mean_loss)
 
             if utter_tvt_name == 'valid':
                 valid_loss = mean_loss
