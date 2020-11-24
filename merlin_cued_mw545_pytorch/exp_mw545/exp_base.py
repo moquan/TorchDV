@@ -11,7 +11,7 @@ from frontend_mw545.modules import make_logger, log_class_attri
 # Processes #
 #############
 
-class Build_Model_Trainer(object):
+class Build_Model_Trainer_Base(object):
     """
     Base class of a trainer
     Need to change: __init__ (to build model), build_data_loader
@@ -57,13 +57,14 @@ class Build_Model_Trainer(object):
 
             is_finish = self.validation_action(valid_loss, epoch_num)
             if is_finish:
-                self.logger.info('Best model, %s, best valid error %.4f' % (nnets_file_name, self.best_valid_loss))
+                self.logger.info('Stop early, best epoch %i, best valid loss %.4f' % (self.best_epoch_num, self.best_valid_loss))
+                self.logger.info('Model: %s' % (nnets_file_name))
                 return self.best_valid_loss
 
             self.logger.info('epoch %i train & valid time: %.2f & %.2f' %(epoch_num, (epoch_train_time - epoch_start_time), (epoch_valid_time - epoch_train_time)))
             self.train_cfg.additional_action_epoch(self.logger, self.model)
 
-        self.logger.info('Reach num_train_epoch, best epoch %i, best valid error %.4f' % (self.best_epoch_num, self.best_valid_loss))
+        self.logger.info('Reach num_train_epoch, best epoch %i, best valid loss %.4f' % (self.best_epoch_num, self.best_valid_loss))
         self.logger.info('Model: %s' % (nnets_file_name))
         return self.best_valid_loss
 
@@ -93,9 +94,7 @@ class Build_Model_Trainer(object):
             self.logger.info('epoch %i train & valid time %.2f & %.2f' %(epoch_num, (epoch_train_time - epoch_start_time), (epoch_valid_time - epoch_train_time)))
             self.train_cfg.additional_action_epoch(self.logger, self.model)
 
-        self.logger.info('Reach num_train_epoch, best model, %s, best valid error %.4f' % (nnets_file_name, self.best_valid_loss))
-        return self.best_valid_loss
-
+        self.logger.info('Reach num_train_epoch, Model: %s' % (nnets_file_name))
 
     def build_data_loader(self):
         '''
@@ -181,19 +180,18 @@ class Build_Model_Trainer(object):
         nnets_file_name = self.train_cfg.nnets_file_name
         if valid_loss < self.best_valid_loss:
             self.early_stop = 0
-            self.logger.info('valid error reduced, saving model, %s' % nnets_file_name)
+            self.logger.info('valid loss reduced, saving model, %s' % nnets_file_name)
             self.model.save_nn_model_optim(nnets_file_name)
             self.best_valid_loss = valid_loss
             self.best_epoch_num = epoch_num
         elif valid_loss > self.previous_valid_loss:
             self.early_stop += 1
-            self.logger.info('valid error increased, early stop %i' % self.early_stop)
+            self.logger.info('valid loss increased, early stop %i' % self.early_stop)
         if (self.early_stop > self.early_stop_epoch) and (epoch_num > self.warmup_epoch):
             self.early_stop = 0
             self.num_decay = self.num_decay + 1
             if self.num_decay > self.max_num_decay:
                 # End of training
-                self.logger.info('Stopping early')
                 return True
             else:
                 new_learning_rate = self.model.learning_rate*0.5
@@ -201,5 +199,6 @@ class Build_Model_Trainer(object):
                 self.model.update_learning_rate(new_learning_rate)
             self.logger.info('loading previous best model, %s ' % nnets_file_name)
             self.model.load_nn_model_optim(nnets_file_name)
+            # self.model.optimiser.zero_grad()
         self.previous_valid_loss = valid_loss
         return False
