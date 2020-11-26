@@ -13,6 +13,7 @@ class dv_y_configuration(object):
         self.cfg = cfg
         self.logger = make_logger('dv_y_conf')
         self.log_except_list = ['cfg', 'feat_index']
+        self.run_mode = 'normal'
 
         self.init_dir()
         self.init_data()
@@ -60,8 +61,6 @@ class dv_y_configuration(object):
         self.input_data_dim['T_B'] = 40 # T
         self.input_data_dim['B_shift'] = 1
         self.input_data_dim['D'] =  self.input_data_dim['T_B'] * self.cfg.nn_feature_dims['cmp']
-
-    
 
     def init_model(self):
         self.nn_layer_config_list = []
@@ -114,16 +113,17 @@ class dv_y_configuration(object):
         prepare_script_file_path(file_dir=self.exp_dir, script_name=cfg.python_script_name)
         prepare_script_file_path(file_dir=self.exp_dir, script_name=self.python_script_name)
 
-
     def change_to_debug_mode(self, process=None):
         self.logger.info('Change to Debug Mode')
         self.run_mode = 'debug'
         # self.input_data_dim['S'] = 1
         for k in self.epoch_num_batch:
-            self.epoch_num_batch[k] = 10 
+            self.epoch_num_batch[k] = 100
         if '_smallbatch' not in self.exp_dir:
             self.exp_dir = self.exp_dir + '_smallbatch'
-        self.num_train_epoch = 5
+        self.num_train_epoch = 10
+        self.warmup_epoch    = 1
+        self.early_stop_epoch = 0
 
     def additional_action_epoch(self, logger, dv_y_model):
         # Run every epoch, after train and eval; Add tests if necessary
