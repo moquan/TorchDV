@@ -495,7 +495,8 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(object):
     def make_wav_T(self, wav_resil_norm_file_name, start_sample_no_sil, extra_file_len_ratio):
         '''
         Load waveform data
-        If start index is given, simply extract T samples; unfolding is done in Pytorch
+        If start index is given, simply extract T samples; 
+        unfolding is done elsewhere, Pytorch or this data loader e.g. wav_BT = wav_T[self.B_T_matrix]
         If not, use random ratio
         '''
         wav_data, sample_number = self.DIO.load_data_file_frame(wav_resil_norm_file_name, 1)
