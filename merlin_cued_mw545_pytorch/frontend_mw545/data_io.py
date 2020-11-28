@@ -259,7 +259,6 @@ class Data_List_File_IO(object):
         self.logger.info('Read file list from %s' % file_name)
         return file_lists
 
-
 class Data_Meta_List_File_IO(object):
     """
     Contains methods to read or write meta data
@@ -482,59 +481,7 @@ class Data_File_Directory_Utils(object):
         for file_id in file_id_list:
             ori_file_name = os.path.join(dir_name, file_id + ori_ext)
             tar_file_name = os.path.join(dir_name, file_id + tar_ext)
-            os.rename(ori_file_name, tar_file_name)
-
-class Error_Log_Reader(object):
-    """docstring for Error_Log_Reader"""
-    def __init__(self):
-        super(Error_Log_Reader, self).__init__()
-        pass
-
-    def plot_loss():
-        work_dir = '/home/dawna/tts/mw545/TorchDV/dv_wav_sinenet_v3'
-        log_file_list = []
-        log_file_list.append('run_grid.sh.o5839689')
-        log_file_list.append('run_grid.sh.o5839691')
-
-        for log_file_name in log_file_list:
-            log_file_full_name = os.path.join(work_dir, log_file_name)
-            self.extract_errors_from_log_file(log_file_full_name)
-
-    def extract_errors_from_log_file(self, log_file_name):
-        file_lines = []
-        with open(log_file_name) as f:
-            for line in f.readlines():
-                line = line.strip()
-                if len(line) < 1:
-                    continue
-                file_lines.append(line)
-
-        self.train_error = []
-        self.valid_error = []
-        self.test_error  = []
-        self.epoch_time  = []
-
-        for single_line in file_lines:
-            words = single_line.strip().split(' ')
-            if 'epoch' in words and 'loss' in words:
-                # words_new = words
-                if 'train' in words:
-                    train_index = words.index('train')+2
-                elif 'training' in words:
-                    train_index = words.index('training')+2
-                if 'validation' in words:
-                    valid_index = words.index('validation')+2
-                elif 'valid' in words:
-                    valid_index = words.index('valid')+2
-                test_index  = words.index('test')+2
-                train_error.append(float(words[train_index][:-1]))
-                valid_error.append(float(words[valid_index][:-1]))
-                test_error.append(float(words[test_index]))
-            if 'epoch' in words and 'time' in words and 'train' in words and 'valid' in words and 'load' not in words:
-                train_index = words.index('train')+3
-                valid_index = words.index('valid')+3
-                epoch_time.append(float(words[train_index][:-1])+float(words[valid_index]))
-        
+            os.rename(ori_file_name, tar_file_name)        
 
 #########################
 # Main function to call #
