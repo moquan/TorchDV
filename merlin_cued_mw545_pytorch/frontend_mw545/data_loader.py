@@ -527,6 +527,8 @@ class Build_dv_y_cmp_data_loader_Single_File(object):
         self.dv_y_cfg = dv_y_cfg
         self.DIO = Data_File_IO(cfg)
 
+        self.total_sil_one_side_cmp = cfg.frames_silence_to_keep + cfg.sil_pad
+
         self.load_seq_feat_config(dv_y_cfg)
 
     def load_seq_feat_config(self, dv_y_cfg):
@@ -575,8 +577,9 @@ class Build_dv_y_cmp_data_loader_Single_File(object):
             # Extract dimensions of features we want
             cmp_data = self.feat_extract(cmp_data)
 
+        start_frame_include_sil = start_frame_no_sil + self.total_sil_one_side_cmp
         for b in range(self.input_data_dim['B']):
-            n_start = start_frame_no_sil + b * self.input_data_dim['B_shift']
+            n_start = start_frame_include_sil + b * self.input_data_dim['B_shift']
             n_end   = n_start + self.input_data_dim['T_B']
             cmp_TD  = cmp_data[n_start:n_end]
             cmp_D   = cmp_TD.reshape(-1)
