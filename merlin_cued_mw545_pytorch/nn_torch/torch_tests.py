@@ -127,10 +127,10 @@ class DV_Y_Build_Test(object):
     def __init__(self, cfg):
         super(DV_Y_Build_Test, self).__init__()
         self.logger = make_logger("Test")
-        from exp_mw545.exp_dv_wav_sinenet_v1 import dv_y_wav_sinenet_configuration
+        from exp_mw545.exp_dv_wav_subwin import dv_y_wav_subwin_configuration
 
         self.cfg = cfg
-        self.dv_y_cfg = dv_y_wav_sinenet_configuration(cfg)
+        self.dv_y_cfg = dv_y_wav_subwin_configuration(cfg)
         # log_class_attri(dv_y_cfg, self.logger)
 
     def model_build_test(self):
@@ -195,6 +195,61 @@ class DV_Y_Build_Test(object):
         print((logit_SB_D_SD == logit_S_D).all())
         print(numpy.max(numpy.abs(logit_SB_D_SD-logit_S_D)))
 
+    def speed_test(self):
+        '''
+        Test speed difference of calling model.train() and model.eval()
+        Decide where to wrap, on batch or epoch level
+        '''
+        from frontend_mw545.data_loader import Build_dv_y_train_data_loader
+        dv_y_data_loader = Build_dv_y_train_data_loader(self.cfg, self.dv_y_cfg)
+        feed_dict, batch_size = dv_y_data_loader.make_feed_dict(utter_tvt_name='train')
+        self.model = self.model_build_test()
+
+        num_epoch = 50
+        num_batch = 1000
+        '''
+        1. Train test
+            result: 703.61 801.66
+        '''
+        if False:
+            start_time = time.time()
+            self.model.train()
+            for epoch_idx in range(num_epoch):
+                for batch_idx in range(num_batch):
+                    self.model.update_parameters(feed_dict=feed_dict)
+            time_1 = time.time() - start_time
+
+            start_time = time.time()
+            for epoch_idx in range(num_epoch):
+                for batch_idx in range(num_batch):
+                    self.model.train()
+                    self.model.update_parameters(feed_dict=feed_dict)
+            time_2 = time.time() - start_time
+            print('%.2f %.2f' % (time_1, time_2))
+
+        '''
+        2. Valid test
+            result: 416.80 391.71
+        '''
+        if True:
+            start_time = time.time()
+            self.model.eval()
+            with self.model.no_grad():
+                for epoch_idx in range(num_epoch):
+                    for batch_idx in range(num_batch):
+                        batch_mean_loss = self.model.gen_loss_value(feed_dict=feed_dict)
+            time_1 = time.time() - start_time
+
+            start_time = time.time()
+            for epoch_idx in range(num_epoch):
+                for batch_idx in range(num_batch):
+                    self.model.eval()
+                    with self.model.no_grad():
+                        batch_mean_loss = self.model.gen_loss_value(feed_dict=feed_dict)
+            time_2 = time.time() - start_time
+            print('%.2f %.2f' % (time_1, time_2))
+
+
 def vuv_loss_multiple(cfg):
     '''
     plot loss vs vuv for different experiments
@@ -235,13 +290,6 @@ def vuv_loss_multiple(cfg):
 def return_gpu_memory(gpu_id):
     device_id = torch.device("cuda:%i" % gpu_id)
     return torch.cuda.memory_summary(device_id)
-
-
-
-    
-
-
-
 
 class Sinenet_Test(object):
     """
@@ -498,15 +546,12 @@ class Sinenet_Test(object):
         fig_file_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/sinenet_test/inv_e_25.png'
         self.graph_plotter.single_plot(fig_file_name, [f_list[25:]], [a_a_off_list[25:]], ['inversion error'])
 
-
-
-
 def run_Torch_Test(cfg):
-    sinenet_test = Sinenet_Test(cfg)
-    sinenet_test.test_5()
+    # sinenet_test = Sinenet_Test(cfg)
+    # sinenet_test.test_5()
 
-    # dvy_test = DV_Y_Build_Test(cfg)
-    # dvy_test.new_forward_test()
+    dvy_test = DV_Y_Build_Test(cfg)
+    dvy_test.speed_test()
 
     # vuv_loss_multiple(cfg)
 
