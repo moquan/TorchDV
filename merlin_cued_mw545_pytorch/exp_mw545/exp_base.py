@@ -41,6 +41,7 @@ class Build_Model_Trainer_Base(object):
             self.train_normal()
         elif self.train_cfg.run_mode == 'debug':
             self.train_single_batch()
+            self.train_normal()
 
     def train_normal(self):
         numpy.random.seed(545)
