@@ -6,7 +6,6 @@ import torch
 
 from frontend_mw545.modules import make_logger
 from nn_torch.torch_layers  import Build_DV_Y_Input_Layer, Build_NN_Layer
-from exp_mw545.sincnet_models import SincNet
 
 ########################
 # PyTorch-based Models #
