@@ -26,7 +26,9 @@ class Build_Model_Trainer_Base(object):
 
         log_class_attri(train_cfg, self.logger, except_list=train_cfg.log_except_list)
 
+    def init_training_values(self):
         # Initialise optimisation process
+        train_cfg = self.train_cfg
         self.best_epoch_loss = sys.float_info.max
         self.prev_epoch_loss = sys.float_info.max
         self.best_epoch_num  = 0
@@ -38,9 +40,12 @@ class Build_Model_Trainer_Base(object):
 
     def train(self):
         if self.train_cfg.run_mode == 'normal':
+            self.init_training_values()
             self.train_normal()
         elif self.train_cfg.run_mode == 'debug':
+            self.init_training_values()
             self.train_single_batch()
+            self.init_training_values()
             self.train_normal()
 
     def train_normal(self):
@@ -126,7 +131,7 @@ class Build_Model_Trainer_Base(object):
 
         nnets_file_name = self.train_cfg.nnets_file_name
         epoch_num = 0
-        
+        self.init_training_values()
         while (epoch_num < self.train_cfg.num_train_epoch):
             epoch_num = epoch_num + 1
             epoch_start_time = time.time()
@@ -141,6 +146,11 @@ class Build_Model_Trainer_Base(object):
             self.model.eval()
             with self.model.no_grad():
                 batch_mean_loss = self.model.gen_loss_value(feed_dict=feed_dict)
+            if batch_mean_loss == 0:
+                self.logger.info('Reach 0 loss, best epoch %i, best loss %.4f' % (self.best_epoch_num, self.best_epoch_loss))
+                self.logger.info('Model: %s' % (nnets_file_name))
+                return None
+
             self.logger.info('epoch %i loss: %.4f' %(epoch_num, batch_mean_loss))
             is_finish = self.validation_action(batch_mean_loss, epoch_num)
             epoch_valid_time = time.time()
@@ -159,6 +169,7 @@ class Build_Model_Trainer_Base(object):
 
     def train_action_epoch(self):
         self.model.train()
+        # self.model.optimiser.zero_grad()
         epoch_start_time = time.time()
         epoch_train_load_time = 0.
         epoch_train_model_time = 0.
