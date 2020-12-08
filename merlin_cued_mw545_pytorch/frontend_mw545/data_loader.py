@@ -733,3 +733,72 @@ class Build_dv_y_train_data_loader(object):
         
         return file_id_list
 
+class Build_Sinenet_Numpy(object):
+    """
+    Build_Sinenet_Numpy
+    Numpy version of SineNet
+    1. For debug
+    2. For pre-processing
+    """
+    def __init__(self, params):
+        super().__init__()
+        self.params = params
+
+        self.num_freq = self.params["layer_config"]['num_freq']
+        self.win_len  = self.params["input_dim_values"]['T']
+
+        self.t_wav = 1./16000
+
+        self.k_2pi_tensor = self.make_k_2pi_tensor(self.num_freq) # K
+        self.n_T_tensor   = self.make_n_T_tensor(self.win_len, self.t_wav)   # T
+
+
+    def __call__(self, x, f, tau):
+        return self.forward(x, f, tau)
+
+    def forward(self, x, f, tau):
+        sin_cos_matrix = self.construct_w_sin_cos_matrix(f, tau) # S*B*M*2K*T
+        sin_cos_x = numpy.einsum('sbmkt,sbmt->sbmk', sin_cos_matrix, x) 
+        return sin_cos_x
+
+    def make_k_2pi_tensor(self, num_freq):
+        ''' indices of frequency components '''
+        k_vec = numpy.zeros(num_freq)
+        for k in range(num_freq):
+            k_vec[k] = k + 1
+        k_vec = k_vec * 2 * numpy.pi
+        # k_vec_tensor = torch.tensor(k_vec, dtype=torch.float, requires_grad=False)
+        # k_vec_tensor = torch.nn.Parameter(k_vec_tensor, requires_grad=False)
+        # return k_vec_tensor
+        return k_vec
+
+    def make_n_T_tensor(self, win_len, t_wav):
+        ''' indices along time '''
+        n_T_vec = numpy.zeros(win_len)
+        for n in range(win_len):
+            n_T_vec[n] = float(n) * t_wav
+        # n_T_tensor = torch.tensor(n_T_vec, dtype=torch.float, requires_grad=False)
+        # n_T_tensor = torch.nn.Parameter(n_T_tensor, requires_grad=False)
+        # return n_T_tensor
+        return n_T_vec
+
+    def compute_deg(self, f, tau):
+        ''' Return degree in radian '''
+        # Time
+        tau_1 = numpy.expand_dims(tau, 3) # S*B*M --> # S*B*M*1
+        t = self.n_T_tensor - tau_1 # T + S*B*M*1 -> S*B*M*T
+
+        # Degree in radian
+        f_1 = numpy.expand_dims(f, 3) # S*B*M --> # S*B*M*1
+        k_2pi_f = numpy.multiply(self.k_2pi_tensor, f_1) # K + S*B*M*1 -> S*B*M*K
+        k_2pi_f_1 = numpy.expand_dims(k_2pi_f, 4) # S*B*M*K -> S*B*M*K*1
+        t_1 = numpy.expand_dims(t, 3) # S*B*M*T -> S*B*M*1*T
+        deg = numpy.multiply(k_2pi_f_1, t_1) # S*B*M*K*1, S*B*M*1*T -> S*B*M*K*T
+        return deg
+
+    def construct_w_sin_cos_matrix(self, f, tau):
+        deg = self.compute_deg(f, tau) # S*B*M*K*T
+        s   = numpy.sin(deg)             # S*B*M*K*T
+        c   = numpy.cos(deg)             # S*B*M*K*T
+        s_c = numpy.concatenate([s,c], axis=3)    # S*B*M*2K*T
+        return s_c
