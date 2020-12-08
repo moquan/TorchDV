@@ -8,13 +8,9 @@ torch.manual_seed(545)
 
 from modules import make_logger
 
-'''
-Pytorch Based Layers
-'''
-
-########################
-# PyTorch-based Layers #
-########################
+#####################
+# PyTorch functions #
+#####################
 
 def batch_norm_D_tensor(input_tensor, bn_fn, D_index):
     # Move D_index to 1, to norm D
@@ -45,6 +41,9 @@ def compute_f_nlf(x_dict):
         nlf = torch.mul(torch.add(lf, (-1)*log_f_mean), 1./log_f_std)
     return f, nlf
 
+########################
+# PyTorch-based Layers #
+########################
 
 class Build_DV_Y_Input_Layer(object):
     ''' This layer has only parameters, no torch.nn.module '''
@@ -141,7 +140,8 @@ class Build_Tensor_Reshape(torch.nn.Module):
         pass
 
     def compute_num_seq(self, T_total, T_win, shift_win):
-        return int((T_total - T_win) / shift_win) + 1
+        num_seq = int((T_total - T_win) / shift_win) + 1
+        return num_seq
 
     def convert_f_2_nlf(self, f):
         log_f_mean = 5.04418
@@ -149,6 +149,18 @@ class Build_Tensor_Reshape(torch.nn.Module):
         lf  = torch.log(f)
         nlf = torch.mul(torch.add(lf, (-1)*log_f_mean), 1./log_f_std)
         return nlf
+
+    def copy_dict(self, x_dict, except_List=[]):
+        '''
+        Copy every key-value pair to the new dict, except keys in the list
+        '''
+        y_dict = {}
+        for k in x_dict:
+            if k in except_List:
+                pass
+            else:
+                y_dict[k] = x_dict[k]
+        return y_dict
 
     def wav_ST_2_wav_SBMT(self):
         '''
@@ -203,6 +215,25 @@ class Build_Tensor_Reshape(torch.nn.Module):
         wav = wav.unfold(2, win_len, win_shift)
         y_dict = self.copy_dict(x_dict, except_List=['wav_SBT'])
         y_dict['wav_SBMT'] = wav
+        return y_dict
+
+    def wav_SBT_2_wav_SB_T(self):
+        '''
+        Reshape 3D into 2D
+        '''
+        self.params["output_dim_seq"] = ['SB', 'T']
+        self.params['output_dim_values'] = self.params["input_dim_values"]
+
+        self.forward = self.wav_SBT_2_wav_SB_T_fn
+
+    def wav_SBT_2_wav_SB_T_fn(self, x_dict):
+        wav = x_dict['wav_SBT']
+        S = self.params["input_dim_values"]['S']
+        B = self.params["input_dim_values"]['B']
+        T = self.params["input_dim_values"]['T']
+        wav_SB_T = wav.view([S*B, T])
+        y_dict = self.copy_dict(x_dict, except_List=['wav_SBT'])
+        y_dict['wav_SB_T'] = wav_SB_T
         return y_dict
 
     def concat_wav_nlf_tau_vuv(self):
@@ -267,17 +298,28 @@ class Build_Tensor_Reshape(torch.nn.Module):
         y_dict = {'h': h_SBD}
         return y_dict
 
-    def copy_dict(self, x_dict, except_List=[]):
+    def h_SB_D_2_h_SBD(self):
         '''
-        Copy every key-value pair to the new dict, except keys in the list
+        Reshape 2D into 3D
         '''
-        y_dict = {}
-        for k in x_dict:
-            if k in except_List:
-                pass
-            else:
-                y_dict[k] = x_dict[k]
+        self.params["output_dim_seq"] = ['S', 'B', 'D']
+        self.params['output_dim_values'] = self.params["input_dim_values"]
+
+        self.forward = self.h_SB_D_2_h_SBD_fn
+
+    def h_SB_D_2_h_SBD_fn(self, x_dict):
+        '''
+        Reshape 2D into 3D
+        '''
+        h_SB_D = x_dict['h']
+        S = self.params["input_dim_values"]['S']
+        B = self.params["input_dim_values"]['B']
+        D = self.params["input_dim_values"]['D']
+        h_SBD  = h_SB_D.view([S, B, D])
+        y_dict = {'h': h_SBD}
         return y_dict
+
+
 
     
 
@@ -345,6 +387,58 @@ class Build_NN_Layer(torch.nn.Module):
         self.params['activation_fn'] = activation_fn
         self.layer_fn = Build_Sinenet_V1_Residual(self.params)
 
+    def SincNet(self):
+        self.layer_fn = Build_SincNet(self.params)        
+
+class Build_SincNet(torch.nn.Module):
+    ''' 
+        Inputs: wav_SB_T
+        Output: h: SB_D
+        1. Use the imported SincNet layer
+        2. Use imported configuration
+    '''
+    def __init__(self, params):
+        super().__init__()
+        self.params = params
+
+        from nn_torch.sincnet_models import SincNet
+        self.sincnet_config = self.make_sincnet_config()
+        self.sincnet_fn = SincNet(self.sincnet_config)
+
+        self.params["output_dim_seq"] = ['SB', 'D']
+        self.params["output_dim_values"] = {'S': self.params["input_dim_values"]['S'], 'B': self.params["input_dim_values"]['B'], 'D': self.sincnet_fn.out_dim}
+
+    def forward(self, x_dict):
+        
+        if 'wav_SB_T' in x_dict:
+            x = x_dict['wav_SB_T']
+        elif 'h' in x_dict:
+            x = x_dict['h']
+
+        h_SB_D = self.sincnet_fn(x)
+
+        y_dict = {'h': h_SB_D}
+        return y_dict
+
+    def make_sincnet_config(self):
+        T = self.params["input_dim_values"]['T']
+        D = self.params["layer_config"]['size']
+        sincnet_config = {'input_dim': T,
+          'fs': 16000,
+          'cnn_N_filt': [80,D,D],
+          'cnn_len_filt': [251,5,5],
+          'cnn_max_pool_len':[3,3,3],
+          'cnn_use_laynorm_inp': True,
+          'cnn_use_batchnorm_inp': False,
+          'cnn_use_laynorm':[True,True,True],
+          'cnn_use_batchnorm':[False,False,False],
+          'cnn_act': ['leaky_relu','leaky_relu','leaky_relu'],
+          'cnn_drop':[0.0,0.0,0.0],          
+        }
+        return sincnet_config
+
+
+
 class Build_DNN_wav_3_nlf_tau_vuv(torch.nn.Module):
     ''' 
         Inputs: wav_SBMT, f0_SBM, tau_SBM, vuv_SBM
@@ -397,7 +491,74 @@ class Build_DNN_wav_3_nlf_tau_vuv(torch.nn.Module):
 
         y_dict = {'h': h_SBMD}
         return y_dict
-       
+
+
+################################
+# SineNet component and layers #
+################################
+
+class Build_Sinenet(torch.nn.Module):
+    ''' 
+    Inputs: wav_SBMT, f0_SBM, tau_SBM
+    Output: sin_cos_x: S*B*M*2K, K=num_freq
+    (Optional) output: w_sin_cos_matrix
+    '''
+    def __init__(self, params):
+        super().__init__()
+        self.params = params
+
+        self.num_freq = self.params["layer_config"]['num_freq']
+        self.win_len  = self.params["input_dim_values"]['T']
+
+        self.t_wav = 1./16000
+
+        self.k_2pi_tensor = self.make_k_2pi_tensor(self.num_freq) # K
+        self.n_T_tensor   = self.make_n_T_tensor(self.win_len, self.t_wav)   # T
+
+    def forward(self, x, f, tau):
+        sin_cos_matrix = self.construct_w_sin_cos_matrix(f, tau) # S*B*M*2K*T
+        sin_cos_x = torch.einsum('sbmkt,sbmt->sbmk', sin_cos_matrix, x) 
+        return sin_cos_x
+
+    def make_k_2pi_tensor(self, num_freq):
+        ''' indices of frequency components '''
+        k_vec = numpy.zeros(num_freq)
+        for k in range(num_freq):
+            k_vec[k] = k + 1
+        k_vec = k_vec * 2 * numpy.pi
+        k_vec_tensor = torch.tensor(k_vec, dtype=torch.float, requires_grad=True)
+        k_vec_tensor = torch.nn.Parameter(k_vec_tensor, requires_grad=True)
+        return k_vec_tensor
+
+    def make_n_T_tensor(self, win_len, t_wav):
+        ''' indices along time '''
+        n_T_vec = numpy.zeros(win_len)
+        for n in range(win_len):
+            n_T_vec[n] = float(n) * t_wav
+        n_T_tensor = torch.tensor(n_T_vec, dtype=torch.float, requires_grad=False)
+        n_T_tensor = torch.nn.Parameter(n_T_tensor, requires_grad=False)
+        return n_T_tensor
+
+    def compute_deg(self, f, tau):
+        ''' Return degree in radian '''
+        # Time
+        tau_1 = torch.unsqueeze(tau, 3) # S*B*M --> # S*B*M*1
+        t = torch.add(self.n_T_tensor, torch.neg(tau_1)) # T + S*B*M*1 -> S*B*M*T
+
+        # Degree in radian
+        f_1 = torch.unsqueeze(f, 3) # S*B*M --> # S*B*M*1
+        k_2pi_f = torch.mul(self.k_2pi_tensor, f_1) # K + S*B*M*1 -> S*B*M*K
+        k_2pi_f_1 = torch.unsqueeze(k_2pi_f, 4) # S*B*M*K -> S*B*M*K*1
+        t_1 = torch.unsqueeze(t, 3) # S*B*M*T -> S*B*M*1*T
+        deg = torch.mul(k_2pi_f_1, t_1) # S*B*M*K*1, S*B*M*1*T -> S*B*M*K*T
+        return deg
+
+    def construct_w_sin_cos_matrix(self, f, tau):
+        deg = self.compute_deg(f, tau) # S*B*M*K*T
+        s   = torch.sin(deg)             # S*B*M*K*T
+        c   = torch.cos(deg)             # S*B*M*K*T
+        s_c = torch.cat([s,c], dim=3)    # S*B*M*2K*T
+        return s_c
 
 class Build_Sinenet_V1(torch.nn.Module):
     ''' 
@@ -592,74 +753,4 @@ class Build_Sinenet_V1_Residual(torch.nn.Module):
 
         y_dict = {'h': h_SBMD}
         return y_dict
-
-
-class Build_Sinenet(torch.nn.Module):
-    ''' 
-    Inputs: wav_SBMT, f0_SBM, tau_SBM
-    Output: sin_cos_x: S*B*M*2K, K=num_freq
-    (Optional) output: w_sin_cos_matrix
-    '''
-    def __init__(self, params):
-        super().__init__()
-        self.params = params
-
-        self.num_freq = self.params["layer_config"]['num_freq']
-        self.win_len  = self.params["input_dim_values"]['T']
-
-        self.t_wav = 1./16000
-
-        self.k_2pi_tensor = self.make_k_2pi_tensor(self.num_freq) # K
-        self.n_T_tensor   = self.make_n_T_tensor(self.win_len, self.t_wav)   # T
-
-    def forward(self, x, f, tau):
-        sin_cos_matrix = self.construct_w_sin_cos_matrix(f, tau) # S*B*M*2K*T
-        sin_cos_x = torch.einsum('sbmkt,sbmt->sbmk', sin_cos_matrix, x) 
-        return sin_cos_x
-
-    
-
-    def make_k_2pi_tensor(self, num_freq):
-        ''' indices of frequency components '''
-        k_vec = numpy.zeros(num_freq)
-        for k in range(num_freq):
-            k_vec[k] = k + 1
-        k_vec = k_vec * 2 * numpy.pi
-        k_vec_tensor = torch.tensor(k_vec, dtype=torch.float, requires_grad=False)
-        k_vec_tensor = torch.nn.Parameter(k_vec_tensor, requires_grad=False)
-        return k_vec_tensor
-
-    def make_n_T_tensor(self, win_len, t_wav):
-        ''' indices along time '''
-        n_T_vec = numpy.zeros(win_len)
-        for n in range(win_len):
-            n_T_vec[n] = float(n) * t_wav
-        n_T_tensor = torch.tensor(n_T_vec, dtype=torch.float, requires_grad=False)
-        n_T_tensor = torch.nn.Parameter(n_T_tensor, requires_grad=False)
-        return n_T_tensor
-
-    def compute_deg(self, f, tau):
-        ''' Return degree in radian '''
-        # Time
-        tau_1 = torch.unsqueeze(tau, 3) # S*B*M --> # S*B*M*1
-        t = torch.add(self.n_T_tensor, torch.neg(tau_1)) # T + S*B*M*1 -> S*B*M*T
-
-        # Degree in radian
-        f_1 = torch.unsqueeze(f, 3) # S*B*M --> # S*B*M*1
-        k_2pi_f = torch.mul(self.k_2pi_tensor, f_1) # K + S*B*M*1 -> S*B*M*K
-        k_2pi_f_1 = torch.unsqueeze(k_2pi_f, 4) # S*B*M*K -> S*B*M*K*1
-        t_1 = torch.unsqueeze(t, 3) # S*B*M*T -> S*B*M*1*T
-        deg = torch.mul(k_2pi_f_1, t_1) # S*B*M*K*1, S*B*M*1*T -> S*B*M*K*T
-        return deg
-
-    def construct_w_sin_cos_matrix(self, f, tau):
-        deg = self.compute_deg(f, tau) # S*B*M*K*T
-        s   = torch.sin(deg)             # S*B*M*K*T
-        c   = torch.cos(deg)             # S*B*M*K*T
-        s_c = torch.cat([s,c], dim=3)    # S*B*M*2K*T
-        return s_c
-
-    
-
-        
 
