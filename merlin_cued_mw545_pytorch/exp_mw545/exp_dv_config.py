@@ -108,6 +108,7 @@ class dv_y_configuration(object):
         self.work_dir = cfg.work_dir
         self.exp_dir  = self.make_dv_y_exp_dir_name(cfg)
         if 'debug' in self.work_dir: self.change_to_debug_mode()
+        if self.prev_nnets_file_name is not None: self.change_to_finetune_mode()
         self.nnets_file_name = os.path.join(self.exp_dir, "Model")
         self.dv_file_name = os.path.join(self.exp_dir, "DV.dat")
         prepare_script_file_path(file_dir=self.exp_dir, script_name=cfg.python_script_name)
@@ -124,6 +125,10 @@ class dv_y_configuration(object):
         self.num_train_epoch = 10
         self.warmup_epoch    = 1
         self.early_stop_epoch = 0
+
+    def change_to_finetune_mode(self):
+        self.logger.info('Change to Finetune Mode')
+        self.run_mode = 'finetune'
 
     def additional_action_epoch(self, logger, dv_y_model):
         # Run every epoch, after train and eval; Add tests if necessary
@@ -178,7 +183,7 @@ class dv_y_configuration(object):
 
 
     def make_dv_y_exp_dir_name(self, cfg):
-        exp_dir = cfg.work_dir + '/dv_y_%s_lr_%f_' %(self.y_feat_name, self.learning_rate)
+        exp_dir = cfg.work_dir + '/dvy_%s_lr%.0E_' %(self.y_feat_name, self.learning_rate)
         for nn_layer_config in self.nn_layer_config_list:
             if nn_layer_config['type'] == 'Tensor_Reshape':
                 layer_str = ''
