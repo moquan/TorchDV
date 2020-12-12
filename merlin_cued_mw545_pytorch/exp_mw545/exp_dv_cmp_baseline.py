@@ -13,7 +13,7 @@ class dv_y_cmp_configuration(dv_y_configuration):
         super().__init__(cfg)
 
         self.finetune_model = False
-        # self.learning_rate  = 0.0001
+        self.learning_rate  = 0.00001
         # self.prev_nnets_file_name = ''
         self.python_script_name = os.path.realpath(__file__)
         self.data_dir_mode = 'scratch' # Use scratch for speed up
@@ -24,22 +24,28 @@ class dv_y_cmp_configuration(dv_y_configuration):
         self.out_feat_list = ['mgc', 'lf0', 'bap']
         self.update_cmp_dim()
 
-        # self.dv_dim = 8
+        self.dv_dim = 2048
         # self.input_data_dim['S'] = 1 # For computing GPU requirement
         self.nn_layer_config_list = [
-            {'type':'LReLU', 'size':256, 'dropout_p':0, 'batch_norm':True},
-            {'type':'LReLU', 'size':256, 'dropout_p':0, 'batch_norm':True},
+            {'type':'LReLU', 'size':256*8, 'dropout_p':0, 'batch_norm':True},
+            {'type':'LReLU', 'size':256*8, 'dropout_p':0, 'batch_norm':True},
             {'type':'Linear', 'size':self.dv_dim, 'dropout_p':0, 'batch_norm':True}
         ]
 
         # self.gpu_id = 'cpu'
         self.gpu_id = 0
-
         self.auto_complete(cfg)
-
 
 def train_model(cfg, dv_y_cfg=None):
     if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
     from exp_mw545.exp_dv_y import Build_DV_Y_Model_Trainer
     dv_y_model_trainer = Build_DV_Y_Model_Trainer(cfg, dv_y_cfg)
     dv_y_model_trainer.train()
+
+def test_model(cfg, dv_y_cfg=None):
+    if dv_y_cfg is None: dv_y_cfg = dv_y_cmp_configuration(cfg)
+
+    from exp_mw545.exp_dv_y import Build_DV_Y_Testing
+    dv_y_model_test = Build_DV_Y_Testing(cfg, dv_y_cfg)
+    fig_file_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/vuv_loss_cmp_1.png'
+    dv_y_model_test.vuv_loss_test(fig_file_name)
