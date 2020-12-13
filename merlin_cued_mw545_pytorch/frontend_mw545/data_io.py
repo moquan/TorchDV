@@ -179,7 +179,6 @@ class Data_List_File_IO(object):
             for file_id in file_id_list_not_used:
                 f.write(file_id+'\n')
 
-
     def split_file_list_used_dv_test(self, file_id_list):
         '''
         Return 1 file list, files used for dv_test
@@ -220,7 +219,7 @@ class Data_List_File_IO(object):
         if meta_file_name is None:
             meta_file_name = '/home/dawna/tts/mw545/TorchDV/file_id_lists/data_meta/file_id_list_num_sil_frame.scp'
         if out_file_name is None:
-            out_file_name  = self.cfg.file_id_list_file['enough']
+            out_file_name  = self.cfg.file_id_list_file['dv_enough']
 
         file_frame_dict = DMLF_IO.read_file_list_num_silence_frame(meta_file_name)
 
@@ -271,7 +270,7 @@ class Data_Meta_List_File_IO(object):
         self.cfg = cfg
         self.logger = make_logger("write_data_meta")
 
-        self.DIO = Data_File_IO(cfg)
+        self.DF_IO = Data_File_IO(cfg)
 
     def write_file_list_num_silence_frame(self, in_file_name=None, out_file_name=None):
         '''
@@ -298,7 +297,7 @@ class Data_Meta_List_File_IO(object):
         with open(out_file_name, 'w') as f_1:
             for file_id in file_id_list:
                 wav_cmp_file = os.path.join(wav_cmp_dir, file_id+'.wav')
-                wav_data, wav_num_frame = self.DIO.load_data_file_frame(wav_cmp_file, wav_dim)
+                wav_data, wav_num_frame = self.DF_IO.load_data_file_frame(wav_cmp_file, wav_dim)
                 lab_dir  = cfg.lab_dir
                 lab_file = os.path.join(lab_dir, file_id+'.lab')
                 nonsilence_frame_index_list = self.DSR.load_alignment(lab_file)
