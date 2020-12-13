@@ -2,6 +2,7 @@
 
 import os, sys, pickle, time, shutil, logging, copy
 import math, numpy
+
 numpy.random.seed(545)
 
 '''
@@ -205,9 +206,15 @@ class Data_Replicate_Test(object):
         self.cfg = cfg
         self.logger = make_logger("Replicate_Test")
 
-        self.DIO = Data_File_IO(cfg)
+        from frontend_mw545.data_io import Data_File_IO
+        self.DF_IO = Data_File_IO(cfg)
 
     def check_data_same(self, data_1, data_2, l_1=None, l_2=None, tol=0):
+        '''
+        check file length first
+        check maximum data difference, compare with tolerance
+        No logger info when data are same
+        '''
         if l_1 is None:
             l_1 = data_1.shape[0]
         if l_2 is None:
@@ -217,6 +224,7 @@ class Data_Replicate_Test(object):
             self.logger.info('Different Files Lengths! %i %i' % (l_1, l_2))
             return False
         if (data_1 == data_2).all():
+            # self.logger.info('0 Difference')
             return True
         else:
             data_diff = data_1[data_1 != data_2] - data_2[data_1 != data_2]
@@ -235,8 +243,8 @@ class Data_Replicate_Test(object):
         1. same length
         2. same values
         '''
-        data_1, l_1 = self.DIO.load_data_file_frame(file_1, 1)
-        data_2, l_2 = self.DIO.load_data_file_frame(file_2, 1)
+        data_1, l_1 = self.DF_IO.load_data_file_frame(file_1, 1)
+        data_2, l_2 = self.DF_IO.load_data_file_frame(file_2, 1)
 
         return self.check_data_same(data_1, data_2, l_1, l_2)
 
@@ -348,7 +356,8 @@ class Graph_Plotting(object):
 
 class Build_Log_File_Reader(object):
     """
-    Functions for reading log files e.g. errors
+    Functions for reading log files e.g. errors, train_accuracy
+    Return 3 lists, of train, valid, and test
     """
     def __init__(self):
         super().__init__()
