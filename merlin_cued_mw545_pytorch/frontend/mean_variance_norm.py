@@ -49,7 +49,6 @@ class   MeanVarianceNorm(FeatureNormBase):
     plan: 1: support normal MVN and denormalisation for both input and output
           2: support stream-based operation: for example, some streams can use min-max, other streams use MVN, may need one more class
     '''
-#    def __init__(self, feature_dimension):
     def __init__(self, feature_dimension):   
     
         self.mean_vector = None
@@ -64,7 +63,7 @@ class   MeanVarianceNorm(FeatureNormBase):
     def feature_normalisation(self, in_file_list, out_file_list):
         logger = logging.getLogger('feature_normalisation')
         
-#        self.feature_dimension = feature_dimension
+        # self.feature_dimension = feature_dimension
         try:
             assert len(in_file_list) == len(out_file_list)
         except  AssertionError:
