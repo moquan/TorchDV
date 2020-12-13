@@ -104,21 +104,34 @@ class Data_Silence_Reducer(object):
         # Inclusive Index
         sil_pad_first_idx = no_sil_start - self.total_sil_one_side_cmp
         sil_pad_last_idx  = no_sil_end + self.total_sil_one_side_cmp
-        out_data = in_data[sil_pad_first_idx:sil_pad_last_idx+1]
+
+        # May need to pad the end
+        if sil_pad_last_idx > (in_frame_number-1):
+            # Need to pad, repeat last frame
+            num_to_pad = sil_pad_last_idx - (in_frame_number-1)
+            last_frame = in_data[-1]
+            last_frame_2D  = numpy.expand_dims(last_frame, axis=0) # (n_cmp) --> (1, n_cmp)
+            last_frame_pad = numpy.repeat(last_frame_2D, num_to_pad, axis=0) # (1, n_cmp) --> (n, n_cmp)
+            pad_data = numpy.concatenate((in_data, last_frame_pad), axis=0)
+        else:
+            # Trim but keep enough silence pad
+            pad_data = in_data[:sil_pad_last_idx+1]
+
+        out_data = pad_data[sil_pad_first_idx:]
         self.DIO.save_data_file(out_data, out_file_name)
 
     def reduce_silence_file_old(self, alignment_file_name, in_file_name, out_file_name, feat_dim=None, feat_name=None):
         '''
         Old method: complicated indexing due to possible padding
-        New update: all silence are >=5, therefore no need padding
+        New update: silences are >=5 at beginning, therefore no need padding
         '''
         if feat_dim is None:
             feat_dim = self.cfg.nn_feature_dims[feat_name]
 
         nonsilence_indices = self.load_alignment(alignment_file_name)
-        in_data, in_frame_number = self.DIO.load_data_file_frame(in_file_name, feat_dim)
+        ori_cmp_data, frame_number = self.DIO.load_data_file_frame(in_file_name, feat_dim)
         
-        if len(nonsilence_indices) == in_frame_number:
+        if len(nonsilence_indices) == frame_number:
             print('WARNING: no silence found!')
             # previsouly: continue -- in fact we should keep non-silent data!
 
