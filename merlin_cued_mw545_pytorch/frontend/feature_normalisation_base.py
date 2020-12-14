@@ -66,7 +66,7 @@ class FeatureNormBase(object):
 
     def normal_standardization(self, in_file_list, out_file_list, feature_dimension):
     
-#        self.dimension_dict = dimension_dict
+        # self.dimension_dict = dimension_dict
         self.feature_dimension = feature_dimension
 
         mean_vector = self.compute_mean(in_file_list, 0, feature_dimension)
