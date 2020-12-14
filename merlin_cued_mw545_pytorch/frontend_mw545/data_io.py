@@ -132,7 +132,7 @@ class Data_List_File_IO(object):
     def __init__(self, cfg=None):
         super(Data_List_File_IO, self).__init__()
         self.cfg = cfg
-        self.file_list_selecter = File_List_Selecter()
+        self.FL_Selecter = File_List_Selecter()
         self.logger = make_logger("write_file_list")
 
     def split_file_list_cfg_used(self, file_id_list):
@@ -145,10 +145,10 @@ class Data_List_File_IO(object):
         '''
         cfg = self.cfg
 
-        train_list, not_train_list = self.file_list_selecter.split_by_speaker(file_id_list, cfg.speaker_id_list_dict['train'])
-        valid_test_list, not_used_list = self.file_list_selecter.split_by_speaker(not_train_list, cfg.speaker_id_list_dict['valid']+cfg.speaker_id_list_dict['test'])
-        not_used_t_list, used_t_list = self.file_list_selecter.split_by_min_max_file_number(train_list, cfg.AM_held_out_file_number[0], cfg.AM_held_out_file_number[1])
-        used_vt_file_list, not_used_vt_file_list = self.file_list_selecter.split_by_min_max_file_number(valid_test_list, cfg.held_out_file_number[0], cfg.held_out_file_number[1])
+        train_list, not_train_list = self.FL_Selecter.split_by_speaker(file_id_list, cfg.speaker_id_list_dict['train'])
+        valid_test_list, not_used_list = self.FL_Selecter.split_by_speaker(not_train_list, cfg.speaker_id_list_dict['valid']+cfg.speaker_id_list_dict['test'])
+        not_used_t_list, used_t_list = self.FL_Selecter.split_by_min_max_file_number(train_list, cfg.AM_held_out_file_number[0], cfg.AM_held_out_file_number[1])
+        used_vt_file_list, not_used_vt_file_list = self.FL_Selecter.split_by_min_max_file_number(valid_test_list, cfg.held_out_file_number[0], cfg.held_out_file_number[1])
 
         used_list = used_t_list + used_vt_file_list
         not_used_list = not_used_list + not_used_t_list + not_used_vt_file_list
@@ -170,14 +170,10 @@ class Data_List_File_IO(object):
         file_id_list_used, file_id_list_not_used = self.split_file_list_cfg_used(file_id_list)
         
         self.logger.info('Write file list to %s' % out_file_name)
-        with open(out_file_name, 'w') as f:
-            for file_id in file_id_list_used:
-                f.write(file_id+'\n')
+        self.write_file_list(file_id_list_used, out_file_name)
 
         self.logger.info('Write not used file list to %s' % not_used_file_name)
-        with open(not_used_file_name, 'w') as f:
-            for file_id in file_id_list_not_used:
-                f.write(file_id+'\n')
+        self.write_file_list(file_id_list_not_used, not_used_file_name)
 
     def split_file_list_used_dv_test(self, file_id_list):
         '''
@@ -186,9 +182,9 @@ class Data_List_File_IO(object):
         '''
         cfg = self.cfg
 
-        train_list, not_train_list = self.file_list_selecter.split_by_speaker(file_id_list, cfg.speaker_id_list_dict['train'])
-        not_used_t_list, used_t_list = self.file_list_selecter.split_by_min_max_file_number(train_list, cfg.AM_held_out_file_number[0], cfg.AM_held_out_file_number[1])
-        dv_list, not_dv_list = self.file_list_selecter.split_by_min_max_file_number(used_t_list, cfg.held_out_file_number[0], cfg.held_out_file_number[1])
+        train_list, not_train_list = self.FL_Selecter.split_by_speaker(file_id_list, cfg.speaker_id_list_dict['train'])
+        not_used_t_list, used_t_list = self.FL_Selecter.split_by_min_max_file_number(train_list, cfg.AM_held_out_file_number[0], cfg.AM_held_out_file_number[1])
+        dv_list, not_dv_list = self.FL_Selecter.split_by_min_max_file_number(used_t_list, cfg.held_out_file_number[0], cfg.held_out_file_number[1])
 
         return dv_list
 
@@ -207,9 +203,7 @@ class Data_List_File_IO(object):
         file_id_list_used = self.split_file_list_used_dv_test(file_id_list)
 
         self.logger.info('Write file list to %s' % out_file_name)
-        with open(out_file_name, 'w') as f:
-            for file_id in file_id_list_used:
-                f.write(file_id+'\n')
+        self.write_file_list(file_id_list_used, out_file_name)
 
     def write_file_list_long_enough(self, meta_file_name=None, out_file_name=None):
         '''
@@ -234,6 +228,27 @@ class Data_List_File_IO(object):
                 file_list.append(file_id)
 
         self.write_file_list(file_list, out_file_name)
+
+    def write_file_list_compute_norm_info(self, in_file_name=None, out_file_name=None):
+        '''
+        Return the file_id_list for computing mean and std
+        Train speaker && not in cfg.held_out_file_number
+        '''
+        cfg = self.cfg
+
+        if in_file_name is None:
+            in_file_name = cfg.file_id_list_file['used']
+        if out_file_name is None:
+            out_file_name = cfg.file_id_list_file['compute_norm_info']
+
+        file_id_list = read_file_list(in_file_name)
+
+        train_speaker_list, discard_list = self.FL_Selecter.split_by_speaker(file_id_list, cfg.speaker_id_list_dict['train'])
+        discard_list, keep_list = self.FL_Selecter.split_by_min_max_file_number(train_speaker_list, cfg.held_out_file_number[0], cfg.held_out_file_number[1])
+
+        # print(keep_list)
+        # print(len(keep_list))
+        self.write_file_list(keep_list, out_file_name)
 
     def write_file_list(self, file_list, file_name):
         '''
