@@ -108,7 +108,7 @@ class dv_y_configuration(object):
         self.work_dir = cfg.work_dir
         self.exp_dir  = self.make_dv_y_exp_dir_name(cfg)
         if 'debug' in self.work_dir: self.change_to_debug_mode()
-        if self.prev_nnets_file_name is not None: self.change_to_finetune_mode()
+        if self.prev_nnets_file_name is not None: self.change_to_retrain_mode()
         self.nnets_file_name = os.path.join(self.exp_dir, "Model")
         self.dv_file_name = os.path.join(self.exp_dir, "DV.dat")
         prepare_script_file_path(file_dir=self.exp_dir, script_name=cfg.python_script_name)
@@ -126,9 +126,9 @@ class dv_y_configuration(object):
         self.warmup_epoch    = 1
         self.early_stop_epoch = 0
 
-    def change_to_finetune_mode(self):
-        self.logger.info('Change to Finetune Mode')
-        self.run_mode = 'finetune'
+    def change_to_retrain_mode(self):
+        self.logger.info('Change to retrain Mode')
+        self.run_mode = 'retrain'
 
     def additional_action_epoch(self, logger, dv_y_model):
         # Run every epoch, after train and eval; Add tests if necessary
@@ -191,6 +191,8 @@ class dv_y_configuration(object):
                 layer_str = '%s%i' % (nn_layer_config['type'][:3], nn_layer_config['size'])
                 if 'num_freq' in nn_layer_config:
                     layer_str = layer_str + 'f' + str(nn_layer_config['num_freq'])
+                if 'k_train' in nn_layer_config and nn_layer_config['k_train']:
+                    layer_str = layer_str + 'T'
                 if 'relu_size' in nn_layer_config:
                     layer_str = layer_str + 'r' + str(nn_layer_config['relu_size'])
                 if 'batch_norm' in nn_layer_config and nn_layer_config['batch_norm']:
