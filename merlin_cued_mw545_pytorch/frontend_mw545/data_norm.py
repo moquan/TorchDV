@@ -23,14 +23,137 @@ class Data_Mean_Var_Normaliser(object):
         self.logger = make_logger("DataNorm")
 
         self.cfg = cfg
-        self.DIO = Data_File_IO(cfg)
+        self.DF_IO = Data_File_IO(cfg)
 
-    def load_mean_var_values(self, mean_var_file_name=None):
-        if mean_var_file_name is None:
-            mean_var_file_name = self.cfg.nn_feat_resil_norm_files['cmp']
+    def load_mean_std_values(self, norm_info_file=None, feat_dim=None):
+        if norm_info_file is None:
+            norm_info_file = self.cfg.nn_feat_resil_norm_files['cmp']
+        if feat_dim is None:
+            feat_dim = self.cfg.nn_feature_dims['cmp']
+
+        mean_std_vector, frame_number = self.DF_IO.load_data_file_frame(norm_info_file, 1)
+        assert frame_number == feat_dim * 2
+
+        mean_std_vector = numpy.reshape(mean_std_vector, (-1))
+        self.mean_vector = mean_std_vector[:feat_dim]
+        self.std_vector  = mean_std_vector[feat_dim:]
+
+        self.logger.info('Loaded mean std values from %s' % norm_info_file)
+
+    def save_mean_std_values(self, norm_info_file=None, feat_dim=None):
+        if norm_info_file is None:
+            norm_info_file = self.cfg.nn_feat_resil_norm_files['cmp']
+        if feat_dim is None:
+            feat_dim = self.cfg.nn_feature_dims['cmp']
+
+        mean_std_vector = numpy.zeros(feat_dim*2)
+        mean_std_vector[:feat_dim] = self.mean_vector
+        mean_std_vector[feat_dim:] = self.std_vector
+
+        self.DF_IO.save_data_file(mean_std_vector, norm_info_file)
+
+        self.logger.info('Saved mean_std_values to %s' % norm_info_file)
+
+    def norm_file(self, in_file_name, out_file_name, norm_info_file=None, feat_name='cmp', feat_dim=None):
+        '''
+        if norm_info_file is None: self.mean_vector and self.std_vector already loaded
+        if feat_dim is None: extract from cfg
+        '''
+        if norm_info_file is not None:
+            self.load_mean_std_values(norm_info_file, feat_dim)
+        if feat_dim is None:
+            feat_dim = self.cfg.nn_feature_dims[feat_name]
+
+        # Floor std
+        self.std_vector[self.std_vector<=0] = 1.
+
+        in_data, frame_number = self.DF_IO.load_data_file_frame(in_file_name, feat_dim)
+
+        mean_matrix = numpy.tile(self.mean_vector, (frame_number, 1))
+        std_matrix = numpy.tile(self.std_vector, (frame_number, 1))
+        
+        norm_features = (in_data - mean_matrix) / std_matrix
+        self.DF_IO.save_data_file(norm_features, out_file_name)
+
+    def denorm_file(self, in_file_name, out_file_name, norm_info_file=None, feat_name='cmp', feat_dim=None):
+        '''
+        if norm_info_file is None: self.mean_vector and self.std_vector already loaded
+        if feat_dim is None: extract from cfg
+        '''
+        if norm_info_file is not None:
+            self.load_mean_std_values(norm_info_file, feat_dim)
+        if feat_dim is None:
+            feat_dim = self.cfg.nn_feature_dims[feat_name]
+
+        # Floor std
+        self.std_vector[self.std_vector<=0] = 1.
+
+        in_data, frame_number = self.DF_IO.load_data_file_frame(in_file_name, feat_dim)
+
+        mean_matrix = numpy.tile(self.mean_vector, (frame_number, 1))
+        std_matrix = numpy.tile(self.std_vector, (frame_number, 1))
+        
+        denorm_features = in_data * std_matrix + mean_matrix
+        self.DF_IO.save_data_file(denorm_features, out_file_name)
 
 
+    def compute_mean(self, file_id_list=None, file_dir=None, feat_name='cmp', feat_dim=None):
+        if file_id_list is None:
+            file_id_list = read_file_list(self.cfg.file_id_list_file['compute_norm_info'])
+        if file_dir is None:
+            file_dir = self.cfg.nn_feat_resil_dirs[feat_name]
+        if feat_dim is None:
+            feat_dim = self.cfg.nn_feature_dims[feat_name]
+        
 
+        mean_vector = numpy.zeros(feat_dim)
+        all_frame_number = 0.
+
+        for file_id in file_id_list:
+            in_file_name = os.path.join(file_dir, file_id + '.'+feat_name)
+            in_data, frame_number = self.DF_IO.load_data_file_frame(in_file_name, feat_dim)
+
+            mean_vector += numpy.sum(in_data, axis=0)
+            all_frame_number += frame_number
+            
+        mean_vector /= float(all_frame_number)
+
+        self.logger.info('computed mean vector of length %d :' % mean_vector.shape[0] )
+        self.logger.info('mean: %s' % mean_vector)
+        
+        self.mean_vector = mean_vector
+        
+        return  mean_vector
+
+    def compute_std(self, file_id_list=None, file_dir=None, feat_name='cmp', feat_dim=None):
+        if file_id_list is None:
+            file_id_list = read_file_list(self.cfg.file_id_list_file['compute_norm_info'])
+        if file_dir is None:
+            file_dir = self.cfg.nn_feat_resil_dirs[feat_name]
+        if feat_dim is None:
+            feat_dim = self.cfg.nn_feature_dims[feat_name]
+
+        var_vector = numpy.zeros(feat_dim)
+        all_frame_number = 0.
+
+        for file_id in file_id_list:
+            in_file_name = os.path.join(file_dir, file_id + '.'+feat_name)
+            in_data, frame_number = self.DF_IO.load_data_file_frame(in_file_name, feat_dim)
+
+            mean_matrix = numpy.tile(self.mean_vector, (frame_number, 1))
+            var_vector += numpy.sum((in_data - mean_matrix) ** 2, axis=0)
+            all_frame_number += frame_number
+
+        var_vector /= float(all_frame_number)
+        std_vector = var_vector ** 0.5
+
+        self.logger.info('computed std vector of length %d :' % std_vector.shape[0] )
+        self.logger.info('std: %s' % std_vector)
+        
+        self.std_vector = std_vector
+        
+        return  std_vector
+    
 #######
 # Lab #
 #######
@@ -151,7 +274,7 @@ class Data_Min_Max_Normaliser(object):
         self.logger = make_logger("DataNorm")
 
         self.cfg = cfg
-        self.DIO = Data_File_IO(cfg)
+        self.DF_IO = Data_File_IO(cfg)
 
     def compute_min_max_normaliser(self, feature_dim, in_file_list, norm_file, min_value=0.01, max_value=0.99):
         self.logger.info("compute_min_max_normaliser")
@@ -254,7 +377,7 @@ class Data_Wav_Min_Max_Normaliser(object):
         self.logger = make_logger("DataNorm")
 
         self.cfg = cfg
-        self.DIO = Data_File_IO(cfg)
+        self.DF_IO = Data_File_IO(cfg)
 
         self.load_min_max_values()
 
@@ -268,16 +391,16 @@ class Data_Wav_Min_Max_Normaliser(object):
 
     def norm_file(self, in_file_name, out_file_name, min_value=-4., max_value=4.):
         value_diff = max_value - min_value
-        in_data, in_num_samples = self.DIO.load_data_file_frame(in_file_name, 1)
+        in_data, in_num_samples = self.DF_IO.load_data_file_frame(in_file_name, 1)
         out_data = (in_data - self.wav_min) * (value_diff / self.wav_diff) + min_value
-        self.DIO.save_data_file(out_data, out_file_name)
+        self.DF_IO.save_data_file(out_data, out_file_name)
 
     def denorm_file(self, in_file_name, out_file_name, min_value=-4., max_value=4.):
         value_diff = max_value - min_value
-        in_data, in_num_samples = self.DIO.load_data_file_frame(in_file_name, 1)
+        in_data, in_num_samples = self.DF_IO.load_data_file_frame(in_file_name, 1)
         # out_data = (in_data - self.wav_min) * (value_diff / self.wav_diff) + min_value
         out_data = (in_data - min_value) * (self.wav_diff / value_diff) + self.wav_min
-        self.DIO.save_data_file(out_data, out_file_name)
+        self.DF_IO.save_data_file(out_data, out_file_name)
 
 class Data_Wav_List_Min_Max_Normaliser(object):
     """docstring for Data_Silence_List_Reducer"""
