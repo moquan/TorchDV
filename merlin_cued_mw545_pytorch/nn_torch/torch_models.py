@@ -194,8 +194,10 @@ class General_Model(object):
     def update_parameters(self, feed_dict):
         self.loss = self.gen_loss(feed_dict)
         # perform a backward pass, and update the weights.
+        # Reset gradient, otherwise equivalent to momentum>1
         self.loss.backward()
         self.optimiser.step()
+        self.optimiser.zero_grad()
 
     def update_learning_rate(self, learning_rate):
         self.learning_rate = learning_rate
