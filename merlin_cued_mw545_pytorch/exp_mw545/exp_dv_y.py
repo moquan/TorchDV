@@ -408,7 +408,7 @@ class Build_Positional_Wav_Test(Build_DV_Y_Testing_Base):
     def __init__(self, cfg, dv_y_cfg, fig_file_name):
         super().__init__(cfg, dv_y_cfg)
         self.logger.info('Build_Positional_Wav_Test')
-        self.total_num_batch = 1
+        self.total_num_batch = 100
         self.fig_file_name = fig_file_name
         self.tvt_list = ['train', 'valid', 'test']
 
