@@ -3,10 +3,9 @@
 # This file uses dv_cmp experiments to slowly progress with pytorch
 
 import os, sys, pickle, time, shutil, logging, copy
-import math, numpy
+import math, numpy, scipy, scipy.stats
 
-from frontend_mw545.modules import make_logger, log_class_attri
-from frontend_mw545.frontend_tests import Graph_Plotting
+from frontend_mw545.modules import make_logger, read_file_list, log_class_attri, Graph_Plotting, List_Random_Loader
 
 from nn_torch.torch_models import Build_DV_Y_model
 from frontend_mw545.data_loader import Build_dv_y_train_data_loader
@@ -117,6 +116,11 @@ class Build_DV_Y_Model_Trainer(Build_Model_Trainer_Base):
                 batch_mean_loss = self.model.gen_loss_value(feed_dict=feed_dict)
                 logit_SBD  = self.model.gen_logit_SBD_value(feed_dict=feed_dict)
                 batch_mean_accuracy = self.cal_accuracy(logit_SBD, feed_dict['one_hot'])
+            if batch_mean_loss == 0:
+                self.logger.info('Reach 0 loss, best epoch %i, best loss %.4f' % (self.best_epoch_num, self.best_epoch_loss))
+                self.logger.info('Model: %s' % (nnets_file_name))
+                return None
+                
             self.logger.info('epoch %i loss: %.4f' %(epoch_num, batch_mean_loss))
             self.logger.info('epoch %i accu: %.4f' %(epoch_num, batch_mean_accuracy))
             is_finish = self.validation_action(batch_mean_loss, epoch_num)
@@ -127,8 +131,6 @@ class Build_DV_Y_Model_Trainer(Build_Model_Trainer_Base):
 
         self.logger.info('Reach num_train_epoch, best epoch %i, best loss %.4f' % (self.best_epoch_num, self.best_epoch_loss))
         self.logger.info('Model: %s' % (nnets_file_name))
-
-
 
 class Build_DV_Y_Testing(object):
     """ Wrapper class for various tests of dv_y models """
@@ -145,9 +147,11 @@ class Build_DV_Y_Testing(object):
         test_fn.test()
 
     def positional_test(self, fig_file_name='/home/dawna/tts/mw545/Export_Temp/PNG_out/positional.png'):
-        # test_fn = Build_Positional_Wav_Test(self.cfg, self.test_cfg, fig_file_name)
-        # test_fn.test()
-        pass
+        if self.test_cfg.y_feat_name == 'wav':
+            test_fn = Build_Positional_Wav_Test(self.cfg, self.test_cfg, fig_file_name)
+        else:
+            pass # TODO: implement this
+        test_fn.test()
 
 class Build_DV_Y_Testing_Base(object):
     """Base class of tests of dv_y models"""
@@ -168,12 +172,13 @@ class Build_DV_Y_Testing_Base(object):
 
         self.model = Build_DV_Y_model(dv_y_cfg)
         self.model.torch_initialisation()
-        if dv_y_cfg.prev_nnets_file_name is None:
-            prev_nnets_file_name = dv_y_cfg.nnets_file_name
-        else:
-            prev_nnets_file_name = dv_y_cfg.prev_nnets_file_name
-        self.logger.info('Loading %s for testing' % prev_nnets_file_name)
-        self.model.load_nn_model(prev_nnets_file_name)
+        # if dv_y_cfg.prev_nnets_file_name is None:
+        #     prev_nnets_file_name = dv_y_cfg.nnets_file_name
+        # else:
+        #     prev_nnets_file_name = dv_y_cfg.prev_nnets_file_name
+        nnets_file_name = dv_y_cfg.nnets_file_name
+        self.logger.info('Loading %s for testing' % nnets_file_name)
+        self.model.load_nn_model(nnets_file_name)
         self.model.print_model_parameter_sizes(self.logger)
         self.model.print_output_dim_values(self.logger)
 
@@ -202,6 +207,8 @@ class Build_Wav_VUV_Loss_Test(Build_DV_Y_Testing_Base):
         in loss_mean_list: loss_mean vs voicing (increasing)
     '''
     def __init__(self, cfg, dv_y_cfg, fig_file_name):
+        if 'vuv_SBM' not in dv_y_cfg.out_feat_list:
+            dv_y_cfg.out_feat_list.append('vuv_SBM')
         super().__init__(cfg, dv_y_cfg)
         self.total_num_batch = 1000
         self.fig_file_name = fig_file_name
@@ -216,7 +223,7 @@ class Build_Wav_VUV_Loss_Test(Build_DV_Y_Testing_Base):
     def action_per_batch(self, utter_tvt_name):
         # Make feed_dict for evaluation
         feed_dict, batch_size = self.data_loader.make_feed_dict(utter_tvt_name=utter_tvt_name)
-        batch_loss_SB = self.model.gen_SB_loss_value(feed_dict=feed_dict)
+        batch_loss_SB = self.model.gen_SB_loss_value(feed_dict=feed_dict) # This is a 1D vector!!
         logit_SBD = self.model.gen_logit_SBD_value(feed_dict=feed_dict)
         batch_accu_SB = self.cal_accuracy(logit_SBD, feed_dict['one_hot_S'])
         vuv_SBM = feed_dict['vuv_SBM']
@@ -389,3 +396,153 @@ class Build_CMP_VUV_Loss_Test(Build_Wav_VUV_Loss_Test):
             for b in range(self.dv_y_cfg.input_data_dim['B']):
                 self.loss_dict[utter_tvt_name][vuv_sum_SB[s,b]].append(batch_loss_SB[s*self.dv_y_cfg.input_data_dim['B']+b])
                 self.accu_dict[utter_tvt_name][vuv_sum_SB[s,b]].append(batch_accu_SB[s,b])
+
+class Build_Positional_Wav_Test(Build_DV_Y_Testing_Base):
+    '''
+    For waveform-based models only
+    Compare the average loss in voiced or unvoiced region
+    Return a dict: key is train/valid/test, value is a list for plotting
+        loss_mean_dict[utter_tvt_name] = loss_mean_list
+        in loss_mean_list: loss_mean vs voicing (increasing)
+    '''
+    def __init__(self, cfg, dv_y_cfg, fig_file_name):
+        super().__init__(cfg, dv_y_cfg)
+        self.logger.info('Build_Positional_Wav_Test')
+        self.total_num_batch = 1
+        self.fig_file_name = fig_file_name
+        self.tvt_list = ['train', 'valid', 'test']
+
+        self.max_distance   = 50
+        self.distance_space = 1
+        self.num_to_plot = int(self.max_distance / self.distance_space)
+
+        self.loss_dict = {}
+        for utter_tvt_name in self.tvt_list:
+            self.loss_dict[utter_tvt_name] = {i:[] for i in range(self.num_to_plot)}
+
+        self.total_sil_one_side_wav = (cfg.frames_silence_to_keep + cfg.sil_pad) * int(cfg.wav_sr / cfg.frame_sr)
+        self.min_file_len = dv_y_cfg.input_data_dim['T_S'] + 2 * self.total_sil_one_side_wav
+        self.wav_dir   = self.cfg.nn_feat_scratch_dirs['wav']
+
+        self.test_file_list = read_file_list(cfg.file_id_list_file['dv_pos_test']) # 186^5 files
+        self.test_file_selecter = List_Random_Loader(self.test_file_list)
+        self.file_num_silence_samples_dict = self.read_file_list_num_silence_samples()
+
+    def write_file_list_num_silence_samples(self):
+        '''
+        Call this once only
+        Write a Data_Meta_List_File
+        1. Read silence data meta
+        2. Get file_id_list, self.test_file_list
+        3. For file_id in file_id_list, compute num_extra_samples
+        4. Write a new extra data meta
+        '''
+        from frontend_mw545.data_io import Data_Meta_List_File_IO
+        DMLF_IO = Data_Meta_List_File_IO(self.cfg)
+
+        in_file_name  = '/home/dawna/tts/mw545/TorchDV/file_id_lists/data_meta/file_id_list_num_sil_frame.scp'
+        out_file_name = '/home/dawna/tts/mw545/TorchDV/file_id_lists/data_meta/file_id_list_num_extra_wav_pos_test.scp'
+        file_id_list = self.test_file_list
+
+        file_frame_dict = DMLF_IO.read_file_list_num_silence_frame(in_file_name)
+
+        wav_cmp_ratio = int(self.cfg.wav_sr / self.cfg.frame_sr)
+        with open(out_file_name, 'w') as f_1:
+            for file_id in file_id_list:
+                l, x, y = file_frame_dict[file_id]
+                num_no_sil_frames  = y-x+1
+                num_no_sil_samples = num_no_sil_frames * wav_cmp_ratio
+                num_extra_samples = num_no_sil_samples - self.dv_y_cfg.input_data_dim['T_S'] - self.max_distance
+
+                l = '%s %i' %(file_id, num_extra_samples)
+                f_1.write(l+'\n')
+
+    def read_file_list_num_silence_samples(self):
+        in_file_name = '/home/dawna/tts/mw545/TorchDV/file_id_lists/data_meta/file_id_list_num_extra_wav_pos_test.scp'
+        file_frame_dict = {}
+
+        fid = open(in_file_name)
+        for line in fid.readlines():
+            line = line.strip()
+            if len(line) < 1:
+                continue
+            x_list = line.split(' ')
+
+            file_id = x_list[0]
+            l = int(x_list[1])
+
+            file_frame_dict[file_id] = l
+        return file_frame_dict
+
+    def action_per_batch(self, utter_tvt_name):
+        '''
+        Make feed_dict_0 and shifted feed, generate probability
+        Compute CE between p_0 and p_shift
+        '''
+        dv_y_cfg = self.dv_y_cfg
+        S = dv_y_cfg.input_data_dim['S']
+        file_id_list = self.test_file_selecter.draw_n_samples(S)
+        extra_file_len_ratio_list = numpy.random.rand(S)
+
+        start_sample_no_sil_list_0 = numpy.zeros(S).astype(int)
+        for s in range(S):
+            file_id = file_id_list[s]
+            extra_file_len_ratio = extra_file_len_ratio_list[s]
+            extra_file_len = self.file_num_silence_samples_dict[file_id]
+            start_sample_no_sil = int(extra_file_len_ratio * (extra_file_len+1))
+            start_sample_no_sil_list_0[s] = start_sample_no_sil
+
+        feed_dict_0, batch_size = self.data_loader.make_feed_dict(utter_tvt_name=utter_tvt_name,file_id_list=file_id_list, start_sample_no_sil_list=start_sample_no_sil_list_0)
+        p_SBD_0 = self.model.gen_p_SBD_value(feed_dict=feed_dict_0)
+
+        for i in range(self.num_to_plot):
+            start_sample_no_sil_list = start_sample_no_sil_list_0 + (i+1) * self.distance_space
+            feed_dict, batch_size = self.data_loader.make_feed_dict(utter_tvt_name=utter_tvt_name,file_id_list=file_id_list, start_sample_no_sil_list=start_sample_no_sil_list)
+
+            p_SBD_i = self.model.gen_p_SBD_value(feed_dict=feed_dict)
+            dist_i = self.compute_distance(p_SBD_0, p_SBD_i)
+            self.loss_dict[utter_tvt_name][i].append(dist_i)
+
+    def compute_distance(self, p_SBD_1, p_SBD_2):
+        '''
+        Compute distance between 2 probability
+        '''
+        return scipy.stats.entropy(p_SBD_1, p_SBD_2)
+
+
+    def test(self, plot_loss=True):
+        '''
+        Shift the input by a few samples
+        Compute difference in lambda
+        '''
+        # self.write_file_list_num_silence_samples()
+        numpy.random.seed(546)
+
+        for utter_tvt_name in ['train', 'valid', 'test']:
+            for batch_idx in range(self.total_num_batch):
+                self.action_per_batch(utter_tvt_name)
+
+        if plot_loss:
+            self.plot()
+
+    def plot(self):
+
+        loss_mean_dict = {}
+        # Make x-axis
+        x_list = numpy.arange(self.distance_space, self.max_distance+1, self.distance_space)
+        loss_mean_dict['x'] = x_list
+
+        for utter_tvt_name in self.tvt_list:
+            loss_mean_dict[utter_tvt_name] = []
+
+        for utter_tvt_name in self.tvt_list:
+            for i in range(self.num_to_plot):
+                loss_mean_dict[utter_tvt_name].append(numpy.mean(self.loss_dict[utter_tvt_name][i]))
+
+        graph_plotter = Graph_Plotting()
+        graph_plotter.single_plot(self.fig_file_name, [loss_mean_dict['x']]*3,[loss_mean_dict['train'], loss_mean_dict['valid'],loss_mean_dict['test']], ['train', 'valid', 'test'],title='KL against distance', x_label='Distance', y_label='KL')
+
+        self.loss_mean_dict = loss_mean_dict
+        self.logger.info('Print distance and loss_test')
+        print(loss_mean_dict['x'])
+        print(loss_mean_dict['test'])
