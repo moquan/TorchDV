@@ -28,7 +28,6 @@ class dv_y_configuration(object):
         self.make_feed_dict_method_test  = None
         self.make_feed_dict_method_gen   = None
         self.nn_layer_config_list = None
-        self.finetune_model = False
         self.prev_nnets_file_name = None
 
     def init_data(self):
@@ -119,12 +118,12 @@ class dv_y_configuration(object):
         self.run_mode = 'debug'
         # self.input_data_dim['S'] = 1
         for k in self.epoch_num_batch:
-            self.epoch_num_batch[k] = 100
+            self.epoch_num_batch[k] = 1
         if '_smallbatch' not in self.exp_dir:
             self.exp_dir = self.exp_dir + '_smallbatch'
-        self.num_train_epoch = 10
+        self.num_train_epoch = 100
         self.warmup_epoch    = 1
-        self.early_stop_epoch = 0
+        self.early_stop_epoch = 1
 
     def change_to_retrain_mode(self):
         self.logger.info('Change to retrain Mode')
