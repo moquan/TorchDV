@@ -190,6 +190,8 @@ class dv_y_configuration(object):
                 layer_str = '%s%i' % (nn_layer_config['type'][:3], nn_layer_config['size'])
                 if 'num_freq' in nn_layer_config:
                     layer_str = layer_str + 'f' + str(nn_layer_config['num_freq'])
+                if 'k_space' in nn_layer_config and nn_layer_config['k_space'] != 1:
+                    layer_str = layer_str + 'ks' + str(nn_layer_config['k_space'])
                 if 'k_train' in nn_layer_config and nn_layer_config['k_train']:
                     layer_str = layer_str + 'T'
                 if 'relu_size' in nn_layer_config:
