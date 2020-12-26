@@ -746,10 +746,11 @@ class Build_Sinenet_Numpy(object):
 
         self.num_freq = self.params["layer_config"]['num_freq']
         self.win_len  = self.params["input_dim_values"]['T']
+        self.k_space  = self.params["layer_config"]['k_space']
 
         self.t_wav = 1./16000
 
-        self.k_2pi_tensor = self.make_k_2pi_tensor(self.num_freq) # K
+        self.k_2pi_tensor = self.make_k_2pi_tensor(self.num_freq, self.k_space) # K
         self.n_T_tensor   = self.make_n_T_tensor(self.win_len, self.t_wav)   # T
 
 
@@ -761,12 +762,12 @@ class Build_Sinenet_Numpy(object):
         sin_cos_x = numpy.einsum('sbmkt,sbmt->sbmk', sin_cos_matrix, x) 
         return sin_cos_x
 
-    def make_k_2pi_tensor(self, num_freq):
+    def make_k_2pi_tensor(self, num_freq, k_space):
         ''' indices of frequency components '''
         k_vec = numpy.zeros(num_freq)
         for k in range(num_freq):
             k_vec[k] = k + 1
-        k_vec = k_vec * 2 * numpy.pi
+        k_vec = k_vec * 2 * numpy.pi * k_space
         # k_vec_tensor = torch.tensor(k_vec, dtype=torch.float, requires_grad=False)
         # k_vec_tensor = torch.nn.Parameter(k_vec_tensor, requires_grad=False)
         # return k_vec_tensor
