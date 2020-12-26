@@ -47,6 +47,54 @@ class Build_Model_Trainer_Base(object):
             self.train_single_batch()
             self.init_training_values()
             self.train_normal()
+        elif self.train_cfg.run_mode == 'retrain':
+            self.init_training_values()
+            self.train_retrain()
+
+    def train_retrain(self):
+        '''
+        2 differences from train_normal
+        1. Load previous model
+        2. zero_grad after each epoch
+        '''
+        numpy.random.seed(545)
+        self.logger.info('Creating data loader')
+        self.build_data_loader()
+
+        nnets_file_name = self.train_cfg.nnets_file_name
+        prev_nnets_file_name = self.train_cfg.prev_nnets_file_name
+        if prev_nnets_file_name is None:
+            prev_nnets_file_name = nnets_file_name
+
+        self.logger.info('Loading previous model %s' % prev_nnets_file_name)
+        self.logger.info('Retraining, new model %s' % nnets_file_name)
+        self.model.load_nn_model(prev_nnets_file_name)
+
+        epoch_num = 0
+        while (epoch_num < self.train_cfg.num_train_epoch):
+            epoch_num = epoch_num + 1
+            epoch_start_time = time.time()
+
+            self.logger.info('start Training Epoch '+str(epoch_num))
+            self.train_action_epoch(reset_optimiser=True)
+            epoch_train_time = time.time()
+
+            self.logger.info('start Evaluating Epoch '+str(epoch_num))
+            epoch_loss = self.eval_action_epoch(epoch_num)
+            epoch_valid_time = time.time()
+
+            is_finish = self.validation_action(epoch_loss['valid'], epoch_num)
+            if is_finish:
+                self.logger.info('Stop early, best epoch %i, best valid loss %.4f' % (self.best_epoch_num, self.best_epoch_loss))
+                self.logger.info('Model: %s' % (nnets_file_name))
+                return self.best_epoch_loss
+
+            self.logger.info('epoch %i train & valid time: %.2f & %.2f' %(epoch_num, (epoch_train_time - epoch_start_time), (epoch_valid_time - epoch_train_time)))
+            self.train_cfg.additional_action_epoch(self.logger, self.model)
+
+        self.logger.info('Reach num_train_epoch, best epoch %i, best valid loss %.4f' % (self.best_epoch_num, self.best_epoch_loss))
+        self.logger.info('Model: %s' % (nnets_file_name))
+        return self.best_epoch_loss
 
     def train_normal(self):
         numpy.random.seed(545)
@@ -167,9 +215,10 @@ class Build_Model_Trainer_Base(object):
         '''
         self.data_loader = None
 
-    def train_action_epoch(self):
+    def train_action_epoch(self, reset_optimiser=False):
+        if reset_optimiser:
+            self.model.build_optimiser()
         self.model.train()
-        # self.model.optimiser.zero_grad()
         epoch_start_time = time.time()
         epoch_train_load_time = 0.
         epoch_train_model_time = 0.
@@ -252,7 +301,8 @@ class Build_Model_Trainer_Base(object):
             self.best_epoch_num = epoch_num
         elif epoch_loss > self.prev_epoch_loss:
             self.early_stop += 1
-            self.logger.info('loss increased, early stop %i' % self.early_stop)
+            self.logger.info('loss increased, early stop %i, reset optimiser' % self.early_stop)
+            self.model.build_optimiser()
         if (self.early_stop > self.early_stop_epoch) and (epoch_num > self.warmup_epoch):
             self.early_stop = 0
             self.num_decay = self.num_decay + 1
@@ -263,8 +313,7 @@ class Build_Model_Trainer_Base(object):
                 new_learning_rate = self.model.learning_rate*0.5
                 self.logger.info('reduce learning rate to '+str(new_learning_rate)) # Use str(lr) for full length
                 self.model.update_learning_rate(new_learning_rate)
-            self.logger.info('loading previous best model, %s ' % nnets_file_name)
-            self.model.load_nn_model_optim(nnets_file_name)
-            # self.model.optimiser.zero_grad()
+                self.logger.info('loading previous best model, %s ' % nnets_file_name)
+                self.model.load_nn_model(nnets_file_name)
         self.prev_epoch_loss = epoch_loss
         return False
