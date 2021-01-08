@@ -375,6 +375,10 @@ class Build_NN_Layer(torch.nn.Module):
         self.params['activation_fn'] = activation_fn
         self.layer_fn = Build_DNN_wav_3_nlf_tau_vuv(self.params)
 
+    def Sinenet_V0(self, activation_fn=torch.nn.LeakyReLU()):
+        self.params['activation_fn'] = activation_fn
+        self.layer_fn = Build_Sinenet_V0(self.params)
+
     def Sinenet_V1(self, activation_fn=torch.nn.LeakyReLU()):
         self.params['activation_fn'] = activation_fn
         self.layer_fn = Build_Sinenet_V1(self.params)
@@ -568,6 +572,58 @@ class Build_Sinenet(torch.nn.Module):
         c   = torch.cos(deg)             # S*B*M*K*T
         s_c = torch.cat([s,c], dim=3)    # S*B*M*2K*T
         return s_c
+
+class Build_Sinenet_V0(torch.nn.Module):
+    ''' 
+        Inputs: wav_SBMT, f0_SBM, tau_SBM
+        Output: h: S*B*M*D
+        1. Apply sinenet on each sub-window within
+        2. Apply fc, add, batch_norm, relu
+    '''
+    def __init__(self, params):
+        super().__init__()
+        self.params = params
+        layer_config = self.params["layer_config"]
+
+        self.params["output_dim_seq"] = ['S', 'B', 'M', 'D']
+        num_freq  = layer_config['num_freq']
+        # assert layer_config['size'] == sine_size + 3
+        # D_out = (layer_config['size']) * self.params["input_dim_values"]['M']
+        self.params["output_dim_values"] = {'S': self.params["input_dim_values"]['S'], 'B': self.params["input_dim_values"]['B'], 'M': self.params["input_dim_values"]['M'], 'D': layer_config['size']}
+
+        self.sinenet_fn = Build_Sinenet(params)
+
+        self.linear_fn_1 = torch.nn.Linear(num_freq*2, layer_config['size'])
+        self.batch_norm = layer_config["batch_norm"]
+        if self.batch_norm:
+            self.D_index = len(self.params["input_dim_seq"]) - 1
+            self.bn_fn = torch.nn.BatchNorm2d(layer_config['size'])
+        self.activation_fn = self.params['activation_fn']
+
+    def forward(self, x_dict):
+        
+        if 'wav_SBMT' in x_dict:
+            x = x_dict['wav_SBMT']
+        elif 'h' in x_dict:
+            x = x_dict['h']
+        
+        f, nlf = compute_f_nlf(x_dict)
+        tau = x_dict['tau_SBM']
+        vuv = x_dict['vuv_SBM']
+        
+        # sinenet
+        sin_cos_x = self.sinenet_fn(x, f, tau)  # S*B*M*2K
+        y_SBMD  = self.linear_fn_1(sin_cos_x) # S*B*M*2K -> S*B*M*D
+        
+        # Batch Norm
+        if self.batch_norm:
+            y_SBMD = batch_norm_D_tensor(y_SBMD, self.bn_fn, index_D=self.D_index)
+
+        # ReLU
+        h_SBMD = self.activation_fn(y_SBMD)
+
+        y_dict = {'h': h_SBMD}
+        return y_dict
 
 class Build_Sinenet_V1(torch.nn.Module):
     ''' 
