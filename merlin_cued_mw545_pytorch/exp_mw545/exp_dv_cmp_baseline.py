@@ -12,8 +12,8 @@ class dv_y_cmp_configuration(dv_y_configuration):
     def __init__(self, cfg):
         super().__init__(cfg)
 
-        self.finetune_model = False
-        self.learning_rate  = 0.00001
+        self.retrain_model = False
+        self.learning_rate  = 0.0001
         # self.prev_nnets_file_name = ''
         self.python_script_name = os.path.realpath(__file__)
         self.data_dir_mode = 'scratch' # Use scratch for speed up
@@ -24,12 +24,18 @@ class dv_y_cmp_configuration(dv_y_configuration):
         self.out_feat_list = ['mgc', 'lf0', 'bap']
         self.update_cmp_dim()
 
+        self.input_data_dim['S'] = 1
+        self.feed_per_update = 40
+        # self.learning_rate = self.learning_rate / self.feed_per_update
+        S_per_update = self.input_data_dim['S'] * self.feed_per_update
+        self.epoch_num_batch  = {'train': int(52000/S_per_update), 'valid': int(8000/self.input_data_dim['S'])}
+
         self.dv_dim = 2048
         # self.input_data_dim['S'] = 1 # For computing GPU requirement
         self.nn_layer_config_list = [
-            {'type':'LReLU', 'size':256*8, 'dropout_p':0, 'batch_norm':True},
-            {'type':'LReLU', 'size':256*8, 'dropout_p':0, 'batch_norm':True},
-            {'type':'Linear', 'size':self.dv_dim, 'dropout_p':0, 'batch_norm':True}
+            {'type':'LReLU', 'size':256*8, 'dropout_p':0, 'layer_norm':True},
+            {'type':'LReLU', 'size':256*8, 'dropout_p':0, 'layer_norm':True},
+            {'type':'Linear', 'size':self.dv_dim, 'dropout_p':0, 'layer_norm':True}
         ]
 
         # self.gpu_id = 'cpu'
