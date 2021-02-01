@@ -490,6 +490,16 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(object):
                 f_BM = self.dv_y_wav_data_loader_Single_File.make_f_BM(f0_16k_file_name, start_sample_no_sil)
                 self.feed_dict['f_SBM'][i] = f_BM
 
+        # Unconventional Ones, mostly for testing
+        if 'f_SBM_2' in dv_y_cfg.out_feat_list:
+            # replace self.feed_dict['f_SBM'] with a new version
+            # average every 2 values
+            self.feed_dict['f_SBM'] = self.average_last_dim(self.feed_dict['f_SBM'], 2)
+        if 'f_SBM_4' in dv_y_cfg.out_feat_list:
+            # replace self.feed_dict['f_SBM'] with a new version
+            # average every 2 values
+            self.feed_dict['f_SBM'] = self.average_last_dim(self.feed_dict['f_SBM'], 4)
+
         return self.feed_dict
 
     def make_wav_T(self, wav_resil_norm_file_name, start_sample_no_sil, extra_file_len_ratio):
@@ -509,6 +519,37 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(object):
         start_sample_include_sil = start_sample_no_sil+self.total_sil_one_side_wav
         wav_T = wav_data[start_sample_include_sil:start_sample_include_sil+self.dv_y_cfg.input_data_dim['T_S']]
         return wav_T, start_sample_no_sil
+
+    def average_last_dim(self, data, num):
+        '''
+        average the last dimension
+        '''
+        n = num
+        a = data
+        
+        n_last = a.shape[-1]
+        K = int(n_last / n)
+        n_res = n_last - K * n
+        
+        b = numpy.zeros(a.shape)
+        d = a.ndim
+
+        # Deal with K*n first
+        for k in range(K):
+            index_list = range(k*n, (k+1)*n)
+            for i in index_list:
+                if d == 3:
+                    b[:,:,i] = numpy.mean(a[:,:,index_list], -1)
+
+        # Deal with residuals
+        if n_res > 0:
+            index_list = range(K*n, n_last)
+            for i in index_list:
+                if d == 3:
+                    b[:,:,i] = numpy.mean(a[:,:,index_list], -1)
+
+        return b
+
 
 ############################
 # Methods for vocoder data #
