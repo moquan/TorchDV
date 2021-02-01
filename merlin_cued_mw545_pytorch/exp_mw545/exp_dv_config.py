@@ -23,11 +23,11 @@ class dv_y_configuration(object):
     def init_dir(self):
         # Things to be filled
         self.python_script_name = os.path.realpath(__file__)
-        self.dv_y_model_class = None
         self.make_feed_dict_method_train = None
         self.make_feed_dict_method_test  = None
         self.make_feed_dict_method_gen   = None
         self.nn_layer_config_list = None
+        self.exp_dir = None
         self.prev_nnets_file_name = None
 
     def init_data(self):
@@ -80,6 +80,7 @@ class dv_y_configuration(object):
     def init_train(self):
         # Things no need to change
         self.learning_rate    = 0.0001
+        self.feed_per_update  = 1    # Number of feed_dict per batch; step() only once per batch
         self.num_train_epoch  = 1000
         self.warmup_epoch     = 10
         self.early_stop_epoch = 2    # After this number of non-improvement, roll-back to best previous model and decay learning rate
@@ -105,7 +106,8 @@ class dv_y_configuration(object):
 
         # Directories
         self.work_dir = cfg.work_dir
-        self.exp_dir  = self.make_dv_y_exp_dir_name(cfg)
+        if self.exp_dir is None:
+            self.exp_dir  = self.make_dv_y_exp_dir_name(cfg)
         if 'debug' in self.work_dir: self.change_to_debug_mode()
         if self.prev_nnets_file_name is not None: self.change_to_retrain_mode()
         self.nnets_file_name = os.path.join(self.exp_dir, "Model")
@@ -182,7 +184,7 @@ class dv_y_configuration(object):
 
 
     def make_dv_y_exp_dir_name(self, cfg):
-        exp_dir = cfg.work_dir + '/dvy_%s_lr%.0E_' %(self.y_feat_name, self.learning_rate)
+        exp_dir = cfg.work_dir + '/dvy_%s_lr%.0E_fpu%i_' %(self.y_feat_name, self.learning_rate, self.feed_per_update)
         for nn_layer_config in self.nn_layer_config_list:
             if nn_layer_config['type'] == 'Tensor_Reshape':
                 layer_str = ''
@@ -198,6 +200,8 @@ class dv_y_configuration(object):
                     layer_str = layer_str + 'r' + str(nn_layer_config['relu_size'])
                 if 'batch_norm' in nn_layer_config and nn_layer_config['batch_norm']:
                     layer_str = layer_str + 'B'
+                if 'layer_norm' in nn_layer_config and nn_layer_config['layer_norm']:
+                    layer_str = layer_str + 'L'
                 if 'dropout_p' in nn_layer_config and nn_layer_config['dropout_p'] > 0:
                     layer_str = layer_str + 'D'
                 layer_str = layer_str + "_"
