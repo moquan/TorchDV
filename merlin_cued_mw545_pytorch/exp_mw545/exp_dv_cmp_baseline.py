@@ -16,7 +16,7 @@ class dv_y_cmp_configuration(dv_y_configuration):
         self.learning_rate  = 0.0001
         # self.prev_nnets_file_name = ''
         self.python_script_name = os.path.realpath(__file__)
-        self.data_dir_mode = 'scratch' # Use scratch for speed up
+        # self.data_dir_mode = 'data' # Use scratch for speed up
 
         # cmp input configuration
         self.y_feat_name   = 'cmp'
@@ -53,5 +53,7 @@ def test_model(cfg, dv_y_cfg=None):
 
     from exp_mw545.exp_dv_y import Build_DV_Y_Testing
     dv_y_model_test = Build_DV_Y_Testing(cfg, dv_y_cfg)
-    fig_file_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/vuv_loss_cmp_1.png'
+    fig_file_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/vuv_loss_cmp.png'
     dv_y_model_test.vuv_loss_test(fig_file_name)
+    fig_file_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/positional_cmp.png'
+    dv_y_model_test.positional_test(fig_file_name)
