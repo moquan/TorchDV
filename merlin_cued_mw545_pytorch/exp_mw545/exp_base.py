@@ -45,8 +45,8 @@ class Build_Model_Trainer_Base(object):
         elif self.train_cfg.run_mode == 'debug':
             self.init_training_values()
             self.train_single_batch()
-            self.init_training_values()
-            self.train_normal()
+            # self.init_training_values()
+            # self.train_normal()
         elif self.train_cfg.run_mode == 'retrain':
             self.init_training_values()
             self.train_retrain()
@@ -194,17 +194,17 @@ class Build_Model_Trainer_Base(object):
             self.model.eval()
             with self.model.no_grad():
                 batch_mean_loss = self.model.gen_loss_value(feed_dict=feed_dict)
-            if batch_mean_loss == 0:
-                self.logger.info('Reach 0 loss, best epoch %i, best loss %.4f' % (self.best_epoch_num, self.best_epoch_loss))
-                self.logger.info('Model: %s' % (nnets_file_name))
-                return None
-
+            
             self.logger.info('epoch %i loss: %.4f' %(epoch_num, batch_mean_loss))
             is_finish = self.validation_action(batch_mean_loss, epoch_num)
             epoch_valid_time = time.time()
 
             self.logger.info('epoch %i train & valid time %.2f & %.2f' %(epoch_num, (epoch_train_time - epoch_start_time), (epoch_valid_time - epoch_train_time)))
             self.train_cfg.additional_action_epoch(self.logger, self.model)
+            if batch_mean_loss == 0:
+                self.logger.info('Reach 0 loss, best epoch %i, best loss %.4f' % (self.best_epoch_num, self.best_epoch_loss))
+                self.logger.info('Model: %s' % (nnets_file_name))
+                return None
 
         self.logger.info('Reach num_train_epoch, best epoch %i, best loss %.4f' % (self.best_epoch_num, self.best_epoch_loss))
         self.logger.info('Model: %s' % (nnets_file_name))
@@ -231,16 +231,31 @@ class Build_Model_Trainer_Base(object):
         self.logger.info('train load & model time %.2f & %.2f' % (epoch_train_load_time, epoch_train_model_time))
 
     def train_action_batch(self):
-        batch_start_time = time.time()
-        # Make feed_dict for training
-        feed_dict, batch_size = self.data_loader.make_feed_dict(utter_tvt_name='train')
-        batch_load_end_time = time.time()
-        # Run Model
-        self.model.update_parameters(feed_dict=feed_dict)
-        batch_model_end_time = time.time()
+        batch_load_time = 0.
+        batch_model_time = 0.
+        
+        for i in range(self.train_cfg.feed_per_update):
+            feed_start_time = time.time()
+            # Make feed_dict for training
+            feed_dict, batch_size = self.data_loader.make_feed_dict(utter_tvt_name='train')
+            feed_load_end_time = time.time()
 
-        batch_load_time = batch_load_end_time - batch_start_time
-        batch_model_time = batch_model_end_time - batch_load_end_time
+            # Run Model
+            loss = self.model.gen_loss(feed_dict)
+            loss.backward()
+            feed_model_end_time = time.time()
+
+            batch_load_time += (feed_load_end_time - feed_start_time)
+            batch_model_time += (feed_model_end_time - feed_load_end_time)
+
+        # perform a backward pass, and update the weights.
+        # Reset gradient, otherwise equivalent to momentum>1
+        step_start_time = time.time()
+        self.model.optimiser.step()
+        self.model.optimiser.zero_grad()
+        step_end_time = time.time()
+        batch_model_time += (step_end_time - step_start_time)
+
         return (batch_load_time, batch_model_time)
 
     def eval_action_epoch(self, epoch_num):
