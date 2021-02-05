@@ -16,16 +16,21 @@ class dv_y_wav_subwin_configuration(dv_y_configuration):
         self.use_voiced_only = False   # Use voiced regions only
         self.use_voiced_threshold = 1. # Percentage of voiced required
         self.retrain_model = False
-        self.learning_rate  = 0.00001
+        self.learning_rate  = 0.0001
         # self.prev_nnets_file_name = ''
         self.python_script_name = os.path.realpath(__file__)
-        self.data_dir_mode = 'scratch' # Use scratch for speed up
+        # self.data_dir_mode = 'data' # Use scratch for speed up
 
         # Waveform-level input configuration
         self.y_feat_name   = 'wav'
         self.init_wav_data()
         # self.out_feat_list = ['wav_ST', 'f_SBM', 'tau_SBM', 'vuv_SBM']
         self.out_feat_list = ['wav_SBT', 'f_SBM', 'tau_SBM', 'vuv_SBM']
+
+        self.input_data_dim['S'] = 1
+        self.feed_per_update = 40
+        S_per_update = self.input_data_dim['S'] * self.feed_per_update
+        self.epoch_num_batch  = {'train': int(52000/S_per_update), 'valid': int(8000/self.input_data_dim['S'])}
         self.input_data_dim['T_M'] = 160
         self.input_data_dim['M_shift'] = 40
         
@@ -34,11 +39,11 @@ class dv_y_wav_subwin_configuration(dv_y_configuration):
         self.nn_layer_config_list = [
             # {'type': 'Tensor_Reshape', 'io_name': 'wav_ST_2_wav_SBMT', 'win_len_shift_list':[[self.input_data_dim['T_B'], self.input_data_dim['B_shift']], [self.input_data_dim['T_M'], self.input_data_dim['M_shift']]]},
             {'type': 'Tensor_Reshape', 'io_name': 'wav_SBT_2_wav_SBMT', 'win_len_shift':[self.input_data_dim['T_M'], self.input_data_dim['M_shift']]},
-            {'type': 'DW3', 'size':80, 'dropout_p':0, 'batch_norm':False},
+            {'type': 'DW3', 'size':80, 'dropout_p':0, 'layer_norm':True},
             {'type': 'Tensor_Reshape', 'io_name': 'h_SBMD_2_h_SBD'},     # h_SBD
-            {'type': 'LReLU', 'size':256*8, 'dropout_p':0, 'batch_norm':True},
-            {'type': 'LReLU', 'size':256*8, 'dropout_p':0, 'batch_norm':True},
-            {'type': 'Linear', 'size':self.dv_dim, 'dropout_p':0, 'batch_norm':True}
+            {'type': 'LReLU', 'size':256*8, 'dropout_p':0, 'layer_norm':True},
+            {'type': 'LReLU', 'size':256*8, 'dropout_p':0, 'layer_norm':True},
+            {'type': 'Linear', 'size':self.dv_dim, 'dropout_p':0, 'layer_norm':True}
         ]
 
         # self.gpu_id = 'cpu'
