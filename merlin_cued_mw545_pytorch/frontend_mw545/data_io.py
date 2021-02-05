@@ -1,7 +1,7 @@
 # data_io.py
 
 import os, sys, pickle, time, shutil, logging, copy
-import math, numpy, scipy, scipy.spatial, scipy.special
+import math, numpy, scipy
 
 from frontend_mw545.modules import make_logger, read_file_list, File_List_Selecter
 
@@ -402,11 +402,11 @@ class Data_File_Directory_Utils(object):
 
         dir_pair_list = [] # [ori_dir, tar_dir, file_ext]
 
-        # dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_lab_resil_norm_601', '/scratch/tmp-mw545/voicebank_208_speakers/nn_lab_resil_norm_601', '.lab'])
+        dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_lab_resil_norm_601', '/scratch/tmp-mw545/voicebank_208_speakers/nn_lab_resil_norm_601', '.lab'])
         dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_cmp_resil_norm_86', '/scratch/tmp-mw545/voicebank_208_speakers/nn_cmp_resil_norm_86', '.cmp'])
-        # dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_wav_resil_norm_80', '/scratch/tmp-mw545/voicebank_208_speakers/nn_wav_resil_norm_80', '.wav'])
-        # dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_f016k_resil', '/scratch/tmp-mw545/voicebank_208_speakers/nn_f016k_resil', '.f016k'])
-        # dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_pitch_resil', '/scratch/tmp-mw545/voicebank_208_speakers/nn_pitch_resil', '.pitch'])
+        dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_wav_resil_norm_80', '/scratch/tmp-mw545/voicebank_208_speakers/nn_wav_resil_norm_80', '.wav'])
+        dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_f016k_resil', '/scratch/tmp-mw545/voicebank_208_speakers/nn_f016k_resil', '.f016k'])
+        dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_pitch_resil', '/scratch/tmp-mw545/voicebank_208_speakers/nn_pitch_resil', '.pitch'])
 
         assert len(dir_pair_list) > 0
 
