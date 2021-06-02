@@ -5,7 +5,8 @@
 import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy, scipy.stats
 
-from frontend_mw545.modules import make_logger, read_file_list, log_class_attri, Graph_Plotting, List_Random_Loader
+from frontend_mw545.modules import make_logger, read_file_list, log_class_attri, Graph_Plotting, List_Random_Loader, File_List_Selecter
+from frontend_mw545.data_io import Data_File_IO, Data_List_File_IO, Data_Meta_List_File_IO
 
 from nn_torch.torch_models import Build_DV_Y_model
 from frontend_mw545.data_loader import Build_dv_y_train_data_loader
@@ -80,8 +81,6 @@ class Build_DV_Y_Model_Trainer(Build_Model_Trainer_Base):
     def cal_accuracy(self, logit_SBD, one_hot_SB):
         pred_S_B = numpy.argmax(logit_SBD, axis=2)
         pred_SB  = numpy.reshape(pred_S_B, (-1))
-        # print(pred_SB)
-        # print(one_hot_SB)
         total_num = pred_SB.size
         correct_num = numpy.sum(pred_SB==one_hot_SB)
         return correct_num/float(total_num)
@@ -152,6 +151,14 @@ class Build_DV_Y_Testing(object):
             test_fn = Build_Positional_Wav_Test(self.cfg, self.test_cfg, fig_file_name)
         elif self.test_cfg.y_feat_name == 'cmp':
             test_fn = Build_Positional_CMP_Test(self.cfg, self.test_cfg, fig_file_name)
+        test_fn.test()
+
+    def gen_dv(self, output_dir):
+        if self.test_cfg.y_feat_name == 'wav':
+            # test_fn = Build_Wav_Generator(self.cfg, self.test_cfg, output_dir)
+            pass
+        elif self.test_cfg.y_feat_name == 'cmp':
+            test_fn = Build_CMP_DV_Generator(self.cfg, self.test_cfg, output_dir)
         test_fn.test()
 
 class Build_DV_Y_Testing_Base(object):
@@ -721,3 +728,152 @@ class Build_Positional_CMP_Test(Build_DV_Y_Testing_Base):
         self.logger.info('Print distance and loss_test')
         print(loss_mean_dict['x'])
         print(loss_mean_dict['test'])
+
+class Build_CMP_DV_Generator(Build_DV_Y_Testing_Base):
+    """
+    Build_CMP_Generator
+    For vocoder-based system only
+    Generate a dict of speaker representations:
+        dv_file_dict[file_id] = (dv, num_windows)
+        dv_spk_dict[file_id] = dv
+        dv is a 1D numpy array
+    """
+    def __init__(self, cfg, dv_y_cfg, output_dir):
+        super().__init__(cfg, dv_y_cfg)
+        self.output_dir = output_dir
+        self.logger.info('Build_CMP_Generator')
+
+        self.DIO    = Data_File_IO(cfg)
+        self.DLIO   = Data_List_File_IO(cfg)
+        self.DMLFIO = Data_Meta_List_File_IO(cfg)
+        self.file_list_selecter = File_List_Selecter()
+
+        self.speaker_id_list = cfg.speaker_id_list_dict['all']
+        self.file_id_gen_list, self.file_list_dict = self.make_dv_gen_file_list_dict()
+        self.dv_file_dict = {}
+        self.dv_spk_dict = {}
+
+        self.cmp_dir = self.cfg.nn_feat_resil_norm_dirs['cmp']
+        self.cfg_cmp_dim = self.cfg.nn_feature_dims['cmp']
+        self.feed_dict = {'h': numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['B'], dv_y_cfg.input_data_dim['D']))}
+
+    def make_dv_gen_file_list_dict(self):
+        '''
+        Make a file_list_dict, which contains only files for lambda generation
+        '''
+        file_list_dict = {}
+        file_id_list = self.DLIO.read_file_list(self.cfg.file_id_list_file['used'])
+        file_id_dict = self.file_list_selecter.sort_by_file_number(file_id_list, self.dv_y_cfg.data_split_file_number)
+        file_id_gen_list = file_id_dict['test']
+        file_list_dict = self.file_list_selecter.sort_by_speaker_list(file_id_gen_list, self.speaker_id_list)
+        return file_id_gen_list, file_list_dict
+
+    def action_per_file(self, file_id):
+        self.logger.info('Processing %s' % file_id)
+
+        dv_y_cfg = self.dv_y_cfg
+        self.feed_dict['h'] = numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['B'], dv_y_cfg.input_data_dim['D']))
+        S = dv_y_cfg.input_data_dim['S']
+        B = dv_y_cfg.input_data_dim['B']
+        T = dv_y_cfg.input_data_dim['T_B']
+        dv_file_total = numpy.zeros(dv_y_cfg.dv_dim)
+        
+        cmp_resil_norm_file_name = os.path.join(self.cmp_dir, file_id+'.cmp')
+        cmp_data, sample_number = self.DIO.load_data_file_frame(cmp_resil_norm_file_name, self.cfg_cmp_dim)
+        B_total = int((sample_number - T) / dv_y_cfg.input_data_dim['B_shift']) + 1
+
+        B_feed = dv_y_cfg.input_data_dim['S'] * dv_y_cfg.input_data_dim['B']
+        B_remain =  B_total
+        n_start = 0
+
+        while B_remain > 0:
+            if B_remain >= B_feed:
+                # Fill the entire feed_dict
+                for s in range(S):
+                    for b in range(B):
+                        n_end   = n_start + T
+                        cmp_TD  = cmp_data[n_start:n_end]
+                        cmp_D   = cmp_TD.reshape(-1)
+                        self.feed_dict['h'][s,b] = cmp_D
+
+                        n_start += dv_y_cfg.input_data_dim['B_shift']
+
+                lambda_SBD = self.model.gen_lambda_SBD_value(feed_dict=self.feed_dict)
+                dv_file_total += numpy.sum(lambda_SBD, (0,1))
+
+                B_actual = B_feed
+                B_remain -= B_feed
+
+            else:
+                B_leftover = B_remain % B
+                S_actual = int((B_remain - B_leftover) / B) # Number of full B
+                for s in range(S_actual):
+                    for b in range(B):
+                        n_end   = n_start + T
+                        cmp_TD  = cmp_data[n_start:n_end]
+                        cmp_D   = cmp_TD.reshape(-1)
+                        self.feed_dict['h'][s,b] = cmp_D
+
+                        n_start += dv_y_cfg.input_data_dim['B_shift']
+
+                # Leftover
+                for b in range(B_leftover):
+                    n_end   = n_start + T
+                    cmp_TD  = cmp_data[n_start:n_end]
+                    cmp_D   = cmp_TD.reshape(-1)
+                    self.feed_dict['h'][S_actual,b] = cmp_D
+
+                    n_start += dv_y_cfg.input_data_dim['B_shift']
+
+                lambda_SBD = self.model.gen_lambda_SBD_value(feed_dict=self.feed_dict)
+
+                for s in range(S_actual):
+                    for b in range(B):
+                        dv_file_total += lambda_SBD[s,b]
+
+                for b in range(B_leftover):
+                    dv_file_total += lambda_SBD[S_actual,b]
+
+                B_remain = 0
+
+
+        dv_file = dv_file_total / float(B_total)
+        self.dv_file_dict[file_id] = (B_total, dv_file)
+
+    def save_dv_files(self, output_dir):
+
+        dv_spk_dict_file  = os.path.join(output_dir, 'dv_spk_dict.dat')
+        dv_spk_dict_text  = os.path.join(output_dir, 'dv_spk_dict.txt')
+        dv_file_dict_file = os.path.join(output_dir, 'dv_file_dict.dat')
+        dv_file_dict_text = os.path.join(output_dir, 'dv_file_dict.txt')
+        self.logger.info('Saving to files:')
+        print(dv_spk_dict_file)
+        print(dv_spk_dict_text)
+        print(dv_file_dict_file)
+        print(dv_file_dict_text)
+        self.DMLFIO.write_dv_spk_values_to_file(self.dv_spk_dict, dv_spk_dict_file, file_type='pickle')
+        self.DMLFIO.write_dv_spk_values_to_file(self.dv_spk_dict, dv_spk_dict_text, file_type='text')
+        self.DMLFIO.write_dv_file_values_to_file(self.dv_file_dict, dv_file_dict_file, file_type='pickle')
+        self.DMLFIO.write_dv_file_values_to_file(self.dv_file_dict, dv_file_dict_text, file_type='text')
+
+    def test(self, save_to_output_dir=True):
+        for speaker_id in self.speaker_id_list:
+            file_id_list = self.file_list_dict[speaker_id]
+            for file_id in file_id_list:
+                self.action_per_file(file_id)
+
+        # Compute dv_spk_dict from dv_file_dict
+        for speaker_id in self.speaker_id_list:
+            file_id_list = self.file_list_dict[speaker_id]
+            dv_speaker = numpy.zeros(self.dv_y_cfg.dv_dim)
+            num_frames = 0.
+            for file_id in file_id_list:
+                num_frames += self.dv_file_dict[file_id][0]
+                dv_speaker += self.dv_file_dict[file_id][1]
+
+            self.dv_spk_dict[speaker_id] = dv_speaker / num_frames
+
+        self.save_dv_files(self.dv_y_cfg.exp_dir)
+
+        if save_to_output_dir:
+            self.save_dv_files(self.output_dir)
