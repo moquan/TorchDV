@@ -343,32 +343,64 @@ class Data_Meta_List_File_IO(object):
 
         return file_frame_dict
 
-    def read_dv_values_from_file(self, dv_file_name, file_type='text'):
+    def read_dv_spk_values_from_file(self, dv_file_name, file_type='text'):
         if file_type == 'text':
             dv_values = {}
             with open(dv_file_name, 'r') as f:
                 f_lines = f.readlines()
             for x in f_lines:
-                x_id = x.split(':')[0][1:-1]
-                y = x.split(':')[1].strip()[1:-2].split(',')
+                x_id = x.split('|')[0]
+                y = x.split('|')[1].strip()[1:-1].split(',')
                 x_value = [float(i) for i in y]
                 dv_values[x_id] = numpy.asarray(x_value,dtype=numpy.float32).reshape([1,-1])
         elif file_type == 'pickle':
             dv_values = pickle.load(open(dv_file_name, 'rb'))
         return dv_values
 
-    def write_dv_values_to_file(self, dv_values, dv_file_name, file_type='text'):
+    def write_dv_spk_values_to_file(self, dv_values, dv_file_name, file_type='text'):
         if file_type == 'text':
             speaker_id_list = dv_values.keys()
             with open(dv_file_name, 'w') as f:
                 for speaker_id in speaker_id_list:
-                    f.write("'"+speaker_id+"': [")
+                    f.write(speaker_id+"|[")
                     dv_size = len(dv_values[speaker_id])
                     for i in range(dv_size):
                         if i > 0:
                             f.write(',')
                         f.write(str(dv_values[speaker_id][i]))
-                    f.write("],\n")
+                    f.write("]\n")
+        elif file_type == 'pickle':
+            pickle.dump(dv_values, open(dv_file_name, 'wb'))
+
+    def read_dv_file_values_from_file(self, dv_file_name, file_type='text'):
+        if file_type == 'text':
+            dv_values = {}
+            with open(dv_file_name, 'r') as f:
+                f_lines = f.readlines()
+            for x in f_lines:
+                x_id = x.split('|')[0]
+                x_len = int(x.split('|')[1])
+                y = x.split('|')[2].strip()[1:-1].split(',')
+                x_value = [float(i) for i in y]
+                dv_values[x_id] = (x_len, numpy.asarray(x_value,dtype=numpy.float32).reshape([1,-1]))
+        elif file_type == 'pickle':
+            dv_values = pickle.load(open(dv_file_name, 'rb'))
+        return dv_values
+
+    def write_dv_file_values_to_file(self, dv_values, dv_file_name, file_type='text'):
+        # file_id|B_total|dv_values
+        # dv_file_dict[file_id] = (B_total, dv_file)
+        if file_type == 'text':
+            file_id_list = dv_values.keys()
+            with open(dv_file_name, 'w') as f:
+                for file_id in file_id_list:
+                    f.write("'"+file_id+"'|%i|[" % dv_values[file_id][0])
+                    dv_size = len(dv_values[file_id][1])
+                    for i in range(dv_size):
+                        if i > 0:
+                            f.write(',')
+                        f.write(str(dv_values[file_id][1][i]))
+                    f.write("]\n")
         elif file_type == 'pickle':
             pickle.dump(dv_values, open(dv_file_name, 'wb'))
 
