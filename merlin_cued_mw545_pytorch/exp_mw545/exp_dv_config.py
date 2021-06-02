@@ -180,9 +180,6 @@ class dv_y_configuration(object):
         self.h_list_file_name = os.path.join(self.exp_dir, "h_spk_list.dat")
         self.file_list_dict = {(spk_id, 'gen'): [spk_id+'_'+self.utter_name] for spk_id in self.batch_speaker_list}
 
-
-
-
     def make_dv_y_exp_dir_name(self, cfg):
         exp_dir = cfg.work_dir + '/dvy_%s_lr%.0E_fpu%i_' %(self.y_feat_name, self.learning_rate, self.feed_per_update)
         for nn_layer_config in self.nn_layer_config_list:
@@ -190,20 +187,21 @@ class dv_y_configuration(object):
                 layer_str = ''
             else:
                 layer_str = '%s%i' % (nn_layer_config['type'][:3], nn_layer_config['size'])
+                if 'inc_a' in nn_layer_config and nn_layer_config['inc_a']:
+                    layer_str = layer_str + 'a'
+                if 'batch_norm' in nn_layer_config and nn_layer_config['batch_norm']:
+                    layer_str = layer_str + 'B'
+                if 'dropout_p' in nn_layer_config and nn_layer_config['dropout_p'] > 0:
+                    layer_str = layer_str + 'D'
                 if 'num_freq' in nn_layer_config:
                     layer_str = layer_str + 'f' + str(nn_layer_config['num_freq'])
                 if 'k_space' in nn_layer_config and nn_layer_config['k_space'] != 1:
                     layer_str = layer_str + 'ks' + str(nn_layer_config['k_space'])
-                if 'k_train' in nn_layer_config and nn_layer_config['k_train']:
-                    layer_str = layer_str + 'T'
-                if 'relu_size' in nn_layer_config:
-                    layer_str = layer_str + 'r' + str(nn_layer_config['relu_size'])
-                if 'batch_norm' in nn_layer_config and nn_layer_config['batch_norm']:
-                    layer_str = layer_str + 'B'
                 if 'layer_norm' in nn_layer_config and nn_layer_config['layer_norm']:
                     layer_str = layer_str + 'L'
-                if 'dropout_p' in nn_layer_config and nn_layer_config['dropout_p'] > 0:
-                    layer_str = layer_str + 'D'
+                if 'k_train' in nn_layer_config and nn_layer_config['k_train']:
+                    layer_str = layer_str + 'T'
+                
                 layer_str = layer_str + "_"
             exp_dir = exp_dir + layer_str
         if self.y_feat_name == 'wav':
