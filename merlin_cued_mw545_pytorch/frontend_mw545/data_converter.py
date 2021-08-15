@@ -346,9 +346,9 @@ def reaper_all(cfg):
     '''
 
     bash_script_dir  = '/home/dawna/tts/mw545/TorchDV/debug_nausicaa/bash_script'
-    input_wav_dir    = '/home/dawna/tts/mw545/TorchDV/debug_nausicaa/data/wav_16kHz'
-    output_f0_dir    = '/home/dawna/tts/mw545/TorchDV/debug_nausicaa/data/reaper_16kHz/f0'
-    output_pitch_dir = '/home/dawna/tts/mw545/TorchDV/debug_nausicaa/data/reaper_16kHz/pitch'
+    input_wav_dir    = '/data/vectra2/tts/mw545/Data/Data_Voicebank_24kHz/wav24'
+    output_f0_dir    = '/data/vectra2/tts/mw545/Data/Data_Voicebank_24kHz/reaper_24kHz/f0'
+    output_pitch_dir = '/data/vectra2/tts/mw545/Data/Data_Voicebank_24kHz/reaper_24kHz/pitch'
 
     file_id_list_file = cfg.file_id_list_file['used']
     file_id_list = read_file_list(file_id_list_file)
@@ -364,7 +364,7 @@ def reaper_all(cfg):
 
         for file_id in file_id_list:
             speaker_id = file_id.split('_')[0]
-            l = 'reaper -i %s/%s.wav -f %s/%s.f0 -p %s/%s.pitch -a \n' % (input_wav_dir, file_id, output_f0_dir, file_id, output_pitch_dir, file_id)
+            l = 'reaper -i %s/%s/%s.wav -f %s/%s/%s.f0 -p %s/%s/%s.pitch -a \n' % (input_wav_dir, speaker_id, file_id, output_f0_dir, speaker_id, file_id, output_pitch_dir, speaker_id, file_id)
             f_speaker[speaker_id].write(l)
 
         for speaker_id in speaker_id_list:
@@ -372,7 +372,7 @@ def reaper_all(cfg):
             f_speaker[speaker_id].close()
 
     # Write submit script
-    if False:
+    if True:
         f_submit_file_name = os.path.join(bash_script_dir, 'submit.sh')
         f_submit_file = open(f_submit_file_name, 'w')
 
