@@ -159,7 +159,7 @@ class Data_File_Converter(object):
 
         self.DIO.save_data_file(pitch_data, out_file_name)
 
-    def lf0_2_lf0_16kHz(self, in_file_name, out_file_name):
+    def lf0_2_lf0_1D(self, in_file_name, out_file_name):
         '''
         Make lf0 16kHz file:
             Load lf0 file, which is 200Hz
@@ -215,14 +215,18 @@ class Data_File_Converter(object):
 
         self.DIO.save_data_file(f0s[:,1], out_file_name)
 
-    def f0_200Hz_2_f0_16kHz(self, in_file_name, out_file_name, remove_in_file=False):
+    def f0_200Hz_2_f0_1D(self, in_file_name, out_file_name, remove_in_file=False):
         '''
-        Upsample from 200Hz to 16kHz
+        Upsample from 200Hz
         Linear interpolation in between
         '''
+        wav_sr = float(self.cfg.wav_sr)
+        frame_sr = float(self.cfg.frame_sr)
+        sr_ratio = float(int(wav_sr / frame_sr))
+
         f0_200Hz_data, l = self.DIO.load_data_file_frame(in_file_name, 1)
-        x_200Hz = (0.005)*numpy.arange(l) + (1./400.)
-        x_16kHz = (0.005/80.)*numpy.arange(l*80) + (1./32000.)
+        x_200Hz = (1./frame_sr)*numpy.arange(l) + (0.5/frame_sr)
+        x_16kHz = (1./wav_sr)*numpy.arange(l*sr_ratio) + (0.5/wav_sr)
 
         f0_16kHz_data = numpy.interp(x_16kHz, x_200Hz, f0_200Hz_data[:,0])
 
@@ -267,7 +271,7 @@ class Data_File_List_Converter(object):
             self.logger.info('Saving to file %s' % pitch_1D_file)
             self.DFC.pitch_text_2_pitch_1D(pitch_reaper_file, wav_cmp_file, pitch_1D_file)
 
-    def lf0_2_lf0_16kHz_list(self):
+    def lf0_2_lf0_1D_list(self):
         ''' Generate pitch 1D files '''
         cfg = self.cfg
         lf0_dir = '/data/vectra2/tts/mw545/Data/Data_Voicebank_48kHz_WAV_16kHz/PML/lf0'
@@ -278,7 +282,7 @@ class Data_File_List_Converter(object):
             lf016k_file = os.path.join(lf016k_dir, file_id + '.lf016k')
 
             self.logger.info('Saving to file %s' % lf016k_file)
-            self.DFC.lf0_2_lf0_16kHz(lf0_file, lf016k_file)
+            self.DFC.lf0_2_lf0_1D(lf0_file, lf016k_file)
 
     def pml_2_cmp_list(self):
         ''' Generate vocoder files '''
@@ -332,7 +336,7 @@ class Data_File_List_Converter(object):
             f0_16kHz_file  = os.path.join(f0_16kHz_dir, file_id + '.f016k')
 
             self.logger.info('Saving to file %s' % f0_16kHz_file)
-            self.DFC.f0_200Hz_2_f0_16kHz(f0_200Hz_file, f0_16kHz_file)
+            self.DFC.f0_200Hz_2_f0_1D(f0_200Hz_file, f0_16kHz_file)
 
 #################################################
 #     Write Bash Scripts to process files       #
