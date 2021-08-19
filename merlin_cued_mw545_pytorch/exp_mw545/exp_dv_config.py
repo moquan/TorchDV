@@ -45,19 +45,19 @@ class dv_y_configuration(object):
         self.y_feat_name   = 'wav'
         self.out_feat_list = ['wav_ST', 'f_SBM', 'tau_SBM', 'vuv_SBM']
         
-        self.input_data_dim['T_S'] = 16000
-        self.input_data_dim['T_B'] = 3200
-        self.input_data_dim['B_shift'] = 80
-        self.input_data_dim['T_M'] = 640
-        self.input_data_dim['M_shift'] = 80
+        self.input_data_dim['T_S'] = int(self.cfg.wav_sr) # use 1s per utterance
+        self.input_data_dim['T_B'] = int(0.2 * self.cfg.wav_sr)
+        self.input_data_dim['B_shift'] = int(0.005 * self.cfg.wav_sr)
+        self.input_data_dim['T_M'] = int(0.04 * self.cfg.wav_sr)
+        self.input_data_dim['M_shift'] = int(0.005 * self.cfg.wav_sr)
 
     def init_cmp_data(self):
         self.y_feat_name   = 'cmp'
         self.out_feat_list = ['mgc', 'lf0', 'bap']
         self.cmp_dim = self.cfg.nn_feature_dims['cmp']
         
-        self.input_data_dim['T_S'] = 200 # Number of frames at 200Hz
-        self.input_data_dim['T_B'] = 40 # T
+        self.input_data_dim['T_S'] = int(self.cfg.frame_sr) # use 1s per utterance
+        self.input_data_dim['T_B'] = int(0.2 * self.cfg.frame_sr) # T
         self.input_data_dim['B_shift'] = 1
         self.input_data_dim['D'] =  self.input_data_dim['T_B'] * self.cfg.nn_feature_dims['cmp']
 
@@ -69,7 +69,7 @@ class dv_y_configuration(object):
         self.batch_output_form = 'mean'  # Method to convert from SBD to SD
         self.use_voiced_only = False     # Use voiced regions only
 
-        self.dv_dim = 8
+        self.dv_dim = 512
 
         try: 
             self.gpu_id 
