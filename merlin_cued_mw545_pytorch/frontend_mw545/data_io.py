@@ -13,7 +13,7 @@ class Data_File_IO(object):
         super(Data_File_IO, self).__init__()
         self.cfg = cfg
 
-    def load_data_file_frame(self, file_name, feat_dim, return_frame_number=True):
+    def load_data_file_frame(self, file_name, feat_dim=1, return_frame_number=True):
         '''
         Return data and frame number
         '''
