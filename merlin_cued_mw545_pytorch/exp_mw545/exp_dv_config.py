@@ -97,7 +97,7 @@ class dv_y_configuration(object):
         if 'T_M' in self.input_data_dim and 'M_shift' in self.input_data_dim:
             self.input_data_dim['M'] = int((self.input_data_dim['T_B'] - self.input_data_dim['T_M']) / self.input_data_dim['M_shift']) + 1
 
-    def auto_complete(self, cfg=None):
+    def auto_complete(self, cfg=None, cache_files=True):
         if cfg is None: cfg = self.cfg
         ''' Remember to call this after __init__ !!! '''
         # Features
@@ -112,8 +112,9 @@ class dv_y_configuration(object):
         if self.prev_nnets_file_name is not None: self.change_to_retrain_mode()
         self.nnets_file_name = os.path.join(self.exp_dir, "Model")
         self.dv_file_name = os.path.join(self.exp_dir, "DV.dat")
-        prepare_script_file_path(file_dir=self.exp_dir, script_name=cfg.python_script_name)
-        prepare_script_file_path(file_dir=self.exp_dir, script_name=self.python_script_name)
+        if cache_files:
+            prepare_script_file_path(file_dir=self.exp_dir, script_name=cfg.python_script_name)
+            prepare_script_file_path(file_dir=self.exp_dir, script_name=self.python_script_name)
 
     def change_to_debug_mode(self, process=None):
         self.logger.info('Change to Debug Mode')
