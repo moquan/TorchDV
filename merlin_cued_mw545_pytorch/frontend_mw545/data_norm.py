@@ -110,7 +110,8 @@ class Data_Mean_Var_Normaliser(object):
         all_frame_number = 0.
 
         for file_id in file_id_list:
-            in_file_name = os.path.join(file_dir, file_id + '.'+feat_name)
+            speaker_id = file_id.split('_')[0]
+            in_file_name = os.path.join(file_dir, speaker_id, file_id + '.'+feat_name)
             in_data, frame_number = self.DF_IO.load_data_file_frame(in_file_name, feat_dim)
 
             mean_vector += numpy.sum(in_data, axis=0)
@@ -137,7 +138,8 @@ class Data_Mean_Var_Normaliser(object):
         all_frame_number = 0.
 
         for file_id in file_id_list:
-            in_file_name = os.path.join(file_dir, file_id + '.'+feat_name)
+            speaker_id = file_id.split('_')[0]
+            in_file_name = os.path.join(file_dir, speaker_id, file_id + '.'+feat_name)
             in_data, frame_number = self.DF_IO.load_data_file_frame(in_file_name, feat_dim)
 
             mean_matrix = numpy.tile(self.mean_vector, (frame_number, 1))
