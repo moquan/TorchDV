@@ -1646,9 +1646,11 @@ class Build_Error_Accuracy_Plotter(object):
         # self.vuv_plot()
         # self.pos_plot()
 
-        self.k_final_plot()
+        # self.k_final_plot()
         # self.k_variation_plot()
-        self.tau_variation_plot()
+        # self.tau_variation_plot()
+
+        self.tacotron_loss_plot()
 
     def error_plot(self):
         legend_name_dict = {
@@ -1888,7 +1890,43 @@ class Build_Error_Accuracy_Plotter(object):
             return new_legend_name, x
         else:
             return legend_name, None
-   
+
+
+    def tacotron_loss_plot(self):
+        log_file_name = '/home/dawna/tts/mw545/TorchTTS/DeepLearningExamples/PyTorch/SpeechSynthesis/CUED_Tacotron2/run_grid.sh.o6010311'
+        fig_file_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/tacotron_train_valid_loss.png'
+        file_lines = []
+        with open(log_file_name) as f:
+            for line in f.readlines():
+                line = line.strip()
+                if len(line) < 1:
+                    continue
+                file_lines.append(line)
+
+        train_loss_batch = {}
+        train_loss_epoch = []
+        valid_loss_epoch = []
+
+        for single_line in file_lines:
+            if 'train_loss' in single_line:
+                # DLL 2021-06-08 02:26:16.326406 - (1, 3815) train_loss : 0.7363263368606567
+                epoch_num = int( single_line.split('(')[1].split(',')[0] )
+                if epoch_num not in train_loss_batch.keys():
+                    train_loss_batch[epoch_num] = []
+                l = float( single_line.split(' ')[-1] )
+                train_loss_batch[epoch_num].append(l)
+
+            if 'val_loss' in single_line:
+                # DLL 2021-06-08 00:48:24.526653 - (0,) val_loss : 0.7507863759994506
+                l = float( single_line.split(' ')[-1] )
+                valid_loss_epoch.append(l)
+
+        for i in range(len(valid_loss_epoch)):
+            train_loss_epoch.append(numpy.mean(train_loss_batch[i]))
+
+        self.graph_plotter.single_plot(fig_file_name, None, [train_loss_epoch, valid_loss_epoch], ['train', 'valid', 'test'], title='Loss against Epoch', x_label='Epoch', y_label='Loss')
+
+
 #########################
 # Main function to call #
 #########################
