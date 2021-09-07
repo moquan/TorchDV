@@ -56,10 +56,10 @@ class dv_y_configuration(object):
         self.out_feat_list = ['mgc', 'lf0', 'bap']
         self.cmp_dim = self.cfg.nn_feature_dims['cmp']
         
-        self.input_data_dim['T_S'] = int(self.cfg.frame_sr) # use 1s per utterance
+        self.input_data_dim['T_S'] = numpy.inf # This is the maximum input length
         self.input_data_dim['T_B'] = int(0.2 * self.cfg.frame_sr) # T
         self.input_data_dim['B_shift'] = 1
-        self.input_data_dim['D'] =  self.input_data_dim['T_B'] * self.cfg.nn_feature_dims['cmp']
+        self.input_data_dim['D'] = self.cfg.nn_feature_dims['cmp']
 
     def init_model(self):
         self.nn_layer_config_list = []
@@ -93,7 +93,6 @@ class dv_y_configuration(object):
         self.data_split_file_number['test']  = [41, 80]
 
     def compute_B_M(self):
-        self.input_data_dim['B'] = int((self.input_data_dim['T_S'] - self.input_data_dim['T_B']) / self.input_data_dim['B_shift']) + 1
         if 'T_M' in self.input_data_dim and 'M_shift' in self.input_data_dim:
             self.input_data_dim['M'] = int((self.input_data_dim['T_B'] - self.input_data_dim['T_M']) / self.input_data_dim['M_shift']) + 1
 
@@ -206,9 +205,9 @@ class dv_y_configuration(object):
                 layer_str = layer_str + "_"
             exp_dir = exp_dir + layer_str
         if self.y_feat_name == 'wav':
-            exp_dir = exp_dir + "DV%iS%iB%iM%iT%i" %(self.dv_dim, self.input_data_dim['S'], self.input_data_dim['B'], self.input_data_dim['M'], self.input_data_dim['T_M'])
-        else:
-            exp_dir = exp_dir + "DV%iS%iB%iT%iD%i" %(self.dv_dim, self.input_data_dim['S'], self.input_data_dim['B'], self.input_data_dim['T_B'], self.input_data_dim['D'])
+            exp_dir = exp_dir + "DV%iS%iT%i" %(self.dv_dim, self.input_data_dim['S'], self.input_data_dim['T_M'])
+        elif self.y_feat_name == 'cmp':
+            exp_dir = exp_dir + "DV%iS%iT%iD%i" %(self.dv_dim, self.input_data_dim['S'], self.input_data_dim['T_B'], self.input_data_dim['D'])
         if self.use_voiced_only:
             exp_dir = exp_dir + "_vO"+str(self.use_voiced_threshold)
         return exp_dir
