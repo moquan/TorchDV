@@ -275,11 +275,12 @@ class Build_Model_Trainer_Base(object):
 
             for batch_idx in range(epoch_num_batch):
                 batch_load_time, batch_model_time, batch_mean_loss, batch_size, feed_dict = self.eval_action_batch(utter_tvt_name)
-                total_loss += batch_mean_loss
+                total_loss += batch_mean_loss * float(batch_size)
+                total_batch_size += batch_size
                 epoch_valid_load_time  += batch_load_time
                 epoch_valid_model_time += batch_model_time
 
-            mean_loss = total_loss/float(epoch_num_batch)
+            mean_loss = total_loss/float(total_batch_size)
             epoch_loss[utter_tvt_name] = mean_loss
             output_string['loss'] = output_string['loss'] + ' & %.4f' % (mean_loss)
 
@@ -326,7 +327,7 @@ class Build_Model_Trainer_Base(object):
                 return True
             else:
                 new_learning_rate = self.model.learning_rate*0.5
-                self.logger.info('reduce learning rate to '+str(new_learning_rate)) # Use str(lr) for full length
+                self.logger.info('num decay %i, reduce learning rate to %s'%(num_decay, new_learning_rate)) # Use str(lr) for full length
                 self.model.update_learning_rate(new_learning_rate)
                 self.logger.info('loading previous best model, %s ' % nnets_file_name)
                 self.model.load_nn_model(nnets_file_name)
