@@ -327,7 +327,7 @@ class Build_Model_Trainer_Base(object):
                 return True
             else:
                 new_learning_rate = self.model.learning_rate*0.5
-                self.logger.info('num decay %i, reduce learning rate to %s'%(num_decay, new_learning_rate)) # Use str(lr) for full length
+                self.logger.info('num decay %i, reduce learning rate to %s'%(self.num_decay, new_learning_rate)) # Use str(lr) for full length
                 self.model.update_learning_rate(new_learning_rate)
                 self.logger.info('loading previous best model, %s ' % nnets_file_name)
                 self.model.load_nn_model(nnets_file_name)
