@@ -5,7 +5,8 @@ import math, numpy, scipy
 import torch
 
 from frontend_mw545.modules import make_logger
-from nn_torch.torch_layers  import Build_DV_Y_Input_Layer, Build_NN_Layer
+# from nn_torch.torch_layers  import Build_DV_Y_Input_Layer, Build_NN_Layer
+from fixed_length_backups.torch_layers_fixed_length import Build_DV_Y_Input_Layer, Build_NN_Layer
 
 ########################
 # PyTorch-based Models #
