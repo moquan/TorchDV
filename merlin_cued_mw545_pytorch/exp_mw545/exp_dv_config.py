@@ -38,8 +38,8 @@ class dv_y_configuration(object):
             self.init_wav_data()
         elif 'cmp' in self.cfg.work_dir:
             self.init_cmp_data()
-        else:
-            self.init_wav_data()
+        # else:
+        #     self.init_wav_data()
 
     def init_wav_data(self):
         self.y_feat_name   = 'wav'
@@ -57,9 +57,9 @@ class dv_y_configuration(object):
         self.cmp_dim = self.cfg.nn_feature_dims['cmp']
         
         self.input_data_dim['T_S'] = numpy.inf # This is the maximum input length
-        self.input_data_dim['T_B'] = int(0.2 * self.cfg.frame_sr) # T
+        self.input_data_dim['T_B'] = int(0.2 * self.cfg.frame_sr) # T, 0.2s, 40 frames
         self.input_data_dim['B_shift'] = 1
-        self.input_data_dim['D'] = self.cfg.nn_feature_dims['cmp']
+        self.input_data_dim['D'] = self.cfg.nn_feature_dims['cmp'] * self.input_data_dim['T_B']
 
     def init_model(self):
         self.nn_layer_config_list = []
@@ -92,7 +92,7 @@ class dv_y_configuration(object):
         self.data_split_file_number['valid'] = [81, 120]
         self.data_split_file_number['test']  = [41, 80]
 
-    def compute_B_M(self):
+    def compute_M(self):
         if 'T_M' in self.input_data_dim and 'M_shift' in self.input_data_dim:
             self.input_data_dim['M'] = int((self.input_data_dim['T_B'] - self.input_data_dim['T_M']) / self.input_data_dim['M_shift']) + 1
 
@@ -100,7 +100,7 @@ class dv_y_configuration(object):
         if cfg is None: cfg = self.cfg
         ''' Remember to call this after __init__ !!! '''
         # Features
-        self.compute_B_M() # B
+        self.compute_M()
         self.num_nn_layers = len(self.nn_layer_config_list)
 
         # Directories
@@ -135,9 +135,6 @@ class dv_y_configuration(object):
         # Run every epoch, after train and eval; Add tests if necessary
         pass
 
-
-
-
     def update_cmp_dim(self):
         '''
         Compute new acoustic feature dimension
@@ -147,7 +144,7 @@ class dv_y_configuration(object):
         for feat_name in self.out_feat_list:
             feat_dim = self.cfg.acoustic_in_dimension_dict[feat_name]
             self.cmp_dim += feat_dim
-        self.input_data_dim['D'] = self.input_data_dim['T_B'] * self.cmp_dim
+        self.input_data_dim['D'] = self.cmp_dim * self.input_data_dim['T_B']
 
     def change_to_class_test_mode(self):
         self.epoch_num_batch = {'test':40}
