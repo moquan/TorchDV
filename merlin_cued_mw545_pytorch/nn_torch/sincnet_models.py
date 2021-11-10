@@ -5,6 +5,7 @@ import torch.nn as nn
 import sys
 from torch.autograd import Variable
 import math
+from torch.nn import LayerNorm
 
 def flip(x, dim):
     xsize = x.size()
@@ -243,21 +244,6 @@ def act_fun(act_type):
     if act_type=="linear":
         return nn.LeakyReLU(1) # initializzed like this, but not used in forward!
             
-            
-class LayerNorm(nn.Module):
-
-    def __init__(self, features, eps=1e-6):
-        super(LayerNorm,self).__init__()
-        self.gamma = nn.Parameter(torch.ones(features))
-        self.beta = nn.Parameter(torch.zeros(features))
-        self.eps = eps
-
-    def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
-        return self.gamma * (x - mean) / (std + self.eps) + self.beta
-
-
 class MLP(nn.Module):
     def __init__(self, options):
         super(MLP, self).__init__()
