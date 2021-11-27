@@ -71,6 +71,10 @@ class Build_Model_Trainer_Base(object):
         self.model.load_nn_model(prev_nnets_file_name)
 
         epoch_num = 0
+        # Evaluate once before fine-tuning
+        self.logger.info('start Evaluating Epoch '+str(epoch_num))
+        epoch_loss = self.eval_action_epoch(epoch_num)
+
         while (epoch_num < self.train_cfg.num_train_epoch):
             epoch_num = epoch_num + 1
             epoch_start_time = time.time()
