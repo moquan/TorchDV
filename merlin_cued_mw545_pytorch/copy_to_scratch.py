@@ -1,4 +1,4 @@
-from run_nn_iv_batch_T4_DV import configuration
+from run_24kHz import configuration
 from frontend_mw545.data_io import Data_File_Directory_Utils
 
 work_dir = '/home/dawna/tts/mw545/TorchDV/debug_nausicaa'
