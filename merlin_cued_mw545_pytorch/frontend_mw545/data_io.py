@@ -133,7 +133,7 @@ class Data_List_File_IO(object):
         super(Data_List_File_IO, self).__init__()
         self.cfg = cfg
         self.FL_Selecter = File_List_Selecter()
-        self.logger = make_logger("write_file_list")
+        self.logger = make_logger("file_list_IO")
 
     def split_file_list_cfg_used(self, file_id_list):
         '''
@@ -432,20 +432,25 @@ class Data_File_Directory_Utils(object):
         cfg = self.cfg
         file_id_list = read_file_list(cfg.file_id_list_file['used'])
 
+        data_dir = cfg.data_dir
+        scratch_dir = cfg.nn_feat_scratch_dir_root
+        # data_dir = '/data/vectra2/tts/mw545/Data/exp_dirs/data_voicebank_24kHz'
+        # scratch_dir = '/scratch/tmp-mw545/exp_dirs/data_voicebank_24kHz'
+
         dir_pair_list = [] # [ori_dir, tar_dir, file_ext]
 
-        dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_lab_resil_norm_601', '/scratch/tmp-mw545/voicebank_208_speakers/nn_lab_resil_norm_601', '.lab'])
-        dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_cmp_resil_norm_86', '/scratch/tmp-mw545/voicebank_208_speakers/nn_cmp_resil_norm_86', '.cmp'])
-        dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_wav_resil_norm_80', '/scratch/tmp-mw545/voicebank_208_speakers/nn_wav_resil_norm_80', '.wav'])
-        dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_f016k_resil', '/scratch/tmp-mw545/voicebank_208_speakers/nn_f016k_resil', '.f016k'])
-        dir_pair_list.append(['/home/dawna/tts/mw545/TorchDV/debug_grid/data/nn_pitch_resil', '/scratch/tmp-mw545/voicebank_208_speakers/nn_pitch_resil', '.pitch'])
+        dir_pair_list.append(['nn_lab_resil_norm_601', 'nn_lab_resil_norm_601', '.lab'])
+        dir_pair_list.append(['nn_cmp_resil_norm_86', 'nn_cmp_resil_norm_86', '.cmp'])
+        dir_pair_list.append(['nn_wav_resil_norm_120', 'nn_wav_resil_norm_120', '.wav'])
+        dir_pair_list.append(['nn_f024k_resil', 'nn_f024k_resil', '.f024k'])
+        dir_pair_list.append(['nn_pitch_resil', 'nn_pitch_resil', '.pitch'])
 
         assert len(dir_pair_list) > 0
 
         for dir_pair in dir_pair_list:
-            ori_dir  = dir_pair[0]
-            tar_dir  = dir_pair[1]
-            file_ext = dir_pair[2]
+            ori_dir  = os.path.join(data_dir , dir_pair[0])
+            tar_dir  = os.path.join(scratch_dir , dir_pair[1])
+            # file_ext = dir_pair[2]
 
             if remove_tar_dir:
                 try:
@@ -453,15 +458,16 @@ class Data_File_Directory_Utils(object):
                     self.logger.info("Removing target directory: "+tar_dir)
                 except:
                     self.logger.info("Target directory does not exist yet: "+tar_dir)
-                os.makedirs(tar_dir)
+                # os.makedirs(tar_dir)
 
-            ori_file_list = self.prepare_file_path_list(file_id_list, ori_dir, file_ext)
-            tar_file_list = self.prepare_file_path_list(file_id_list, tar_dir, file_ext)
+            # ori_file_list = self.prepare_file_path_list(file_id_list, ori_dir, file_ext)
+            # tar_file_list = self.prepare_file_path_list(file_id_list, tar_dir, file_ext)
 
             self.logger.info("Copying... Original directory: "+ori_dir)
             self.logger.info("Copying... Target directory: "+tar_dir)
-            for x, y in zip(ori_file_list, tar_file_list):
-                shutil.copyfile(x, y)
+            shutil.copytree(ori_dir, tar_dir)
+            # for x, y in zip(ori_file_list, tar_file_list):
+            #     shutil.copyfile(x, y)
 
     def clean_data(self):
         ''' 
