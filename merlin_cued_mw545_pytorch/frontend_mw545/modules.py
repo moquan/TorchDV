@@ -279,6 +279,7 @@ class Graph_Plotting(object):
         import matplotlib.pyplot as plt
         self.plt = plt
 
+
     def change_default_x_list(self, x_list, y_list):
         '''
         Make x-axis if there is none
@@ -301,6 +302,8 @@ class Graph_Plotting(object):
         '''
         x_list = self.change_default_x_list(x_list, y_list)
         fig, ax = self.plt.subplots()
+        fig.set_tight_layout(True)
+
         for x, y, l in zip(x_list, y_list, legend_list):
             if l is None:
                 ax.plot(x, y)
@@ -335,6 +338,29 @@ class Graph_Plotting(object):
         '''
         fig, ax = self.plt.subplots()
         ax.bar(x, y, w)
+        self.set_title_labels(ax, title, x_label, y_label)
+
+        self.logger.info('Saving to %s' % fig_file_name)
+        fig.savefig(fig_file_name, format="png")
+        self.plt.close(fig)
+
+    def mean_std_plot(self, fig_file_name, x_list, y_list, s_list, legend_list, colour_list=['b','r','g','y'], title=None, x_label=None, y_label=None):
+        x_list = self.change_default_x_list(x_list, y_list)
+        fig, ax = self.plt.subplots()
+
+        for i in range(len(y_list)):
+            x = numpy.array(x_list[i])
+            y = numpy.array(y_list[i])
+            s = numpy.array(s_list[i])
+            l = legend_list[i]
+            c = colour_list[i]
+
+            ax.plot(x, y, c+'-', label=l)
+            ax.fill(numpy.concatenate([x, x[::-1]]),
+                 numpy.concatenate([y - 1.9600 * s,
+                                (y + 1.9600 * s)[::-1]]),
+                 alpha=.5, fc=c, ec='None', label='95% confidence')
+
         self.set_title_labels(ax, title, x_label, y_label)
 
         self.logger.info('Saving to %s' % fig_file_name)
@@ -402,6 +428,8 @@ class Build_Log_File_Reader(object):
 
 
     def extract_accuracy_from_log_file(self, log_file_name):
+        # Note: not compatible if window-level accuracy is also present
+        # use self.extract_accuracy_win_from_log_file(log_file_name) in this case
         file_lines = []
         with open(log_file_name) as f:
             for line in f.readlines():
@@ -413,6 +441,55 @@ class Build_Log_File_Reader(object):
         train_accuracy = []
         valid_accuracy = []
         test_accuracy  = []
+
+        for single_line in file_lines:
+            words = single_line.strip().split(' ')
+            if 'epoch' in words and 'accu:' in words:
+                if words[words.index('accu:')-1] == 'win':
+                    print('Warning: window-level accuracy in log file, check again')
+                # words_new = words
+                if '&' in words:
+                    train_index = words.index('accu:')+2
+                    valid_index = train_index+2
+                    test_index  = valid_index+2
+                else:
+                    if 'train' in words:
+                        train_index = words.index('train')+1
+                    elif 'training' in words:
+                        train_index = words.index('training')+1
+                    if 'validation' in words:
+                        valid_index = words.index('validation')+1
+                    elif 'valid' in words:
+                        valid_index = words.index('valid')+1
+                    test_index  = words.index('test')+1
+                
+                train_accuracy.append(float(words[train_index][:-1]))
+                valid_accuracy.append(float(words[valid_index][:-1]))
+                test_accuracy.append(float(words[test_index][:-1]))
+                    
+        return (train_accuracy, valid_accuracy, test_accuracy)
+
+    def extract_accuracy_win_from_log_file(self, log_file_name):
+        # Extract both utterance level and window level accuracy
+        #
+        # 2021-10-12 20:59:59,537     INFO    train_model: epoch 84 train & valid & test loss: & 0.0442 & 0.2732 & 0.4700
+        # 2021-10-12 20:59:59,537     INFO    train_model: epoch 84 train & valid & test accu: & 1.0000 & 0.9986 & 0.9934
+        # 2021-10-12 20:59:59,537     INFO    train_model: epoch 84 train & valid & test win accu: & 0.9900 & 0.9259 & 0.8841
+        file_lines = []
+        with open(log_file_name) as f:
+            for line in f.readlines():
+                line = line.strip()
+                if len(line) < 1:
+                    continue
+                file_lines.append(line)
+
+        train_accuracy = []
+        valid_accuracy = []
+        test_accuracy  = []
+
+        train_accuracy_win = []
+        valid_accuracy_win = []
+        test_accuracy_win  = []
 
         for single_line in file_lines:
             words = single_line.strip().split(' ')
@@ -432,9 +509,15 @@ class Build_Log_File_Reader(object):
                     elif 'valid' in words:
                         valid_index = words.index('valid')+1
                     test_index  = words.index('test')+1
-                train_accuracy.append(float(words[train_index][:-1]))
-                valid_accuracy.append(float(words[valid_index][:-1]))
-                test_accuracy.append(float(words[test_index][:-1]))
-                
-        return (train_accuracy, valid_accuracy, test_accuracy)
+                if words[words.index('accu:')-1] == 'win':
+                    # This is window level accuracy
+                    train_accuracy_win.append(float(words[train_index][:-1]))
+                    valid_accuracy_win.append(float(words[valid_index][:-1]))
+                    test_accuracy_win.append(float(words[test_index][:-1]))
+                else:
+                    train_accuracy.append(float(words[train_index][:-1]))
+                    valid_accuracy.append(float(words[valid_index][:-1]))
+                    test_accuracy.append(float(words[test_index][:-1]))
+                    
+        return (train_accuracy, valid_accuracy, test_accuracy, train_accuracy_win, valid_accuracy_win, test_accuracy_win)
   
