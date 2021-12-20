@@ -9,9 +9,50 @@ from frontend_mw545.modules import make_logger, read_file_list, log_class_attri,
 from frontend_mw545.data_io import Data_File_IO, Data_List_File_IO, Data_Meta_List_File_IO
 
 from nn_torch.torch_models import Build_DV_Y_model
-from frontend_mw545.data_loader import Build_dv_y_train_data_loader
+from frontend_mw545.data_loader import Build_dv_y_train_data_loader, Build_dv_TTS_selecter
 
 from exp_mw545.exp_base import Build_Model_Trainer_Base
+
+#########
+# Tools #
+#########
+
+class DV_Calculator(object):
+    """ handy calculator functions for dv """
+    def __init__(self):
+        super().__init__()
+        pass
+
+    def cal_accuracy_S(self, logit_SD, one_hot_S):
+        pred_S = numpy.argmax(logit_SD, axis=1)
+        total_num = pred_S.size
+        correct_num = numpy.sum(pred_S==one_hot_S)
+        return correct_num/float(total_num)
+
+    def cal_accuracy_SB(self, logit_SBD, one_hot_SB, mask_SB=None):
+        pred_SB = numpy.argmax(logit_SBD, axis=2)
+        if mask_SB is None:
+            total_num = pred_SB.size
+            correct_num = numpy.sum(pred_SB==one_hot_SB)
+        else:
+            total_num = numpy.sum(mask_SB)
+            correct_num = numpy.sum(numpy.multiply(mask_SB, (pred_SB==one_hot_SB)))
+        return correct_num/float(total_num)
+
+    def compute_SBD_distance(self, p_SBD_1, p_SBD_2, distance_name='entropy'):
+        '''
+        Compute total distance between 2 sets of vectors
+        '''
+        S = p_SBD_1.shape[0]
+        B = p_SBD_1.shape[1]
+
+        distance_sum = 0.
+        for s in range(S):
+            for b in range(B):
+                if distance_name == 'entropy':
+                    distance_sum += scipy.stats.entropy(p_SBD_1[s,b], p_SBD_2[s,b])
+        # ce_mean = ce_sum / float(S*B)
+        return distance_sum
 
 #############
 # Processes #
@@ -29,11 +70,13 @@ class Build_DV_Y_Model_Trainer(Build_Model_Trainer_Base):
         self.model.torch_initialisation()
         self.model.build_optimiser()
 
-        if dv_y_cfg.retrain_model:
+        if dv_y_cfg.prev_nnets_file_name is not None:
             self.logger.info('Loading %s for retraining' % dv_y_cfg.prev_nnets_file_name)
             self.model.load_nn_model_optim(dv_y_cfg.prev_nnets_file_name)
         self.model.print_model_parameter_sizes(self.logger)
         self.model.print_output_dim_values(self.logger)
+
+        self.dv_calculator = DV_Calculator()
 
     def build_data_loader(self):
         self.data_loader = Build_dv_y_train_data_loader(self.cfg, self.train_cfg)
@@ -42,7 +85,7 @@ class Build_DV_Y_Model_Trainer(Build_Model_Trainer_Base):
         '''
         Additional Accuracy Actions
         '''
-        output_string = {'loss':'epoch %i train & valid & test loss:' % epoch_num, 'accuracy':'epoch %i train & valid & test accu:' % epoch_num,}
+        output_string = {'loss':'epoch %i train & valid & test loss:' % epoch_num, 'accuracy':'epoch %i train & valid & test accu:' % epoch_num, 'win_accuracy':'epoch %i train & valid & test win accu:' % epoch_num,}
         epoch_loss = {}
         epoch_valid_load_time  = 0.
         epoch_valid_model_time = 0.
@@ -51,39 +94,40 @@ class Build_DV_Y_Model_Trainer(Build_Model_Trainer_Base):
         for utter_tvt_name in ['train', 'valid', 'test']:
             total_batch_size = 0.
             total_loss       = 0.
-            total_accuracy   = 0.
+            total_utter_accuracy = 0.
+            total_win_accuracy = 0.
 
             for batch_idx in range(epoch_num_batch):
                 batch_load_time, batch_model_time, batch_mean_loss, batch_size, feed_dict = self.eval_action_batch(utter_tvt_name)
-                total_loss += batch_mean_loss
+                total_loss += batch_mean_loss * float(batch_size)
+                total_batch_size += batch_size
                 epoch_valid_load_time  += batch_load_time
                 epoch_valid_model_time += batch_model_time
 
                 if self.train_cfg.classify_in_training:
+                    logit_SD  = self.model.gen_logit_SD_value(feed_dict=feed_dict)
+                    batch_mean_utter_accuracy = self.dv_calculator.cal_accuracy_S(logit_SD, feed_dict['one_hot_S'])
+                    total_utter_accuracy += batch_mean_utter_accuracy
                     logit_SBD  = self.model.gen_logit_SBD_value(feed_dict=feed_dict)
-                    batch_mean_accuracy = self.cal_accuracy(logit_SBD, feed_dict['one_hot'])
-                    total_accuracy += batch_mean_accuracy
+                    batch_mean_win_accuracy = self.dv_calculator.cal_accuracy_SB(logit_SBD, feed_dict['one_hot_S_B'], feed_dict['output_mask_S_B'])
+                    total_win_accuracy += batch_mean_win_accuracy * float(batch_size)
 
-            mean_loss = total_loss/float(epoch_num_batch)
+            mean_loss = total_loss/float(total_batch_size)
             epoch_loss[utter_tvt_name] = mean_loss
             output_string['loss'] = output_string['loss'] + ' & %.4f' % (mean_loss)
 
             if self.train_cfg.classify_in_training:
-                mean_accuracy = total_accuracy/float(epoch_num_batch)
-                output_string['accuracy'] = output_string['accuracy'] + ' & %.4f' % (mean_accuracy)
+                mean_utter_accuracy = total_utter_accuracy/float(epoch_num_batch)
+                output_string['accuracy'] = output_string['accuracy'] + ' & %.4f' % (mean_utter_accuracy)
+                mean_win_accuracy = total_win_accuracy/float(total_batch_size)
+                output_string['win_accuracy'] = output_string['win_accuracy'] + ' & %.4f' % (mean_win_accuracy)
 
         self.logger.info('valid load & model time: %.2f & %.2f' % (epoch_valid_load_time, epoch_valid_model_time))
         self.logger.info(output_string['loss'])
         if self.train_cfg.classify_in_training:
             self.logger.info(output_string['accuracy'])
+            self.logger.info(output_string['win_accuracy'])
         return epoch_loss
-
-    def cal_accuracy(self, logit_SBD, one_hot_SB):
-        pred_S_B = numpy.argmax(logit_SBD, axis=2)
-        pred_SB  = numpy.reshape(pred_S_B, (-1))
-        total_num = pred_SB.size
-        correct_num = numpy.sum(pred_SB==one_hot_SB)
-        return correct_num/float(total_num)
 
     def train_single_batch(self):
         '''
@@ -103,21 +147,29 @@ class Build_DV_Y_Model_Trainer(Build_Model_Trainer_Base):
             epoch_num = epoch_num + 1
             epoch_start_time = time.time()
 
-            self.logger.info('start Training Epoch '+str(epoch_num))
-            self.model.train()
-            for batch_idx in range(self.train_cfg.epoch_num_batch['train']):
-                self.model.update_parameters(feed_dict=feed_dict)
-            epoch_train_time = time.time()
+            if epoch_num > 1:
+                self.logger.info('start Training Epoch '+str(epoch_num))
+                self.model.train()
+                for batch_idx in range(self.train_cfg.epoch_num_batch['train']):
+                    self.model.update_parameters(feed_dict=feed_dict)
+                epoch_train_time = time.time()
+            else:
+                epoch_train_time = epoch_start_time
 
             self.logger.info('start Evaluating Epoch '+str(epoch_num))
             self.model.eval()
             with self.model.no_grad():
                 batch_mean_loss = self.model.gen_loss_value(feed_dict=feed_dict)
+                logit_SD  = self.model.gen_logit_SD_value(feed_dict=feed_dict)
+                batch_mean_utter_accuracy = self.dv_calculator.cal_accuracy_S(logit_SD, feed_dict['one_hot_S'])
                 logit_SBD  = self.model.gen_logit_SBD_value(feed_dict=feed_dict)
-                batch_mean_accuracy = self.cal_accuracy(logit_SBD, feed_dict['one_hot'])
-                
+                batch_mean_win_accuracy = self.dv_calculator.cal_accuracy_SB(logit_SBD, feed_dict['one_hot_S_B'], feed_dict['output_mask_S_B'])
+
+            self.debug_test(feed_dict)
+
             self.logger.info('epoch %i loss: %.4f' %(epoch_num, batch_mean_loss))
-            self.logger.info('epoch %i accu: %.4f' %(epoch_num, batch_mean_accuracy))
+            self.logger.info('epoch %i utter accu: %.4f' %(epoch_num, batch_mean_utter_accuracy))
+            self.logger.info('epoch %i win accu: %.4f' %(epoch_num, batch_mean_win_accuracy))
             is_finish = self.validation_action(batch_mean_loss, epoch_num)
             epoch_valid_time = time.time()
 
@@ -129,8 +181,24 @@ class Build_DV_Y_Model_Trainer(Build_Model_Trainer_Base):
                 self.logger.info('Model: %s' % (nnets_file_name))
                 return None
 
+            if numpy.isnan(batch_mean_loss):
+                self.logger.info('Reach NaN loss, best epoch %i, best loss %.4f' % (self.best_epoch_num, self.best_epoch_loss))
+                self.logger.info('Model: %s' % (nnets_file_name))
+                self.model.detect_nan_model_parameters(self.logger)
+                return None
+
         self.logger.info('Reach num_train_epoch, best epoch %i, best loss %.4f' % (self.best_epoch_num, self.best_epoch_loss))
         self.logger.info('Model: %s' % (nnets_file_name))
+
+    def debug_test(self, feed_dict):
+        '''
+        Temporaty place for debug tests
+        running per epoch in self.train_single_batch
+        '''
+        # for name, param in self.model.nn_model.named_parameters():
+        #     print(name)
+        #     print(param.grad)
+        pass
 
 class Build_DV_Y_Testing(object):
     """ Wrapper class for various tests of dv_y models """
@@ -138,6 +206,14 @@ class Build_DV_Y_Testing(object):
         super().__init__()
         self.cfg = cfg
         self.test_cfg = dv_y_cfg
+
+    def cross_entropy_accuracy_test(self):
+        test_fn = Build_DV_Y_CE_Accu_Test(self.cfg, self.test_cfg)
+        test_fn.test()
+
+    def gen_dv(self, output_dir):
+        test_fn = Build_DV_Generator(self.cfg, self.test_cfg, output_dir)
+        test_fn.test()
 
     def vuv_loss_test(self, fig_file_name='/home/dawna/tts/mw545/Export_Temp/PNG_out/vuv_loss.png'):
         if self.test_cfg.y_feat_name == 'wav':
@@ -153,12 +229,9 @@ class Build_DV_Y_Testing(object):
             test_fn = Build_Positional_CMP_Test(self.cfg, self.test_cfg, fig_file_name)
         test_fn.test()
 
-    def gen_dv(self, output_dir):
-        if self.test_cfg.y_feat_name == 'wav':
-            # test_fn = Build_Wav_Generator(self.cfg, self.test_cfg, output_dir)
-            pass
-        elif self.test_cfg.y_feat_name == 'cmp':
-            test_fn = Build_CMP_DV_Generator(self.cfg, self.test_cfg, output_dir)
+    def number_utter_test(self, output_dir):
+        if self.test_cfg.y_feat_name == 'cmp':
+            test_fn = Build_Number_Utter_CMP_Test(self.cfg, self.test_cfg, output_dir)
         test_fn.test()
 
 class Build_DV_Y_Testing_Base(object):
@@ -205,6 +278,196 @@ class Build_DV_Y_Testing_Base(object):
 
     def plot(self):
         pass
+
+class Build_DV_Y_CE_Accu_Test(Build_DV_Y_Testing_Base):
+    """ 
+    use test files only
+    compute win_ce, utter_accuracy, win_accuracy 
+    """
+    def __init__(self, cfg, dv_y_cfg):
+        dv_y_cfg.input_data_dim['S'] = 1
+        super().__init__(cfg, dv_y_cfg)
+        self.logger.info('Build_DV_Y_CE_Accu_Test')
+
+        # use test files only
+        self.speaker_id_list = self.cfg.speaker_id_list_dict['train']
+        # compute win_ce, utter_accuracy, win_accuracy
+        self.model.build_loss_function(train_by_window=True, use_voiced_only=False)
+
+        self.dv_calculator = DV_Calculator()
+
+    def test(self):
+        total_batch_size = 0.
+        total_num_files = 0.
+        total_win_ce = 0.
+        total_utter_accuracy = 0.
+        total_win_accuracy = 0.
+
+        for speaker_id in self.speaker_id_list:
+            file_id_list = self.data_loader.dv_selecter.file_list_dict[(speaker_id, 'test')]
+            for file_id in file_id_list:
+                feed_dict, batch_size = self.data_loader.make_feed_dict(file_id_list=[file_id],start_sample_list=[0])
+                mean_win_ce = self.compute_win_ce(feed_dict)
+                utter_accuracy = self.compute_utter_accuracy(feed_dict)
+                mean_win_accuracy = self.compute_win_accuracy(feed_dict)
+
+                total_batch_size += batch_size
+                total_num_files += 1.
+                total_win_ce += mean_win_ce * float(batch_size)
+                total_utter_accuracy += utter_accuracy
+                total_win_accuracy += mean_win_accuracy * float(batch_size)
+
+        self.logger.info('Results of model %s' % self.dv_y_cfg.nnets_file_name)
+        self.logger.info('batch size & win_ce & win_accuracy & utter_accuracy')
+        self.logger.info('%f & %.4f & %.4f & %.4f' %(total_batch_size, total_win_ce/total_batch_size, total_win_accuracy/total_batch_size, total_utter_accuracy/total_num_files))
+
+    def compute_win_ce(self, feed_dict):
+        SB_loss = self.model.gen_SB_loss_value(feed_dict)
+        return numpy.mean(SB_loss)
+
+    def compute_utter_accuracy(self, feed_dict):
+        logit_SD = self.model.gen_logit_SD_value(feed_dict)
+        one_hot_S = feed_dict['one_hot_S']
+        return self.dv_calculator.cal_accuracy_S(logit_SD, one_hot_S)
+
+    def compute_win_accuracy(self, feed_dict):
+        logit_SBD = self.model.gen_logit_SBD_value(feed_dict)
+        one_hot_SB = feed_dict['one_hot_S_B']
+        return self.dv_calculator.cal_accuracy_SB(logit_SBD, one_hot_SB)
+
+class Build_Positional_CMP_Test(Build_DV_Y_Testing_Base):
+    """ 
+    use test files only
+    compute win_ce, utter_accuracy, win_accuracy 
+    """
+    def __init__(self, cfg, dv_y_cfg, fig_file_name):
+        dv_y_cfg.input_data_dim['S'] = 1
+        super().__init__(cfg, dv_y_cfg)
+        self.logger.info('Build_Positional_CMP_Test')
+
+        # use test files only
+        self.file_id_list = read_file_list(cfg.file_id_list_file['dv_pos_test']) # 186^5 files
+        self.cmp_dir = '/data/mifs_scratch/mjfg/mw545/dv_pos_test/cmp_shift_resil_norm'
+
+        self.max_distance   = 50
+        self.distance_space = 1
+
+        self.dv_calculator = DV_Calculator()
+
+    def test(self):
+        total_batch_size = 0.
+        total_distance_list = numpy.zeros(self.max_distance)
+
+        for file_id in self.file_id_list:
+            distance_list, B = self.compute_distance_list(file_id)
+            total_batch_size += B
+            total_distance_list += distance_list
+
+        mean_distance_list = total_distance_list/total_batch_size
+
+        self.logger.info('Results of model %s' % self.dv_y_cfg.nnets_file_name)
+        self.logger.info('batch size & mean_distance')
+        self.logger.info('%f & %s' %(total_batch_size, mean_distance_list))
+        print(mean_distance_list)
+
+    def compute_distance_list(self, file_id):
+        distance_list = numpy.zeros(self.max_distance)
+        speaker_id = file_id.split('_')[0]
+        feed_dict, batch_size = self.data_loader.make_feed_dict(file_id_list=[file_id])
+        p_SBD_0 = self.model.gen_p_SBD_value(feed_dict)
+
+        for i in range(0, self.max_distance):
+            cmp_resil_norm_file_name = '%s/%s/%s.cmp.%i' % (self.cmp_dir, speaker_id, file_id, i+1)
+            cmp_BD, B, start_sample_number = self.data_loader.dv_y_data_loader.make_cmp_BD_data_single_file(cmp_resil_norm_file_name)
+            cmp_SBD = numpy.expand_dims(cmp_BD, 0)
+            feed_dict['h'] = cmp_SBD
+            p_SBD_i = self.model.gen_p_SBD_value(feed_dict)
+            distance_list[i] = self.dv_calculator.compute_SBD_distance(p_SBD_0, p_SBD_i, 'entropy') # This is sum, not mean
+
+        return distance_list, batch_size
+
+
+
+class Build_DV_Generator(Build_DV_Y_Testing_Base):
+    """
+    Build_CMP_Generator
+    For vocoder-based system only
+    Generate a dict of speaker representations:
+        dv_file_dict[file_id] = (dv, num_windows)
+        dv_spk_dict[file_id] = dv
+        dv is a 1D numpy array
+    """
+    def __init__(self, cfg, dv_y_cfg, output_dir=None):
+        super().__init__(cfg, dv_y_cfg)
+        self.output_dir = output_dir
+        self.logger.info('Build_CMP_Generator')
+
+        # change S to 1; re-build data_loader
+        dv_y_cfg.input_data_dim['S'] = 1
+        self.dv_tts_selector = Build_dv_TTS_selecter(self.cfg, dv_y_cfg)
+        self.speaker_id_list = self.cfg.speaker_id_list_dict['all']
+
+        self.dv_file_dict = {}
+        self.dv_spk_dict = {}
+        self.DMLFIO = Data_Meta_List_File_IO(cfg)
+
+
+    def test(self):
+        for k in self.dv_tts_selector.file_list_dict:
+            # print("%s:%i" %(k,len((self.dv_tts_selector.file_list_dict[k]))))
+            if self.dv_y_cfg.run_mode == 'debug':
+                # Keep 10 files only in debug mode
+                self.dv_tts_selector.file_list_dict[k] = self.dv_tts_selector.file_list_dict[k][:10]
+
+        for speaker_id in self.speaker_id_list:
+            file_id_list = self.dv_tts_selector.file_list_dict[(speaker_id, 'SR')]
+            for file_id in file_id_list:
+                self.logger.info('Processing %s' % file_id)
+                feed_dict, batch_size = self.data_loader.make_feed_dict(file_id_list=[file_id],start_sample_list=[0])
+                lambda_SD = self.model.gen_lambda_SD_value(feed_dict)
+                dv_file = lambda_SD[0]
+                self.dv_file_dict[file_id] = (batch_size, dv_file)
+
+        for speaker_id in self.speaker_id_list:
+            self.logger.info('Processing %s' % speaker_id)
+            dv_speaker = numpy.zeros(self.dv_y_cfg.dv_dim)
+            total_num_frames = 0.
+            file_id_list = self.dv_tts_selector.file_list_dict[(speaker_id, 'SR')]
+            for file_id in file_id_list:
+                num_frames = self.dv_file_dict[file_id][0]
+                total_num_frames += num_frames
+                dv_speaker += self.dv_file_dict[file_id][1] * float(num_frames)
+
+            self.dv_spk_dict[speaker_id] = dv_speaker / total_num_frames
+
+        self.save_dv_files(self.dv_y_cfg.exp_dir)
+        if self.output_dir is not None:
+            self.save_dv_files(self.output_dir)
+
+    def action_per_file(self, file_id):
+        self.logger.info('Processing %s' % file_id)
+        speaker_id = file_id.split('_')[0]
+
+        feed_dict, batch_size = self.data_loader.make_feed_dict(file_id_list=[file_id])
+        lambda_SD = self.model.gen_lambda_SD_value(feed_dict=feed_dict)
+
+        self.dv_file_dict[file_id] = (batch_size, lambda_SD[0])
+
+    def save_dv_files(self, output_dir):
+
+        dv_spk_dict_file  = os.path.join(output_dir, 'dv_spk_dict.dat')
+        dv_spk_dict_text  = os.path.join(output_dir, 'dv_spk_dict.txt')
+        dv_file_dict_file = os.path.join(output_dir, 'dv_file_dict.dat')
+        dv_file_dict_text = os.path.join(output_dir, 'dv_file_dict.txt')
+        self.logger.info('Saving to files:')
+        print(dv_spk_dict_file)
+        print(dv_spk_dict_text)
+        print(dv_file_dict_file)
+        print(dv_file_dict_text)
+        self.DMLFIO.write_dv_spk_values_to_file(self.dv_spk_dict, dv_spk_dict_file, file_type='pickle')
+        self.DMLFIO.write_dv_spk_values_to_file(self.dv_spk_dict, dv_spk_dict_text, file_type='text')
+        self.DMLFIO.write_dv_file_values_to_file(self.dv_file_dict, dv_file_dict_file, file_type='pickle')
+        self.DMLFIO.write_dv_file_values_to_file(self.dv_file_dict, dv_file_dict_text, file_type='text')
 
 class Build_Wav_VUV_Loss_Test(Build_DV_Y_Testing_Base):
     '''
@@ -339,7 +602,9 @@ class Build_CMP_VUV_Loss_Test(Build_Wav_VUV_Loss_Test):
         self.cmp_cfg = dv_y_cfg
 
         self.cmp_data_loader = self.data_loader.dv_y_data_loader
-        self.wav_data_loader = self.build_wav_data_loader() # This is a single file loader!
+        # This is a single wav file loader!
+        # Use this to load vuv_BM and form vuv_SBM
+        self.wav_data_loader = self.build_wav_data_loader() 
 
     def build_wav_data_loader(self):
         '''
@@ -382,13 +647,14 @@ class Build_CMP_VUV_Loss_Test(Build_Wav_VUV_Loss_Test):
         vuv_SBM = numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['B'], self.wav_cfg.input_data_dim['M']))
 
         for i, file_id in enumerate(file_id_list):
+            speaker_id = file_id.split('_')[0]
             extra_file_len_ratio = extra_file_len_ratio_list[i]
-            cmp_resil_norm_file_name = os.path.join(self.cmp_data_loader.cmp_dir, file_id+'.cmp')
+            cmp_resil_norm_file_name = os.path.join(self.cmp_data_loader.cmp_dir, speaker_id, file_id+'.cmp')
             cmp_BD, start_frame_no_sil = self.cmp_data_loader.make_cmp_BD(cmp_resil_norm_file_name, None, extra_file_len_ratio)
             cmp_SBD[i] = cmp_BD
 
             start_sample_no_sil = self.frame_2_sample_number(start_frame_no_sil)
-            pitch_resil_norm_file_name = os.path.join(self.cfg.nn_feat_resil_dirs['pitch'], file_id+'.pitch')
+            pitch_resil_norm_file_name = os.path.join(self.cfg.nn_feat_resil_dirs['pitch'], speaker_id, file_id+'.pitch')
             tau_BM, vuv_BM = self.wav_data_loader.make_tau_BM(pitch_resil_norm_file_name, start_sample_no_sil)
             vuv_SBM[i] = vuv_BM
 
@@ -446,8 +712,9 @@ class Build_Positional_Wav_Test(Build_DV_Y_Testing_Base):
         from frontend_mw545.data_io import Data_Meta_List_File_IO
         DMLF_IO = Data_Meta_List_File_IO(self.cfg)
 
-        in_file_name  = '/home/dawna/tts/mw545/TorchDV/file_id_lists/data_meta/file_id_list_num_sil_frame.scp'
-        out_file_name = '/home/dawna/tts/mw545/TorchDV/file_id_lists/data_meta/file_id_list_num_extra_wav_pos_test.scp'
+        file_id_list_dir = self.cfg.file_id_list_dir
+        in_file_name  = os.path.join(file_id_list_dir, 'data_meta/file_id_list_num_sil_frame.scp')
+        out_file_name = os.path.join(file_id_list_dir, 'data_meta/file_id_list_num_extra_wav_pos_test.scp')
         file_id_list = self.test_file_list
 
         file_frame_dict = DMLF_IO.read_file_list_num_silence_frame(in_file_name)
@@ -464,7 +731,8 @@ class Build_Positional_Wav_Test(Build_DV_Y_Testing_Base):
                 f_1.write(l+'\n')
 
     def read_file_list_num_silence_samples(self):
-        in_file_name = '/home/dawna/tts/mw545/TorchDV/file_id_lists/data_meta/file_id_list_num_extra_wav_pos_test.scp'
+        file_id_list_dir = self.cfg.file_id_list_dir
+        in_file_name  = os.path.join(file_id_list_dir, 'data_meta/file_id_list_num_sil_frame.scp')
         file_frame_dict = {}
 
         fid = open(in_file_name)
@@ -490,20 +758,20 @@ class Build_Positional_Wav_Test(Build_DV_Y_Testing_Base):
         file_id_list = self.test_file_selecter.draw_n_samples(S)
         extra_file_len_ratio_list = numpy.random.rand(S)
 
-        start_sample_no_sil_list_0 = numpy.zeros(S).astype(int)
+        start_sample_list_0 = numpy.zeros(S).astype(int)
         for s in range(S):
             file_id = file_id_list[s]
             extra_file_len_ratio = extra_file_len_ratio_list[s]
             extra_file_len = self.file_num_silence_samples_dict[file_id]
             start_sample_no_sil = int(extra_file_len_ratio * (extra_file_len+1))
-            start_sample_no_sil_list_0[s] = start_sample_no_sil
+            start_sample_list_0[s] = start_sample_no_sil
 
-        feed_dict_0, batch_size = self.data_loader.make_feed_dict(utter_tvt_name=utter_tvt_name,file_id_list=file_id_list, start_sample_no_sil_list=start_sample_no_sil_list_0)
+        feed_dict_0, batch_size = self.data_loader.make_feed_dict(utter_tvt_name=utter_tvt_name,file_id_list=file_id_list, start_sample_list=start_sample_list_0)
         p_SBD_0 = self.model.gen_p_SBD_value(feed_dict=feed_dict_0)
 
         for i in range(self.num_to_plot):
-            start_sample_no_sil_list = start_sample_no_sil_list_0 + (i+1) * self.distance_space
-            feed_dict, batch_size = self.data_loader.make_feed_dict(utter_tvt_name=utter_tvt_name,file_id_list=file_id_list, start_sample_no_sil_list=start_sample_no_sil_list)
+            start_sample_list = start_sample_list_0 + (i+1) * self.distance_space
+            feed_dict, batch_size = self.data_loader.make_feed_dict(utter_tvt_name=utter_tvt_name,file_id_list=file_id_list, start_sample_list=start_sample_list)
 
             p_SBD_i = self.model.gen_p_SBD_value(feed_dict=feed_dict)
             dist_i = self.compute_distance(p_SBD_0, p_SBD_i)
@@ -559,321 +827,3 @@ class Build_Positional_Wav_Test(Build_DV_Y_Testing_Base):
         self.logger.info('Print distance and loss_test')
         print(loss_mean_dict['x'])
         print(loss_mean_dict['test'])
-
-class Build_Positional_CMP_Test(Build_DV_Y_Testing_Base):
-    '''
-    For vocoder-based models only
-    Compare the average loss in voiced or unvoiced region
-    Return a dict: key is train/valid/test, value is a list for plotting
-        loss_mean_dict[utter_tvt_name] = loss_mean_list
-        in loss_mean_list: loss_mean vs voicing (increasing)
-    '''
-    def __init__(self, cfg, dv_y_cfg, fig_file_name):
-        super().__init__(cfg, dv_y_cfg)
-        self.logger.info('Build_Positional_CMP_Test')
-        self.total_num_batch = 100
-        self.fig_file_name = fig_file_name
-        self.tvt_list = ['train', 'valid', 'test']
-
-        self.max_distance   = 50
-        self.distance_space = 1
-        self.num_to_plot = int(self.max_distance / self.distance_space)
-
-        self.loss_dict = {}
-        for utter_tvt_name in self.tvt_list:
-            self.loss_dict[utter_tvt_name] = {i:[] for i in range(self.num_to_plot)}
-
-        self.cmp_dir = '/data/mifs_scratch/mjfg/mw545/dv_pos_test/cmp_shift' # Cannot access now, finish writing later
-        self.cmp_data_loader = self.data_loader.dv_y_data_loader.dv_y_cmp_data_loader_Single_File
-
-        self.test_file_list = read_file_list(cfg.file_id_list_file['dv_pos_test']) # 186^5 files
-        self.test_file_selecter = List_Random_Loader(self.test_file_list)
-        # self.write_file_list_num_silence_frames()
-        self.file_num_silence_frames_dict = self.read_file_list_num_silence_frames()
-
-    def write_file_list_num_silence_frames(self):
-        '''
-        Call this once only
-        Write a Data_Meta_List_File
-        1. Read silence data meta
-        2. Get file_id_list, self.test_file_list
-        3. For file_id in file_id_list, compute num_extra_frames
-        4. Write a new extra data meta
-        '''
-        from frontend_mw545.data_io import Data_Meta_List_File_IO
-        DMLF_IO = Data_Meta_List_File_IO(self.cfg)
-
-        in_file_name  = '/home/dawna/tts/mw545/TorchDV/file_id_lists/data_meta/file_id_list_num_sil_frame.scp'
-        out_file_name = '/home/dawna/tts/mw545/TorchDV/file_id_lists/data_meta/file_id_list_num_extra_cmp_pos_test.scp'
-        file_id_list = self.test_file_list
-
-        file_frame_dict = DMLF_IO.read_file_list_num_silence_frame(in_file_name)
-
-        with open(out_file_name, 'w') as f_1:
-            for file_id in file_id_list:
-                l, x, y = file_frame_dict[file_id]
-                num_no_sil_frames  = y-x+1
-                num_extra_frames = num_no_sil_frames - self.dv_y_cfg.input_data_dim['T_S']
-
-                l = '%s %i' %(file_id, num_extra_frames)
-                f_1.write(l+'\n')
-
-    def read_file_list_num_silence_frames(self):
-        in_file_name = '/home/dawna/tts/mw545/TorchDV/file_id_lists/data_meta/file_id_list_num_extra_cmp_pos_test.scp'
-        file_frame_dict = {}
-
-        fid = open(in_file_name)
-        for line in fid.readlines():
-            line = line.strip()
-            if len(line) < 1:
-                continue
-            x_list = line.split(' ')
-
-            file_id = x_list[0]
-            l = int(x_list[1])
-
-            file_frame_dict[file_id] = l
-        return file_frame_dict
-
-    def action_per_batch(self, utter_tvt_name):
-        '''
-        Make feed_dict_0 and shifted feed, generate probability
-        Compute CE between p_0 and p_shift
-        '''
-        dv_y_cfg = self.dv_y_cfg
-        S = dv_y_cfg.input_data_dim['S']
-        file_id_list = self.test_file_selecter.draw_n_samples(S)
-        extra_file_len_ratio_list = numpy.random.rand(S)
-
-        start_frame_no_sil_list_0 = numpy.zeros(S).astype(int)
-        for s in range(S):
-            file_id = file_id_list[s]
-            extra_file_len_ratio = extra_file_len_ratio_list[s]
-            extra_file_len = self.file_num_silence_frames_dict[file_id]
-            start_frame_no_sil = int(extra_file_len_ratio * (extra_file_len+1))
-            start_frame_no_sil_list_0[s] = start_frame_no_sil
-
-        
-        feed_dict_0 = {'h': numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['B'], dv_y_cfg.input_data_dim['D']))}
-
-        for s in range(S):
-            start_frame_no_sil = start_frame_no_sil_list_0[s]
-            file_id = file_id_list[s]
-            cmp_resil_norm_file_name = '%s/%s.cmp.0' % (self.cmp_dir, file_id)
-            cmp_BD = self.cmp_data_loader.make_cmp_BD(cmp_resil_norm_file_name, start_frame_no_sil)
-            feed_dict_0['h'][s] = cmp_BD
-
-        p_SBD_0 = self.model.gen_p_SBD_value(feed_dict=feed_dict_0)
-
-        feed_dict_i = {'h': numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['B'], dv_y_cfg.input_data_dim['D']))}
-        for i in range(self.num_to_plot):
-            for s in range(S):
-                start_frame_no_sil = start_frame_no_sil_list_0[s]
-                file_id = file_id_list[s]
-                cmp_resil_norm_file_name = '%s/%s.cmp.%i' % (self.cmp_dir, file_id, i+1)
-                cmp_BD = self.cmp_data_loader.make_cmp_BD(cmp_resil_norm_file_name, start_frame_no_sil)
-                feed_dict_i['h'][s] = cmp_BD
-
-            p_SBD_i = self.model.gen_p_SBD_value(feed_dict=feed_dict_i)
-            dist_i = self.compute_distance(p_SBD_0, p_SBD_i)
-            self.loss_dict[utter_tvt_name][i].append(dist_i)
-
-    def compute_distance(self, p_SBD_1, p_SBD_2):
-        '''
-        Compute distance between 2 probability
-        '''
-        dv_y_cfg = self.dv_y_cfg
-        S = dv_y_cfg.input_data_dim['S']
-        B = dv_y_cfg.input_data_dim['B']
-
-        ce_sum = 0.
-        for s in range(S):
-            for b in range(B):
-                ce_sum += scipy.stats.entropy(p_SBD_1[s,b], p_SBD_2[s,b])
-        ce_mean = ce_sum / float(S*B)
-        return ce_mean
-
-    def test(self, plot_loss=True):
-        '''
-        Shift the input by a few samples
-        Compute difference in lambda
-        '''
-        # self.write_file_list_num_silence_samples()
-        numpy.random.seed(546)
-
-        for utter_tvt_name in ['train', 'valid', 'test']:
-            for batch_idx in range(self.total_num_batch):
-                self.action_per_batch(utter_tvt_name)
-
-        if plot_loss:
-            self.plot()
-
-    def plot(self):
-        loss_mean_dict = {}
-        # Make x-axis
-        x_list = numpy.arange(self.distance_space, self.max_distance+1, self.distance_space)
-        loss_mean_dict['x'] = x_list
-
-        for utter_tvt_name in self.tvt_list:
-            loss_mean_dict[utter_tvt_name] = []
-
-        for utter_tvt_name in self.tvt_list:
-            for i in range(self.num_to_plot):
-                loss_mean_dict[utter_tvt_name].append(numpy.mean(self.loss_dict[utter_tvt_name][i]))
-
-        graph_plotter = Graph_Plotting()
-        graph_plotter.single_plot(self.fig_file_name, [loss_mean_dict['x']]*3,[loss_mean_dict['train'], loss_mean_dict['valid'],loss_mean_dict['test']], ['train', 'valid', 'test'],title='KL against distance', x_label='Distance', y_label='KL')
-
-        self.loss_mean_dict = loss_mean_dict
-        self.logger.info('Print distance and loss_test')
-        print(loss_mean_dict['x'])
-        print(loss_mean_dict['test'])
-
-class Build_CMP_DV_Generator(Build_DV_Y_Testing_Base):
-    """
-    Build_CMP_Generator
-    For vocoder-based system only
-    Generate a dict of speaker representations:
-        dv_file_dict[file_id] = (dv, num_windows)
-        dv_spk_dict[file_id] = dv
-        dv is a 1D numpy array
-    """
-    def __init__(self, cfg, dv_y_cfg, output_dir):
-        super().__init__(cfg, dv_y_cfg)
-        self.output_dir = output_dir
-        self.logger.info('Build_CMP_Generator')
-
-        self.DIO    = Data_File_IO(cfg)
-        self.DLIO   = Data_List_File_IO(cfg)
-        self.DMLFIO = Data_Meta_List_File_IO(cfg)
-        self.file_list_selecter = File_List_Selecter()
-
-        self.speaker_id_list = cfg.speaker_id_list_dict['all']
-        self.file_id_gen_list, self.file_list_dict = self.make_dv_gen_file_list_dict()
-        self.dv_file_dict = {}
-        self.dv_spk_dict = {}
-
-        self.cmp_dir = self.cfg.nn_feat_resil_norm_dirs['cmp']
-        self.cfg_cmp_dim = self.cfg.nn_feature_dims['cmp']
-        self.feed_dict = {'h': numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['B'], dv_y_cfg.input_data_dim['D']))}
-
-    def make_dv_gen_file_list_dict(self):
-        '''
-        Make a file_list_dict, which contains only files for lambda generation
-        '''
-        file_list_dict = {}
-        file_id_list = self.DLIO.read_file_list(self.cfg.file_id_list_file['used'])
-        file_id_dict = self.file_list_selecter.sort_by_file_number(file_id_list, self.dv_y_cfg.data_split_file_number)
-        file_id_gen_list = file_id_dict['test']
-        file_list_dict = self.file_list_selecter.sort_by_speaker_list(file_id_gen_list, self.speaker_id_list)
-        return file_id_gen_list, file_list_dict
-
-    def action_per_file(self, file_id):
-        self.logger.info('Processing %s' % file_id)
-
-        dv_y_cfg = self.dv_y_cfg
-        self.feed_dict['h'] = numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['B'], dv_y_cfg.input_data_dim['D']))
-        S = dv_y_cfg.input_data_dim['S']
-        B = dv_y_cfg.input_data_dim['B']
-        T = dv_y_cfg.input_data_dim['T_B']
-        dv_file_total = numpy.zeros(dv_y_cfg.dv_dim)
-        
-        cmp_resil_norm_file_name = os.path.join(self.cmp_dir, file_id+'.cmp')
-        cmp_data, sample_number = self.DIO.load_data_file_frame(cmp_resil_norm_file_name, self.cfg_cmp_dim)
-        B_total = int((sample_number - T) / dv_y_cfg.input_data_dim['B_shift']) + 1
-
-        B_feed = dv_y_cfg.input_data_dim['S'] * dv_y_cfg.input_data_dim['B']
-        B_remain =  B_total
-        n_start = 0
-
-        while B_remain > 0:
-            if B_remain >= B_feed:
-                # Fill the entire feed_dict
-                for s in range(S):
-                    for b in range(B):
-                        n_end   = n_start + T
-                        cmp_TD  = cmp_data[n_start:n_end]
-                        cmp_D   = cmp_TD.reshape(-1)
-                        self.feed_dict['h'][s,b] = cmp_D
-
-                        n_start += dv_y_cfg.input_data_dim['B_shift']
-
-                lambda_SBD = self.model.gen_lambda_SBD_value(feed_dict=self.feed_dict)
-                dv_file_total += numpy.sum(lambda_SBD, (0,1))
-
-                B_actual = B_feed
-                B_remain -= B_feed
-
-            else:
-                B_leftover = B_remain % B
-                S_actual = int((B_remain - B_leftover) / B) # Number of full B
-                for s in range(S_actual):
-                    for b in range(B):
-                        n_end   = n_start + T
-                        cmp_TD  = cmp_data[n_start:n_end]
-                        cmp_D   = cmp_TD.reshape(-1)
-                        self.feed_dict['h'][s,b] = cmp_D
-
-                        n_start += dv_y_cfg.input_data_dim['B_shift']
-
-                # Leftover
-                for b in range(B_leftover):
-                    n_end   = n_start + T
-                    cmp_TD  = cmp_data[n_start:n_end]
-                    cmp_D   = cmp_TD.reshape(-1)
-                    self.feed_dict['h'][S_actual,b] = cmp_D
-
-                    n_start += dv_y_cfg.input_data_dim['B_shift']
-
-                lambda_SBD = self.model.gen_lambda_SBD_value(feed_dict=self.feed_dict)
-
-                for s in range(S_actual):
-                    for b in range(B):
-                        dv_file_total += lambda_SBD[s,b]
-
-                for b in range(B_leftover):
-                    dv_file_total += lambda_SBD[S_actual,b]
-
-                B_remain = 0
-
-
-        dv_file = dv_file_total / float(B_total)
-        self.dv_file_dict[file_id] = (B_total, dv_file)
-
-    def save_dv_files(self, output_dir):
-
-        dv_spk_dict_file  = os.path.join(output_dir, 'dv_spk_dict.dat')
-        dv_spk_dict_text  = os.path.join(output_dir, 'dv_spk_dict.txt')
-        dv_file_dict_file = os.path.join(output_dir, 'dv_file_dict.dat')
-        dv_file_dict_text = os.path.join(output_dir, 'dv_file_dict.txt')
-        self.logger.info('Saving to files:')
-        print(dv_spk_dict_file)
-        print(dv_spk_dict_text)
-        print(dv_file_dict_file)
-        print(dv_file_dict_text)
-        self.DMLFIO.write_dv_spk_values_to_file(self.dv_spk_dict, dv_spk_dict_file, file_type='pickle')
-        self.DMLFIO.write_dv_spk_values_to_file(self.dv_spk_dict, dv_spk_dict_text, file_type='text')
-        self.DMLFIO.write_dv_file_values_to_file(self.dv_file_dict, dv_file_dict_file, file_type='pickle')
-        self.DMLFIO.write_dv_file_values_to_file(self.dv_file_dict, dv_file_dict_text, file_type='text')
-
-    def test(self, save_to_output_dir=True):
-        for speaker_id in self.speaker_id_list:
-            file_id_list = self.file_list_dict[speaker_id]
-            for file_id in file_id_list:
-                self.action_per_file(file_id)
-
-        # Compute dv_spk_dict from dv_file_dict
-        for speaker_id in self.speaker_id_list:
-            file_id_list = self.file_list_dict[speaker_id]
-            dv_speaker = numpy.zeros(self.dv_y_cfg.dv_dim)
-            num_frames = 0.
-            for file_id in file_id_list:
-                num_frames += self.dv_file_dict[file_id][0]
-                dv_speaker += self.dv_file_dict[file_id][1]
-
-            self.dv_spk_dict[speaker_id] = dv_speaker / num_frames
-
-        self.save_dv_files(self.dv_y_cfg.exp_dir)
-
-        if save_to_output_dir:
-            self.save_dv_files(self.output_dir)
