@@ -38,7 +38,6 @@ class dv_configuration_base(object):
         self.classify_in_training = True # Compute classification accuracy after validation errors during training
         # self.batch_output_form = 'mean'  # Method to convert from SBD to SD
         self.use_voiced_only = False     # Use voiced regions only
-
         self.dv_dim = 512
 
         try: 
@@ -132,12 +131,13 @@ class dv_y_configuration(dv_configuration_base):
 
     def init_wav_data(self):
         self.y_feat_name   = 'wav'
-        self.out_feat_list = ['wav_ST', 'f_SBM', 'tau_SBM', 'vuv_SBM']
+        self.out_feat_list = ['wav_SBT', 'f_SBM', 'tau_SBM', 'vuv_SBM']
         
         # self.input_data_dim['T_S_max'] = int(10 * self.cfg.wav_sr) # This is the maximum input length
         self.input_data_dim['T_S_max'] = numpy.inf # This is the maximum input length
         self.input_data_dim['T_B'] = int(0.2 * self.cfg.wav_sr)
         self.input_data_dim['B_stride'] = int(0.005 * self.cfg.wav_sr)
+        self.input_data_dim['D'] = self.input_data_dim['T_B']
         # self.input_data_dim['T_M'] = int(0.04 * self.cfg.wav_sr)
         # self.input_data_dim['M_shift'] = int(0.005 * self.cfg.wav_sr)
 
@@ -161,6 +161,19 @@ class dv_y_configuration(dv_configuration_base):
             feat_dim = self.cfg.acoustic_in_dimension_dict[feat_name]
             self.cmp_dim += feat_dim
         self.input_data_dim['D'] = self.cmp_dim * self.input_data_dim['T_B']
+
+    def update_wav_dim(self):
+        '''
+        Compute new acoustic feature dimension
+        Based on the features in out_feat_list
+        '''
+        self.cmp_dim = 0
+        for feat_name in self.out_feat_list:
+            if feat_name == 'wav_SBT':
+                self.cmp_dim += self.input_data_dim['T_B']
+            elif feat_name in ['f_SBM', 'tau_SBM', 'vuv_SBM']:
+                self.cmp_dim += self.input_data_dim['M']
+        self.input_data_dim['D'] = self.cmp_dim
 
     def compute_M(self):
         if 'T_M' in self.input_data_dim and 'M_shift' in self.input_data_dim:
