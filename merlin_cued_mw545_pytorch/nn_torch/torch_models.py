@@ -3,6 +3,7 @@
 import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy
 import torch
+# torch.autograd.set_detect_anomaly(True)
 
 from frontend_mw545.modules import make_logger
 from nn_torch.torch_layers  import Build_DV_Y_Input_Layer, Build_NN_Layer
@@ -10,6 +11,17 @@ from nn_torch.torch_layers  import Build_DV_Y_Input_Layer, Build_NN_Layer
 ########################
 # PyTorch-based Models #
 ########################
+
+def make_mask_SB_from_lengths_S(lengths):
+    if not isinstance(lengths, list):
+        lengths = lengths.tolist()
+    bs = int(len(lengths))
+    maxlen = int(max(lengths))
+    seq_range = torch.arange(0, maxlen, dtype=torch.int)
+    seq_range_expand = seq_range.unsqueeze(0).expand(bs, maxlen)
+    seq_length_expand = seq_range_expand.new(lengths).unsqueeze(-1)
+    mask = seq_range_expand < seq_length_expand
+    return mask
 
 class Build_DV_Y_NN_model(torch.nn.Module):
     ''' S_B_D input, SB_D/S_D logit output if train_by_window '''
@@ -38,17 +50,28 @@ class Build_DV_Y_NN_model(torch.nn.Module):
         self.output_dim = dv_y_cfg.cfg.num_speaker_dict['train']
         self.expansion_layer = torch.nn.Linear(self.dv_dim, self.output_dim)
 
-    def gen_lambda_SBD(self, x_dict):
-        ''' Simple sequential feed-forward '''
+    def gen_feed_dict_SBD(self, x_dict):
+        # The output dict, contains more than just lambda
+        # e.g. may contain in_lens
         for i in range(self.num_nn_layers):
             layer_temp = self.layer_list[i]
             x_dict = layer_temp(x_dict)
+        return x_dict
+
+    def gen_lambda_SBD(self, x_dict):
+        ''' Simple sequential feed-forward '''
+        x_dict = self.gen_feed_dict_SBD(x_dict)
         return x_dict['h']
 
     def gen_logit_SBD(self, x_dict):
         lambda_SBD = self.gen_lambda_SBD(x_dict)
         logit_SBD  = self.expansion_layer(lambda_SBD)
         return logit_SBD
+
+    def gen_logit_SB_D(self, x_dict):
+        logit_SBD  = self.gen_logit_SBD(x_dict)
+        logit_SB_D = logit_SBD.view(-1, self.output_dim)
+        return logit_SB_D
 
     def gen_p_SBD(self, x_dict): 
         logit_SBD = self.gen_logit_SBD(x_dict)
@@ -62,7 +85,11 @@ class Build_DV_Y_NN_model(torch.nn.Module):
         For 1. better estimation of lambda; and 2. classification
         '''
         lambda_SBD = self.gen_lambda_SBD(x_dict)
-        lambda_SD  = torch.mean(lambda_SBD, dim=1, keepdim=False)
+        mask_SB1 = torch.unsqueeze(x_dict['output_mask_S_B'], 2)
+        lambda_SBD_zero_pad = torch.mul(lambda_SBD, mask_SB1)
+        lambda_SD_sum  = torch.sum(lambda_SBD_zero_pad, dim=1, keepdim=False)
+        out_lens_S1 = torch.unsqueeze(x_dict['out_lens'],1)
+        lambda_SD = torch.true_divide(lambda_SD_sum, out_lens_S1)
         return lambda_SD
 
     def gen_logit_SD(self, x_dict):
@@ -72,24 +99,16 @@ class Build_DV_Y_NN_model(torch.nn.Module):
 
     def gen_p_SD(self, x_dict): 
         logit_SD = self.gen_logit_SD(x_dict)
-        self.softmax_fn = torch.nn.Softmax(dim=2)
+        self.softmax_fn = torch.nn.Softmax(dim=1)
         p_SD = self.softmax_fn(logit_SD)
         return p_SD
 
     def forward(self, x_dict):
-        # Choose which logit to use for cross-entropy
-        if self.train_by_window:
-            # Flatten to 2D for cross-entropy
-            logit_SBD  = self.gen_logit_SBD(x_dict)
-            logit_SB_D = logit_SBD.view(-1, self.output_dim)
-            return logit_SB_D
-        else:
-            # Already 2D (S*D), do nothing
-            logit_S_D  = self.gen_logit_SD(x_dict)
-            return logit_S_D
+        # This should generate lambda_SD as interface with TTS model
+        return self.gen_lambda_SD(x_dict)
 
     def lambda_to_logits_SBD(self, x_dict):
-        ''' lambda_S_B_D to indices_S_B '''
+        ''' lambda_S_B_D to logits_S_B_D '''
         if 'lambda' in x_dict:
             logit_SBD = self.expansion_layer(x_dict['lambda'])
         elif 'h' in x_dict:
@@ -98,6 +117,10 @@ class Build_DV_Y_NN_model(torch.nn.Module):
             print('No valid key found in x_dict, expect lambda or h !')
             raise
         return logit_SBD
+
+    def logit_SD_from_lambda_SD(self, x_dict):
+        logit_SD = self.expansion_layer(x_dict['lambda_SD'])
+        return logit_SD
 
        
 ##############################################
@@ -183,11 +206,11 @@ class General_Model(object):
             if not torch.isfinite(param).all():
                 detect_bool = True
                 print(str(name)+' contains Inf')
-                print(torch.isfinite(param))
+                # print(torch.isfinite(param))
                 # Detect NaN; NaN is not finite in Torch
                 if torch.isnan(param).any():
                     print(str(name)+' contains NaN')
-                    print(torch.isnan(param))
+                    # print(torch.isnan(param))
         if not detect_bool:
             logger.info('No Inf or NaN found in Parameters')
 
@@ -260,6 +283,7 @@ class Build_DV_Y_model(General_Model):
     ''' 
     Acoustic data --> Speaker Code --> Classification 
     For this model, feed_dict['one_hot] --> y (tensor)
+    Reference y is a 1*SB vector, for CE computation
     '''
     def __init__(self, dv_y_cfg):
         super().__init__()
@@ -269,45 +293,83 @@ class Build_DV_Y_model(General_Model):
         self.model_config = dv_y_cfg
         self.learning_rate = dv_y_cfg.learning_rate
 
-        if dv_y_cfg.use_voiced_only:
-            ''' Use vuv for weighted mean '''
-            self.criterion = torch.nn.CrossEntropyLoss(reduction='none')
-            self.gen_loss = self.gen_loss_vuv_weight
+        self.build_loss_function(dv_y_cfg.train_by_window, dv_y_cfg.use_voiced_only)
+
+    def build_loss_function(self, train_by_window, use_voiced_only):
+        if train_by_window:
+            if not use_voiced_only:
+                # self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
+                # self.gen_loss = self.gen_loss_no_weight
+                self.criterion = torch.nn.CrossEntropyLoss(reduction='none')
+                self.gen_loss = self.gen_loss_SB_variable_lengths
+            else:
+                ''' Use vuv for weighted mean '''
+                self.criterion = torch.nn.CrossEntropyLoss(reduction='none')
+                self.gen_loss = self.gen_loss_vuv_weight
         else:
             self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
-            self.gen_loss = self.gen_loss_no_weight
+            self.gen_loss = self.gen_loss_S
 
     def build_optimiser(self):
         self.optimiser = torch.optim.Adam(self.nn_model.parameters(), lr=self.learning_rate)
         # Zero gradients
         self.optimiser.zero_grad()
 
+    def gen_loss_SB_variable_lengths(self, feed_dict):
+        ''' Window-level average loss '''
+        ''' Returns Tensor, not value! For value, use gen_loss_value '''
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        y_pred = self.nn_model.gen_logit_SB_D(x_dict) # This should be logit_SB_D
+        mask_SB = x_dict['output_mask_S_B'].view(-1) # S_B --> SB
+        batch_size = torch.sum(x_dict['out_lens'])
+        # Compute and print loss
+        self.SB_loss = self.criterion(y_pred, y_dict['one_hot_SB'])
+        self.loss =  torch.true_divide(torch.sum(torch.mul(self.SB_loss, mask_SB)), batch_size)
+        return self.loss
+
     def gen_loss_vuv_weight(self, feed_dict):
         ''' Use vuv as weight; weighted sum then normalise by sum of weights '''
         ''' Returns Tensor, not value! For value, use gen_loss_value '''
-        x_dict, y = self.numpy_to_tensor(feed_dict)
-        y_pred = self.nn_model(x_dict) # This is either logit_SB_D or logit_S_D, 2D matrix
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        y_pred = self.nn_model.gen_logit_SB_D(x_dict)
         vuv_SB_weight = x_dict['vuv_SB']
         # Compute and print loss
-        self.SB_loss = self.criterion(y_pred, y)
+        self.SB_loss = self.criterion(y_pred, y_dict['one_hot_SB'])
         self.loss = torch.sum(self.SB_loss * vuv_SB_weight) / torch.sum(vuv_SB_weight)
         return self.loss
 
     def gen_loss_no_weight(self, feed_dict):
         ''' Returns Tensor, not value! For value, use gen_loss_value '''
-        x_dict, y = self.numpy_to_tensor(feed_dict)
-        y_pred = self.nn_model(x_dict) # This is either logit_SB_D or logit_S_D, 2D matrix
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        y_pred = self.nn_model.gen_logit_SB_D(x_dict)
         # Compute and print loss
-        self.loss = self.criterion(y_pred, y)
+        self.loss = self.criterion(y_pred, y_dict['one_hot_SB'])
         return self.loss
+
+    def gen_loss_S(self, feed_dict):
+        ''' Returns Tensor, not value! For value, use gen_loss_value '''
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        y_pred = self.nn_model.gen_logit_SD(x_dict) # This should be logit_S_D
+        self.loss = self.criterion(y_pred, y_dict['one_hot_S'])
+        return self.loss
+
+    def gen_lambda_SD_value(self, feed_dict):
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        lambda_SD = self.nn_model.gen_lambda_SD(x_dict)
+        return self.tensor_to_numpy(lambda_SD)
+
+    def gen_logit_SD_value_from_lambda_SD_value(self, feed_dict):
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        logit_SD = self.nn_model.logit_SD_from_lambda_SD(x_dict)
+        return self.tensor_to_numpy(logit_SD)
 
     def gen_SB_loss(self, feed_dict):
         ''' Returns Tensor, not value! For value, use gen_loss_value '''
-        x_dict, y = self.numpy_to_tensor(feed_dict)
-        y_pred = self.nn_model(x_dict) # This is either logit_SB_D or logit_S_D, 2D matrix
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        y_pred = self.nn_model.gen_logit_SB_D(x_dict) # This is either logit_SB_D or logit_S_D, 2D matrix
         # Compute and print loss
         self.SB_criterion = torch.nn.CrossEntropyLoss(reduction='none')
-        self.SB_loss = self.SB_criterion(y_pred, y)
+        self.SB_loss = self.SB_criterion(y_pred, y_dict['one_hot_SB'])
         return self.SB_loss
 
     def gen_SB_loss_value(self, feed_dict):
@@ -316,22 +378,22 @@ class Build_DV_Y_model(General_Model):
         return self.tensor_to_numpy(SB_loss)
 
     def gen_lambda_SBD_value(self, feed_dict):
-        x_dict, y = self.numpy_to_tensor(feed_dict)
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
         lambda_SBD = self.nn_model.gen_lambda_SBD(x_dict)
         return self.tensor_to_numpy(lambda_SBD)
 
     def gen_logit_SBD_value(self, feed_dict):
-        x_dict, y = self.numpy_to_tensor(feed_dict)
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
         logit_SBD = self.nn_model.gen_logit_SBD(x_dict)
         return self.tensor_to_numpy(logit_SBD)
 
     def gen_logit_SD_value(self, feed_dict):
-        x_dict, y = self.numpy_to_tensor(feed_dict)
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
         logit_SD = self.nn_model.gen_logit_SD(x_dict)
         return self.tensor_to_numpy(logit_SD)
 
     def gen_p_SBD_value(self, feed_dict):
-        x_dict, y = self.numpy_to_tensor(feed_dict)
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
         p_SBD = self.nn_model.gen_p_SBD(x_dict)
         return self.tensor_to_numpy(p_SBD)
 
@@ -342,46 +404,62 @@ class Build_DV_Y_model(General_Model):
         _values, predict_idx_list = torch.max(logit_SBD.data, -1)
         return self.tensor_to_numpy(predict_idx_list)
 
-    def cal_accuracy(self, feed_dict):
+    def cal_accuracy_SB(self, feed_dict):
         '''
         1. Generate logit_SD
         2. Check and convert y to S?
         3. Compute accuracy
         '''
-        x_dict, y = self.numpy_to_tensor(feed_dict)
-        outputs = self.nn_model(x_dict)
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        outputs = self.nn_model.gen_logit_SB_D(x_dict)
         _values, predict_idx_list = torch.max(outputs.data, 1)
-        total = y.size(0)
-        correct = (predict_idx_list == y).sum().item()
-        accuracy = correct/total
-        return correct, total, accuracy
+        
+        weights_SB = x_dict['output_mask_S_B'].view(-1) # S_B --> SB
+        weights_SB_sum = x_dict['output_mask_S_B']
+
+        correct = ((predict_idx_list == y_dict['one_hot_SB']) * weights_SB).sum().item()
+        accuracy = correct/weights_SB_sum
+        return correct, accuracy
+
+    def cal_accuracy_SB_value(self, feed_dict):
+        _c, accuracy = self.cal_accuracy_SB(feed_dict)
+        return self.tensor_to_numpy(accuracy)
 
     def gen_all_h_values(self, feed_dict):
-        x_dict, y = self.numpy_to_tensor(feed_dict)
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
         h_list = []
         for nn_layer in self.nn_model.layer_list:
+            print(nn_layer)
+            print(x_dict)
             x_dict = nn_layer(x_dict)
-            h = x_dict['h']
-            h_list.append(self.tensor_to_numpy(h))
+            if 'h' in x_dict:
+                h = x_dict['h']
+                h_list.append(self.tensor_to_numpy(h))
         logit_SBD = self.nn_model.lambda_to_logits_SBD(x_dict)
         h_list.append(self.tensor_to_numpy(logit_SBD))
         return h_list
 
     def numpy_to_tensor(self, feed_dict):
         x_dict = {}
-        y = None
+        y_dict = {}
+        y_list = ['one_hot','one_hot_S','one_hot_S_B']
+        long_list = ['one_hot','one_hot_S','one_hot_S_B'] # one-hot speaker class, high precision for cross-entropy function
         for k in feed_dict:
             k_val = feed_dict[k]
-            if k == 'one_hot':
-                # 'y' is the one-hot speaker class
-                # High precision for cross-entropy function
+            if k in long_list:
                 k_dtype = torch.long
-                y = torch.tensor(k_val, dtype=k_dtype, device=self.device_id)
             else:
                 k_dtype = torch.float
             k_tensor = torch.tensor(k_val, dtype=k_dtype, device=self.device_id)
-            x_dict[k] = k_tensor
-        return x_dict, y
+
+            if k in y_list:
+                y_dict[k] = k_tensor
+                if k == 'one_hot_S_B':
+                    y_dict['one_hot_SB'] = y_dict['one_hot_S_B'].view(-1)
+            else:
+                x_dict[k] = k_tensor
+
+        return x_dict, y_dict
 
     def tensor_to_numpy(self, x_tensor):
         return x_tensor.cpu().detach().numpy()
