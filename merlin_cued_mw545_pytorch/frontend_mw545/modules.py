@@ -344,7 +344,7 @@ class Graph_Plotting(object):
         fig.savefig(fig_file_name, format="png")
         self.plt.close(fig)
 
-    def mean_std_plot(self, fig_file_name, x_list, y_list, s_list, legend_list, colour_list=['b','r','g','y'], title=None, x_label=None, y_label=None):
+    def mean_std_plot(self, fig_file_name, x_list, y_list, s_list, legend_list, colour_list=['b','r','g','y','m','c'], title=None, x_label=None, y_label=None):
         x_list = self.change_default_x_list(x_list, y_list)
         fig, ax = self.plt.subplots()
 
@@ -425,7 +425,6 @@ class Build_Log_File_Reader(object):
                 test_error.append(float(words[test_index][:-1]))
                 
         return (train_error, valid_error, test_error)
-
 
     def extract_accuracy_from_log_file(self, log_file_name):
         # Note: not compatible if window-level accuracy is also present
