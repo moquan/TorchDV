@@ -241,12 +241,13 @@ class Build_DV_Y_Testing_Base(object):
         self.logger = make_logger("test_model")
         self.cfg = cfg
         self.dv_y_cfg = dv_y_cfg
-        log_class_attri(dv_y_cfg, self.logger, except_list=dv_y_cfg.log_except_list)
+        self.dv_y_cfg.input_data_dim['S'] = 1
+        log_class_attri(self.dv_y_cfg, self.logger, except_list=self.dv_y_cfg.log_except_list)
 
         self.load_model()
         numpy.random.seed(546)
         self.logger.info('Creating data loader')
-        self.data_loader = Build_dv_y_train_data_loader(self.cfg, dv_y_cfg)
+        self.data_loader = Build_dv_y_train_data_loader(self.cfg, self.dv_y_cfg)
 
     def load_model(self):
         dv_y_cfg = self.dv_y_cfg
@@ -285,10 +286,8 @@ class Build_DV_Y_CE_Accu_Test(Build_DV_Y_Testing_Base):
     compute win_ce, utter_accuracy, win_accuracy 
     """
     def __init__(self, cfg, dv_y_cfg):
-        dv_y_cfg.input_data_dim['S'] = 1
         super().__init__(cfg, dv_y_cfg)
-        self.logger.info('Build_DV_Y_CE_Accu_Test')
-
+        self.logger.info('DV_Y_CE_Accu_Test')
         # use test files only
         self.speaker_id_list = self.cfg.speaker_id_list_dict['train']
         # compute win_ce, utter_accuracy, win_accuracy
@@ -341,17 +340,15 @@ class Build_Positional_CMP_Test(Build_DV_Y_Testing_Base):
     compute win_ce, utter_accuracy, win_accuracy 
     """
     def __init__(self, cfg, dv_y_cfg, fig_file_name):
-        dv_y_cfg.input_data_dim['S'] = 1
+        
         super().__init__(cfg, dv_y_cfg)
         self.logger.info('Build_Positional_CMP_Test')
-
         # use test files only
         self.file_id_list = read_file_list(cfg.file_id_list_file['dv_pos_test']) # 186^5 files
         self.cmp_dir = '/data/mifs_scratch/mjfg/mw545/dv_pos_test/cmp_shift_resil_norm'
 
         self.max_distance   = 50
-        self.distance_space = 1
-
+        # self.distance_space = 1
         self.dv_calculator = DV_Calculator()
 
     def test(self):
@@ -827,3 +824,73 @@ class Build_Positional_Wav_Test(Build_DV_Y_Testing_Base):
         self.logger.info('Print distance and loss_test')
         print(loss_mean_dict['x'])
         print(loss_mean_dict['test'])
+
+
+
+class Build_Number_Seconds_Accu_Test(Build_DV_Y_CE_Accu_Test):
+    """
+    Build_Number_Utter_CMP_Test
+    For vocoder-based system only
+    Test the influence of number of utterances
+    1. Accuracy test
+        Plot mean and variance of accuracy, against number of utterances
+    2. Speaker embedding test
+        Plot mean cosine distance from speaker's average, against number of utterances
+    """
+    def __init__(self, cfg, dv_y_cfg, output_dir):
+        super().__init__(cfg, dv_y_cfg)
+        self.output_dir = output_dir
+        self.logger.info('Number_Seconds_Accuracy_Test')
+
+        self.list_num_seconds_to_test = [5,10,15,20,25,30,35,40,45,50,55]
+        
+
+    def test(self, plot_loss=True):
+
+        self.accuracy_test()
+
+    def accuracy_test(self):
+        max_num_utter = 20
+
+        mean_list = []
+
+        for i in range(max_num_utter):
+            m, v = self.compute_accuracy(i+1)
+            self.logger.info('i: %i, mean %f, var %f' %((i+1), m, v))
+            mean_list.append(m)
+
+        i_list = range(1, max_num_utter+1)
+        graph_plotter = Graph_Plotting()
+        fig_file_name = os.path.join(self.output_dir, 'accuracy_vs_num_utter.png')
+        graph_plotter.single_plot(fig_file_name, [i_list],[mean_list], ['test'],title='Accuracy against number of utterances', x_label='number of utterances', y_label='Accuracy')
+
+    def compute_accuracy(self, n):
+        # Generate mean and variance of accuracy, of n utterances averaged
+        num_batches_speaker = 100
+
+        accuracy_list = []
+        for i in range(num_batches_speaker):
+            dv_y_cfg = self.dv_y_cfg
+            batch_speaker_id_list = self.data_loader.dv_selecter.draw_n_speakers(dv_y_cfg.input_data_dim['S'])
+
+            output_lens_list = []
+            lambda_SD_list = []
+            for j in range(n):
+                file_id_list = self.data_loader.draw_n_files(batch_speaker_id_list, utter_tvt_name='test')
+                feed_dict, batch_size = self.data_loader.make_feed_dict(file_id_list=file_id_list)
+                lambda_SD = self.model.gen_lambda_SD_value(feed_dict=feed_dict)
+                output_lens_list.append(feed_dict['out_lens'])
+                lambda_SD_list.append(lambda_SD)
+
+            output_lens_list = numpy.array(output_lens_list) # N*S
+            lambda_SD_list = numpy.array(lambda_SD_list)     # N*S*D
+            output_lens_total = numpy.sum(output_lens_list, axis=0) # S
+            lambda_SD_total = numpy.sum(lambda_SD_list * numpy.expand_dims(output_lens_list, axis=2), axis=0)
+            lambda_SD_mean = lambda_SD_total / numpy.expand_dims(output_lens_total, axis=1)
+
+            logits_SD = self.model.gen_logit_SD_value_from_lambda_SD_value({'lambda_SD': lambda_SD_mean})
+            batch_mean_accuracy = self.cal_accuracy(logits_SD, feed_dict['one_hot_S'])
+            accuracy_list.append(batch_mean_accuracy)
+
+        m = numpy.mean(accuracy_list)
+        return m, 0
