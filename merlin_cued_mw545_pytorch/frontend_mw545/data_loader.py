@@ -234,14 +234,14 @@ class Build_BD_data_loader_Multi_Speaker_Base(object):
             BD_data, B, start_sample_number = self.make_BD_data_single_file_id(file_id, start_sample_number)
         else:
             # Multiple files
-            file_id_list_temp = file_id.split('|')
+            file_id_list = file_id_str.split('|')
             B = 0
-            BD_data_list_f = []
-            for file_id in file_id_list_temp:
+            BD_data_list = []
+            for file_id in file_id_list:
                 BD_data_f, B_f, start_sample_number = self.make_BD_data_single_file_id(file_id, start_sample_number)
                 B += B_f
-                BD_data_list_f.append(BD_data_f)
-            BD_data = numpy.concatenate(BD_data_list_f)
+                BD_data_list.append(BD_data_f)
+            BD_data = numpy.concatenate(BD_data_list)
 
         return BD_data, B, start_sample_number
 
@@ -258,28 +258,22 @@ class Build_BD_data_loader_Multi_Speaker_Base(object):
             self.feed_dict['in_lens'][i] = B
 
         B_in_max = numpy.max(self.feed_dict['in_lens'])
-        self.feed_dict['h'] = numpy.zeros((dv_y_cfg.input_data_dim['S'], B_in_max, dv_y_cfg.input_data_dim['D']))
+        self.feed_dict['h'] = numpy.zeros((train_cfg.input_data_dim['S'], B_in_max, train_cfg.input_data_dim['D']))
         for i, BD_data in enumerate(BD_data_list):
-            self.feed_dict['h'][i,:self.feed_dict['in_lens'][i],:] = cmp_data
+            self.feed_dict['h'][i,:self.feed_dict['in_lens'][i],:] = BD_data
 
         self.feed_dict['out_lens'] = self.feed_dict['in_lens']
 
         return self.feed_dict
-        
 
-class Build_dv_y_wav_data_loader_Multi_Speaker(object):
+class Build_dv_y_wav_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speaker_Base):
     """
     """
     def __init__(self, cfg=None, dv_y_cfg=None):
-        super(Build_dv_y_wav_data_loader_Multi_Speaker, self).__init__()
-        self.logger = make_logger("Data_Loader Multi")
-
-        self.cfg = cfg
         self.dv_y_cfg = dv_y_cfg
-        self.DIO = Data_File_IO(cfg)
-
-        self.init_feed_dict()
-        self.init_directories()
+        super().__init__(cfg, dv_y_cfg)
+        self.max_len = dv_y_cfg.input_data_dim['T_S_max']
+        self.win_len = dv_y_cfg.input_data_dim['T_B']
 
     def init_directories(self):
         sr_k = int(self.cfg.wav_sr / 1000)
@@ -293,43 +287,28 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(object):
             self.pitch_dir = self.cfg.nn_feat_resil_dirs['pitch']
             self.f0_dir = self.cfg.nn_feat_resil_dirs['f0%ik'%sr_k]
 
-    def init_feed_dict(self):
+    def make_BD_data_single_file_id(self, file_id, start_sample_number):
         dv_y_cfg = self.dv_y_cfg
-        self.feed_dict = {}
-        self.feed_dict['in_lens'] = numpy.zeros(dv_y_cfg.input_data_dim['S'], dtype=int)
-        self.feed_dict['out_lens'] = numpy.zeros(dv_y_cfg.input_data_dim['S'], dtype=int)
-
-        self.data_list = {k: [] for k in dv_y_cfg.out_feat_list}
-
-    def reset_data_list(self):
-        for k in self.data_list:
-            self.data_list[k] = []
-
-        '''
-        S = dv_y_cfg.input_data_dim['S']
-        B = dv_y_cfg.input_data_dim['B']
-        M = dv_y_cfg.input_data_dim['M']
-
-        if 'wav_ST' in dv_y_cfg.out_feat_list:
-            self.feed_dict['wav_ST'] = numpy.zeros((S, dv_y_cfg.input_data_dim['T_S']))
-        if 'wav_SBT' in dv_y_cfg.out_feat_list:
-            self.feed_dict['wav_SBT'] = numpy.zeros((S, B, dv_y_cfg.input_data_dim['T_B']))
-            B_T_grid = numpy.mgrid[0:B,0:self.dv_y_cfg.input_data_dim['T_B']]
-            B_T_matrix = self.dv_y_cfg.input_data_dim['B_stride'] * B_T_grid[0] + B_T_grid[1]
-            self.B_T_matrix = B_T_matrix.astype(int)
-        if 'wav_SBMT' in dv_y_cfg.out_feat_list:
-            self.feed_dict['wav_SBMT'] = numpy.zeros((S, B, M, dv_y_cfg.input_data_dim['T_M']))
-            B_M_T_grid = numpy.mgrid[0:B,0:M,0:self.dv_y_cfg.input_data_dim['T_M']]
-            B_M_T_matrix = self.dv_y_cfg.input_data_dim['B_stride'] * B_M_T_grid[0] + self.dv_y_cfg.input_data_dim['M_shift'] * B_M_T_grid[1] + B_M_T_grid[2]
-            self.B_M_T_matrix = B_M_T_matrix.astype(int)
-
-        if ('tau_SBM' in dv_y_cfg.out_feat_list) or ('vuv_SBM' in dv_y_cfg.out_feat_list):
-            self.feed_dict['tau_SBM'] = numpy.zeros((S,B,M))
-            self.feed_dict['vuv_SBM'] = numpy.zeros((S,B,M))
+        sr_k = int(self.cfg.wav_sr / 1000)
+        data_list = []
+        speaker_id = file_id.split('_')[0]
+        wav_resil_norm_file_name = os.path.join(self.wav_dir, speaker_id, file_id+'.wav')
+        wav_BT, B, start_sample_number = self.make_wav_BT_data_single_file(wav_resil_norm_file_name, start_sample_number)
+        data_list.append(wav_BT)
+        # Other features: 'f_SBM', 'tau_SBM', 'vuv_SBM'
         if 'f_SBM' in dv_y_cfg.out_feat_list:
-            self.feed_dict['f_SBM'] = numpy.zeros((S,B,M))
+            pass
+        
+        h_BD = numpy.concatenate(data_list, axis=1)
+        return wav_BT, B, start_sample_number
 
-        '''
+    def make_wav_BT_data_single_file(self, wav_resil_norm_file_name, start_sample_number=None):
+        wav_data, sample_number = self.DIO.load_data_file_frame(wav_resil_norm_file_name, 1)
+
+        new_wav_data, new_sample_number, start_sample_number = self.modify_wav_data(wav_data, sample_number, start_sample_number, self.max_len, self.win_len)
+        wav_BT, B = self.make_wav_BT_data(new_wav_data, new_sample_number)
+
+        return wav_BT, B, start_sample_number
 
     def modify_wav_data(self, wav_data, sample_number, start_sample_number, max_len, win_len):
         # modify the length of cmp data according to start_sample_number (if given). maximum length, and window length
@@ -358,21 +337,9 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(object):
                 sample_number = sample_number - start_sample_number
                 wav_data = wav_data[start_sample_number:]
 
-
         return wav_data, sample_number, start_sample_number
 
-    def compute_B(self, in_lens):
-        # Compute lengths after CNN
-        # This is output lengths
-        # given kernel size, assume shift=sride=1
-
-        kernel_size = self.dv_y_cfg.input_data_dim['T_B']
-        kernel_stride = self.dv_y_cfg.input_data_dim['B_stride']
-        # kernel_size = self.dv_y_cfg.kernel_size
-        out_lens = int((in_lens-kernel_size)/kernel_stride) + 1
-        return out_lens
-
-    def make_wav_BT(self, wav_data, sample_number=None):
+    def make_wav_BT_data(self, wav_data, sample_number=None):
         wav_data = numpy.squeeze(wav_data)
         if sample_number is None:
             sample_number = wav_data.shape[0]
@@ -390,137 +357,22 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(object):
 
         return wav_BT_data, B
 
-    def make_BD_data_single_file_id(self, file_id, start_sample_number):
-        speaker_id = file_id.split('_')[0]
-        wav_resil_norm_file_name = os.path.join(self.wav_dir, speaker_id, file_id+'.wav')
-        wav_data, sample_number = self.DIO.load_data_file_frame(wav_resil_norm_file_name, 1)
+    def compute_B(self, in_lens):
+        kernel_size = self.dv_y_cfg.input_data_dim['T_B']
+        kernel_stride = self.dv_y_cfg.input_data_dim['B_stride']
+        out_lens = int((in_lens-kernel_size)/kernel_stride) + 1
+        return out_lens
 
-        new_wav_data, new_sample_number, start_sample_number = self.modify_wav_data(wav_data, sample_number, start_sample_number, dv_y_cfg.input_data_dim['T_S_max'], dv_y_cfg.input_data_dim['T_B'])
-        wav_BT, B = self.make_wav_BT(new_wav_data, new_sample_number)
-
-        return wav_BT, B, start_sample_number
-
-        # cmp_BD_data, B, start_sample_number = self.make_cmp_BD_data_single_file_id(file_id, start_sample_number)
-        
-    def make_feed_dict(self, file_id_list, start_sample_list=None):
-        '''
-        1. Load waveform
-            Default: wav_SBT
-        2. Load pitch and vuv
-        3. Load f0 
-        '''
-        dv_y_cfg = self.dv_y_cfg
-        
-        if start_sample_list is None:
-            start_sample_list = [None] * dv_y_cfg.input_data_dim['S']
-
-        sr_k = int(self.cfg.wav_sr / 1000)
-
-        self.reset_data_list()
-        for i, file_id in enumerate(file_id_list):
-            wav_BT, B, start_sample_number = self.make_BD_data_single_file_id(file_id, start_sample_list[i])
-            self.data_list['wav_SBT'].append(wav_BT)
-            self.feed_dict['in_lens'][i] = B
-
-        B_in_max = numpy.max(self.feed_dict['in_lens'])
-        self.feed_dict['wav_SBT'] = numpy.zeros((dv_y_cfg.input_data_dim['S'], B_in_max, dv_y_cfg.input_data_dim['T_B']))
-        for i, wav_BT in enumerate(self.data_list['wav_SBT']):
-            self.feed_dict['wav_SBT'][i,:self.feed_dict['in_lens'][i],:] = wav_BT
-
-        self.feed_dict['out_lens'] = self.feed_dict['in_lens']
-        return self.feed_dict
-
-
-
-        '''
-            wav_T, start_sample_no_sil = self.make_wav_T(wav_resil_norm_file_name, start_sample_no_sil, extra_file_len_ratio)
-            if 'wav_ST' in dv_y_cfg.out_feat_list:
-                self.feed_dict['wav_ST'][i] = wav_T
-            if 'wav_SBT' in dv_y_cfg.out_feat_list:
-                wav_BT = wav_T[self.B_T_matrix]
-                self.feed_dict['wav_SBT'][i] = wav_BT
-            if 'wav_SBMT' in dv_y_cfg.out_feat_list:
-                wav_BMT = wav_T[self.B_M_T_matrix]
-                self.feed_dict['wav_SBMT'][i] = wav_BMT
-            # try:
-            #     self.feed_dict['wav_ST'][i] = wav_T
-            # except:
-            #     print(file_id)
-            #     print(wav_T)
-            #     print(self.feed_dict['wav_ST'].shape)
-
-            if ('tau_SBM' in dv_y_cfg.out_feat_list) or ('vuv_SBM' in dv_y_cfg.out_feat_list):
-                pitch_resil_file_name = os.path.join(self.pitch_dir, speaker_id, file_id+'.pitch')
-                tau_BM, vuv_BM = self.dv_y_wav_data_loader_Single_File.make_tau_BM(pitch_resil_file_name, start_sample_no_sil)
-                self.feed_dict['tau_SBM'][i] = tau_BM
-                self.feed_dict['vuv_SBM'][i] = vuv_BM
-
-            if 'f_SBM' in dv_y_cfg.out_feat_list:
-                f0_file_name = os.path.join(self.f0_dir, speaker_id, file_id+'.f0%ik'%sr_k)
-                f_BM = self.dv_y_wav_data_loader_Single_File.make_f_BM(f0_file_name, start_sample_no_sil)
-                self.feed_dict['f_SBM'][i] = f_BM
-
-        # Unconventional Ones, mostly for testing
-        if 'f_SBM_2' in dv_y_cfg.out_feat_list:
-            # replace self.feed_dict['f_SBM'] with a new version
-            # average every 2 values
-            self.feed_dict['f_SBM'] = self.average_last_dim(self.feed_dict['f_SBM'], 2)
-        if 'f_SBM_4' in dv_y_cfg.out_feat_list:
-            # replace self.feed_dict['f_SBM'] with a new version
-            # average every 2 values
-            self.feed_dict['f_SBM'] = self.average_last_dim(self.feed_dict['f_SBM'], 4)
-
-        return self.feed_dict
-        '''
-
-    def average_last_dim(self, data, num):
-        '''
-        average the last dimension
-        '''
-        n = num
-        a = data
-        
-        n_last = a.shape[-1]
-        K = int(n_last / n)
-        n_res = n_last - K * n
-        
-        b = numpy.zeros(a.shape)
-        d = a.ndim
-
-        # Deal with K*n first
-        for k in range(K):
-            index_list = range(k*n, (k+1)*n)
-            for i in index_list:
-                if d == 3:
-                    b[:,:,i] = numpy.mean(a[:,:,index_list], -1)
-
-        # Deal with residuals
-        if n_res > 0:
-            index_list = range(K*n, n_last)
-            for i in index_list:
-                if d == 3:
-                    b[:,:,i] = numpy.mean(a[:,:,index_list], -1)
-
-        return b
-
-class Build_dv_y_cmp_data_loader_Multi_Speaker(object):
+class Build_dv_y_cmp_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speaker_Base):
     """
     Output: feed_dict['h'], STD; feed_dict['h_lens'], S
     Pad and stack T*D features from each file
     """
     def __init__(self, cfg=None, dv_y_cfg=None):
-        super().__init__()
-        self.logger = make_logger("Data_Loader Multi")
-
-        self.cfg = cfg
         self.dv_y_cfg = dv_y_cfg
-        self.DIO = Data_File_IO(cfg)
-
+        super().__init__(cfg, dv_y_cfg)
         self.max_len = dv_y_cfg.input_data_dim['T_S_max']
         self.cfg_cmp_dim = self.cfg.nn_feature_dims['cmp']
-
-        self.init_feed_dict()
-        self.init_directories()
 
     def init_directories(self):
         if self.dv_y_cfg.data_dir_mode == 'scratch':
@@ -528,12 +380,16 @@ class Build_dv_y_cmp_data_loader_Multi_Speaker(object):
         elif self.dv_y_cfg.data_dir_mode == 'data':
             self.cmp_dir = self.cfg.nn_feat_resil_norm_dirs['cmp']
 
-    def init_feed_dict(self):
-        dv_y_cfg = self.dv_y_cfg
-        self.feed_dict = {}
-        self.feed_dict['in_lens'] = numpy.zeros(dv_y_cfg.input_data_dim['S'], dtype=int)
-        self.feed_dict['out_lens'] = numpy.zeros(dv_y_cfg.input_data_dim['S'], dtype=int)
-        # self.feed_dict['h'] = numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['B'], dv_y_cfg.input_data_dim['D']))
+    def make_BD_data_single_file_id(self, file_id, start_sample_number=None):
+        speaker_id = file_id.split('_')[0]
+        cmp_resil_norm_file_name = os.path.join(self.cmp_dir, speaker_id, file_id+'.cmp')
+        return self.make_cmp_BD_data_single_file(cmp_resil_norm_file_name, start_sample_number)
+
+    def make_cmp_BD_data_single_file(self, cmp_resil_norm_file_name, start_sample_number=None):
+        cmp_data, sample_number = self.DIO.load_data_file_frame(cmp_resil_norm_file_name, self.cfg_cmp_dim)
+        new_cmp_data, new_sample_number, start_sample_number = self.modify_cmp_data(cmp_data, sample_number, start_sample_number, self.max_len)
+        cmp_BD_data, B = self.make_cmp_BD_data(new_cmp_data, new_sample_number)
+        return cmp_BD_data, B, start_sample_number
 
     def modify_cmp_data(self, cmp_data, sample_number, start_sample_number, max_len):
         # modify the length of cmp data according to start_sample_number (if given) and maximum length
@@ -557,17 +413,7 @@ class Build_dv_y_cmp_data_loader_Multi_Speaker(object):
 
         return cmp_data, sample_number, start_sample_number
 
-    def compute_B(self, in_lens):
-        # Compute lengths after CNN
-        # This is output lengths
-        # given kernel size, assume shift=sride=1
-
-        kernel_size = self.dv_y_cfg.input_data_dim['T_B']
-        # kernel_size = self.dv_y_cfg.kernel_size
-        out_lens = in_lens - kernel_size + 1
-        return out_lens
-
-    def make_BD_data(self, cmp_data, sample_number=None):
+    def make_cmp_BD_data(self, cmp_data, sample_number=None):
         if sample_number is None:
             sample_number = cmp_data.shape[0]
         B = self.compute_B(sample_number)
@@ -582,56 +428,17 @@ class Build_dv_y_cmp_data_loader_Multi_Speaker(object):
 
         return cmp_BD_data, B
 
-    def make_cmp_BD_data_single_file_id(self, file_id, start_sample_number=None):
-        speaker_id = file_id.split('_')[0]
-        cmp_resil_norm_file_name = os.path.join(self.cmp_dir, speaker_id, file_id+'.cmp')
-        return self.make_cmp_BD_data_single_file(cmp_resil_norm_file_name, start_sample_number)
+    def compute_B(self, in_lens):
+        # Compute lengths after CNN
+        # This is output lengths
+        # given kernel size, assume shift=sride=1
+        kernel_size = self.dv_y_cfg.input_data_dim['T_B']
+        # kernel_size = self.dv_y_cfg.kernel_size
+        out_lens = in_lens - kernel_size + 1
+        return out_lens
 
-    def make_cmp_BD_data_single_file(self, cmp_resil_norm_file_name, start_sample_number=None):
-        cmp_data, sample_number = self.DIO.load_data_file_frame(cmp_resil_norm_file_name, self.cfg_cmp_dim)
-        new_cmp_data, new_sample_number, start_sample_number = self.modify_cmp_data(cmp_data, sample_number, start_sample_number, self.max_len)
-        cmp_BD_data, B = self.make_BD_data(new_cmp_data, new_sample_number)
-        return cmp_BD_data, B, start_sample_number
+    
 
-    def make_cmp_BD_data(self, file_id, start_sample_number=None):
-        # Possible multiple files, joined by '|'
-        if '|' not in file_id:
-            # Single file
-            cmp_BD_data, B, start_sample_number = self.make_cmp_BD_data_single_file_id(file_id, start_sample_number)
-        else:
-            # Multiple files
-            file_id_list_temp = file_id.split('|')
-            B = 0
-            cmp_data_list_f = []
-            for f in file_id_list_temp:
-                cmp_BD_data_f, B_f, start_sample_number = self.make_cmp_BD_data_single_file_id(f, start_sample_number)
-                B += B_f
-                cmp_data_list_f.append(cmp_BD_data_f)
-            cmp_BD_data = numpy.concatenate(cmp_data_list_f)
-
-        return cmp_BD_data, B, start_sample_number
-
-
-    def make_feed_dict(self, file_id_list, start_sample_list=None):
-        dv_y_cfg = self.dv_y_cfg
-
-        if start_sample_list is None:
-            start_sample_list = [None] * dv_y_cfg.input_data_dim['S']
-
-        cmp_data_list = []
-        for i, file_id in enumerate(file_id_list):
-            cmp_BD_data, B, start_sample_number = self.make_cmp_BD_data(file_id, start_sample_list[i])
-            cmp_data_list.append(cmp_BD_data)
-            self.feed_dict['in_lens'][i] = B
-
-        B_in_max = numpy.max(self.feed_dict['in_lens'])
-        self.feed_dict['h'] = numpy.zeros((dv_y_cfg.input_data_dim['S'], B_in_max, dv_y_cfg.input_data_dim['D']))
-        for i, cmp_data in enumerate(cmp_data_list):
-            self.feed_dict['h'][i,:self.feed_dict['in_lens'][i],:] = cmp_data
-
-        self.feed_dict['out_lens'] = self.feed_dict['in_lens']
-
-        return self.feed_dict
 
 
 ########################
