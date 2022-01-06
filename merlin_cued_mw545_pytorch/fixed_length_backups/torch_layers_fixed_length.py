@@ -454,7 +454,99 @@ class Build_SincNet(torch.nn.Module):
         }
         return sincnet_config
 
+class Build_CNN1D_Layer(torch.nn.Module):
+    """
+    CNN 1D layer
+    Expected input: S*T*D (or others, to be implmented)
+    Maintain same output diemnsion sequence; but T D will change
+    Note: T lengths might differ, compute and forward
+    1. Transpose, if needed
+    2. 1D CNN; shift and stride are 1, for now
+    3. Batch Norm or Layer Norm, if needed
+    4. Activation function e.g. ReLU, LReLU; None for linear layer
+    5. Compute sequence lengths and forward
+    """
+    def __init__(self, params):
+        super().__init__()
+        self.params = params
+        layer_config = self.params["layer_config"]
 
+        D_in   = self.params["input_dim_values"]['D']
+        D_out  = layer_config['size']
+        kernel_size = layer_config['kernel_size']
+
+        self.params["output_dim_seq"] = self.params["input_dim_seq"]
+        self.params["output_dim_seq"][-1] = 'D'
+        self.params["output_dim_values"] = copy.deepcopy(self.params["input_dim_values"])
+        self.params["output_dim_values"]['D'] = D_out
+
+        self.cnn_fn = torch.nn.Conv1d(D_in,D_out,kernel_size)
+        self.cnn_len_compute = CNN_Length_Compute(kernel_size)
+
+        self.batch_norm = layer_config["batch_norm"]
+        if self.batch_norm:
+            self.D_index = len(self.params["input_dim_seq"]) - 1
+            self.bn_fn = torch.nn.BatchNorm1d(D_out)
+
+        self.layer_norm = layer_config["layer_norm"]
+        if self.layer_norm:
+            self.ln_fn = torch.nn.LayerNorm(D_out)
+
+        self.activation_fn = self.params['activation_fn']
+
+    def forward(self, x_dict):
+        if 'h' in x_dict:
+            x = x_dict['h']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+
+        if self.params["input_dim_seq"] == ['S', 'T', 'D']:
+            # Transpose input, STD --> NCL
+            x_T = torch.transpose(x, 1, 2)
+            # Linear
+            h_i_T = self.cnn_fn(x_T)
+            # Transpose back
+            h_i = torch.transpose(h_i_T, 1, 2)
+
+        # Batch Norm
+        if self.batch_norm:
+            h_i = batch_norm_D_tensor(h_i, self.bn_fn, D_index=self.D_index) # Batch Norm on last index
+        # Layer Norm
+        if self.layer_norm:
+            h_i = self.ln_fn(h_i)
+        # Activation
+        if self.activation_fn is None:
+            h = h_i
+        else:
+            h = self.activation_fn(h_i)
+        y_dict = {'h': h}
+        if 'in_lens' in x_dict:
+            out_lens = self.cnn_len_compute(x_dict['in_lens'])
+            y_dict['in_lens'] = out_lens
+        return y_dict
+
+    def compute_out_lens(self, in_lens):
+        # Input: a vector of integer lengths
+        # Output: a vector of integer lengths; shorter
+        kernel_size = self.params["layer_config"]['kernel_size']
+        kernel_shift = 1
+        cnn_stride = 1
+        out_lens = (in_lens - kernel_size) / cnn_stride + 1
+        return out_lens
+
+class CNN_Length_Compute(torch.nn.Module):
+    """docstring for CNN_Length_Compute"""
+    def __init__(self, kernel_size, kernel_shift=1, cnn_stride=1, dilation=1):
+        super().__init__()
+        self.kernel_size = torch.tensor(kernel_size, dtype=torch.int)
+        self.kernel_shift = torch.tensor(kernel_shift, dtype=torch.int)
+        self.cnn_stride = torch.tensor(cnn_stride, dtype=torch.int)
+        self.dilation = torch.tensor(dilation, dtype=torch.int)
+
+    def forward(self, in_lens):
+        # out_lens = (in_lens - dilation *(kernel_size-1) -1 ) / cnn_stride + 1
+        out_lens = torch.div((in_lens - self.dilation *(self.kernel_size-1) -1 ) , self.cnn_stride) + 1
+        return out_lens
 
 class Build_DNN_wav_3_nlf_tau_vuv(torch.nn.Module):
     ''' 

@@ -853,3 +853,290 @@ class Build_Sinenet_Numpy(object):
         c   = numpy.cos(deg)             # S*B*M*K*T
         s_c = numpy.concatenate([s,c], axis=3)    # S*B*M*2K*T
         return s_c
+
+
+class Build_dv_y_wav_data_loader_Ref(object):
+    """
+    This is a reference data loader 
+    It can load only for one file
+    The pitch method is very slow:
+      search in pitch_list:
+      if pitch_t >= start_t and pitch_t < end_t:
+        tau = pitch_t - start_t
+    The f0 method extract f0 in the middle (round down) of the window
+    """
+    def __init__(self, cfg=None, dv_y_cfg=None):
+        super().__init__()
+        self.logger = make_logger("Data_Loader Ref")
+
+        self.cfg = cfg
+        self.dv_y_cfg = dv_y_cfg
+        self.DIO = Data_File_IO(cfg)
+
+        self.load_seq_win_config(dv_y_cfg)
+        # silence_data_meta_dict, load if necessary
+        self.silence_data_meta_dict = None
+
+    def load_seq_win_config(self, dv_y_cfg):
+        '''
+        Load from dv_y_cfg, or hard-code here
+        '''
+        self.input_data_dim = {}
+        if dv_y_cfg is None:
+            self.input_data_dim['T_S'] = 6000 # Number of samples at wav_sr
+            self.input_data_dim['T_B']   = 3200 # T
+            self.input_data_dim['B_stride'] = 80
+            self.input_data_dim['T_M']   = 640
+            self.input_data_dim['M_shift'] = 80
+        else:
+            self.input_data_dim['T_S'] = dv_y_cfg.input_data_dim['T_S']
+            self.input_data_dim['T_B'] = dv_y_cfg.input_data_dim['T_B']
+            self.input_data_dim['B_stride'] = dv_y_cfg.input_data_dim['B_stride']
+            self.input_data_dim['T_M']   = dv_y_cfg.input_data_dim['T_M']
+            self.input_data_dim['M_shift'] = dv_y_cfg.input_data_dim['M_shift']
+
+        self.input_data_dim['B'] = int((self.input_data_dim['T_S'] - self.input_data_dim['T_B']) / self.input_data_dim['B_stride']) + 1
+        self.input_data_dim['M'] = int((self.input_data_dim['T_B'] - self.input_data_dim['T_M']) / self.input_data_dim['M_shift']) + 1
+
+        wav_sr  = self.cfg.wav_sr
+        cmp_sr  = self.cfg.frame_sr
+        wav_cmp_ratio = int(wav_sr / cmp_sr)
+        # Do not use silence frames at the beginning or the end
+        total_sil_one_side_cmp = self.cfg.frames_silence_to_keep + self.cfg.sil_pad   # This is at 200Hz
+        self.total_sil_one_side_wav = total_sil_one_side_cmp * wav_cmp_ratio          # This is at wav_sr
+
+    def make_feed_dict(self, file_id, start_sample_no_sil):
+        '''
+        1. Compute start_sample_include_sil
+        (Optional, not used here) 2. Compute all win_start_t_list, win_end_t_list (B*M)
+        3. Load x (use wav_resil_norm, start with start_sample_no_sil)
+        4. Load pitch and vuv
+        5. Load f0
+        '''
+        feed_dict = {}
+
+        wav_resil_norm_file_name = os.path.join(self.cfg.nn_feat_resil_norm_dirs['wav'], file_id+'.wav')
+        wav_T = self.make_wav_T(wav_resil_norm_file_name, start_sample_no_sil)
+        feed_dict['wav_T'] = wav_T
+
+        start_sample_include_sil = self.compute_start_sample_include_sil(file_id, start_sample_no_sil)
+
+        pitch_text_file_name = os.path.join(self.cfg.pitch_dir, file_id+'.pitch')
+        tau_BM, vuv_BM = self.make_tau_BM(pitch_text_file_name, start_sample_include_sil)
+        feed_dict['tau_BM'] = tau_BM
+        feed_dict['vuv_BM'] = vuv_BM
+
+        f0_16k_file_name = os.path.join(self.cfg.nn_feat_dirs['f016k'], file_id+'.f016k')
+        f_BM = self.make_f_BM(f0_16k_file_name, start_sample_include_sil)
+        feed_dict['f_BM'] = f_BM
+
+        return feed_dict
+
+    def make_wav_T(self, wav_resil_norm_file_name, start_sample_no_sil):
+        '''
+        Waveform data is S*T; window slicing is done in Pytorch
+        '''
+        wav_data, sample_number = self.DIO.load_data_file_frame(wav_resil_norm_file_name, 1)
+        wav_data = numpy.squeeze(wav_data)
+
+        start_sample_include_sil = start_sample_no_sil+self.total_sil_one_side_wav
+
+        wav_T = wav_data[start_sample_include_sil:start_sample_include_sil+self.input_data_dim['T_S']]
+
+        return wav_T
+
+    def compute_start_sample_include_sil(self, file_id, start_sample_no_sil):
+        '''
+        Find start of silence, convert from frame to sample, then add
+        '''
+        if self.silence_data_meta_dict is None:
+            data_meta_file_name='/home/dawna/tts/mw545/TorchDV/file_id_lists/data_meta/file_id_list_num_sil_frame.scp'
+            from frontend_mw545.data_io import Data_Meta_List_File_IO
+            DMLIO = Data_Meta_List_File_IO(self.cfg)
+            self.silence_data_meta_dict = DMLIO.read_file_list_num_silence_frame(data_meta_file_name)
+
+        num_frame_wav_cmp, first_non_sil_index, last_non_sil_index = self.silence_data_meta_dict[file_id]
+        wav_sr  = self.cfg.wav_sr
+        cmp_sr  = self.cfg.frame_sr
+        wav_cmp_ratio = int(wav_sr / cmp_sr)
+        start_sample_include_sil = start_sample_no_sil + first_non_sil_index * wav_cmp_ratio
+        return start_sample_include_sil
+    
+
+    def make_tau_BM(self, pitch_text_file_name, start_sample_include_sil):
+        '''
+        vuv=1. if pitch found inside the window; vuv=0. otherwise
+        tau=pitch_t - win_start_t; 0 <= tau < win_T
+        '''
+        wav_sr = float(self.cfg.wav_sr)
+        tau_matrix = numpy.zeros((self.input_data_dim['B'], self.input_data_dim['M']))
+        vuv_matrix = numpy.zeros((self.input_data_dim['B'], self.input_data_dim['M']))
+
+        pitch_t_list = self.DIO.read_pitch_reaper(pitch_text_file_name)
+
+        for b in range(self.input_data_dim['B']):
+            for m in range(self.input_data_dim['M']):
+                win_start_n = start_sample_include_sil + b * self.input_data_dim['B_stride'] + m * self.input_data_dim['M_shift']
+                win_start_t = float(win_start_n) / wav_sr
+                win_end_t   = float(win_start_n + self.input_data_dim['T_M']) / wav_sr
+
+                for pitch_t in pitch_t_list:
+                    if pitch_t >= win_start_t:
+                        if pitch_t < win_end_t:
+                            tau_matrix[b,m] = pitch_t - win_start_t
+                            vuv_matrix[b,m] = 1.
+                            break
+                        else:
+                            # No pitch found inside window, break for loop
+                            break
+
+        return tau_matrix, vuv_matrix
+
+    def make_f_BM(self, f0_16k_file_name, start_sample_include_sil):
+        '''
+        Extract f0 in the middle (round down) of the window
+        '''
+        wav_sr = float(self.cfg.wav_sr)
+        f0_matrix = numpy.zeros((self.input_data_dim['B'], self.input_data_dim['M']))
+
+        f0_16k_data, sample_number = self.DIO.load_data_file_frame(f0_16k_file_name, 1)
+
+        for b in range(self.input_data_dim['B']):
+            for m in range(self.input_data_dim['M']):
+                win_start_n = start_sample_include_sil + b * self.input_data_dim['B_stride'] + m * self.input_data_dim['M_shift']
+                win_mid_n   = int(win_start_n + self.input_data_dim['T_M'] / 2)
+                f0_matrix[b,m] = f0_16k_data[win_mid_n, 0]
+
+        return f0_matrix
+
+class Build_dv_y_wav_data_loader_Single_File(object):
+    """
+    This data loader can load only for one speaker
+    Pitch: 0 <= tau < win_T
+    The f0 method extract f0 in the middle (round down) of the window
+    start_sample_no_sil >= 0; sil_pad included
+    """
+    def __init__(self, cfg=None, dv_y_cfg=None):
+        super().__init__()
+        self.logger = make_logger("Data_Loader Single")
+
+        self.cfg = cfg
+        self.dv_y_cfg = dv_y_cfg
+        self.DIO = Data_File_IO(cfg)
+
+        self.load_seq_win_config(dv_y_cfg)
+
+        self.init_n_matrix()
+
+    def load_seq_win_config(self, dv_y_cfg):
+        '''
+        Load from dv_y_cfg, or hard-code here
+        '''
+        if dv_y_cfg is None:
+            self.input_data_dim = {'T_S': 6000, 'T_B': 3200, 'B_stride': 80, 'T_M': 640, 'M_shift': 80}
+            self.input_data_dim['B'] = int((self.input_data_dim['T_S'] - self.input_data_dim['T_B']) / self.input_data_dim['B_stride']) + 1
+            self.input_data_dim['M'] = int((self.input_data_dim['T_B'] - self.input_data_dim['T_M']) / self.input_data_dim['M_shift']) + 1
+            self.out_feat_list = ['wav_ST', 'f_SBM', 'tau_SBM', 'vuv_SBM']
+        else:
+            self.input_data_dim = dv_y_cfg.input_data_dim
+            self.out_feat_list = dv_y_cfg.out_feat_list
+
+        self.win_T = float(self.input_data_dim['T_M']) / float(self.cfg.wav_sr)
+
+        wav_sr  = self.cfg.wav_sr
+        cmp_sr  = self.cfg.frame_sr
+        wav_cmp_ratio = int(wav_sr / cmp_sr)
+        # Do not use silence frames at the beginning or the end
+        total_sil_one_side_cmp = self.cfg.frames_silence_to_keep + self.cfg.sil_pad   # This is at frame_sr
+        self.total_sil_one_side_wav = total_sil_one_side_cmp * wav_cmp_ratio          # This is at wav_sr
+
+    def init_n_matrix(self):
+        '''
+        Make matrices of index, B*M
+        '''
+        B_M_grid = numpy.mgrid[0:self.input_data_dim['B'],0:self.input_data_dim['M']]
+        start_n_matrix = self.input_data_dim['B_stride'] * B_M_grid[0] + self.input_data_dim['M_shift'] * B_M_grid[1]
+        self.start_n_matrix = start_n_matrix.astype(int)
+        mid_n_matrix   = start_n_matrix + self.input_data_dim['T_M'] / 2
+        self.mid_n_matrix = mid_n_matrix.astype(int)
+
+    def make_feed_dict(self, file_id, start_sample_no_sil):
+        '''
+        1. Load x 
+        2. Load pitch and vuv
+        3. Load f0 
+        '''
+        dv_y_cfg = self.dv_y_cfg
+        feed_dict = {}
+
+        wav_resil_norm_file_name = os.path.join(self.cfg.nn_feat_resil_norm_dirs['wav'], file_id+'.wav')
+        feed_dict['wav_T'] = self.make_wav_T(wav_resil_norm_file_name, start_sample_no_sil)
+
+        if ('tau_SBM' in dv_y_cfg.out_feat_list) or ('vuv_SBM' in dv_y_cfg.out_feat_list):
+            pitch_resil_norm_file_name = os.path.join(self.cfg.nn_feat_resil_dirs['pitch'], file_id+'.pitch')
+            tau_BM, vuv_BM = self.make_tau_BM(pitch_resil_norm_file_name, start_sample_no_sil)
+            feed_dict['tau_BM'] = tau_BM
+            feed_dict['vuv_BM'] = vuv_BM
+
+        if 'f_SBM' in dv_y_cfg.out_feat_list:
+            f0_16k_file_name = os.path.join(self.cfg.nn_feat_resil_dirs['f016k'], file_id+'.f016k')
+            f_BM = self.make_f_BM(f0_16k_file_name, start_sample_no_sil)
+            feed_dict['f_BM'] = f_BM
+
+        return feed_dict
+
+    def make_wav_T(self, wav_resil_norm_file_name, start_sample_no_sil):
+        '''
+        Waveform data is S*T (1*T); window slicing is done in Pytorch
+        '''
+        wav_data, sample_number = self.DIO.load_data_file_frame(wav_resil_norm_file_name, 1)
+        wav_data = numpy.squeeze(wav_data)
+        return self.make_wav_T_from_data(self, start_sample_no_sil)
+
+    def make_wav_T_from_data(self, wav_data, start_sample_no_sil):
+        start_sample_include_sil = start_sample_no_sil+self.total_sil_one_side_wav
+        wav_T = wav_data[start_sample_include_sil:start_sample_include_sil+self.input_data_dim['T_S']]
+
+        return wav_T
+
+    def make_tau_BM(self, pitch_resil_norm_file_name, start_sample_no_sil):
+        '''
+        B * M
+        vuv=1. if pitch found inside the window; vuv=0. otherwise
+        pitch found: 0 <= tau < win_T
+        '''
+        pitch_16k_data, sample_number = self.DIO.load_data_file_frame(pitch_resil_norm_file_name, 1)
+        pitch_16k_data = numpy.squeeze(pitch_16k_data)
+        return self.make_tau_BM_from_data(pitch_16k_data, start_sample_no_sil)
+
+    def make_tau_BM_from_data(self, pitch_16k_data, start_sample_no_sil):
+
+        start_sample_include_sil = start_sample_no_sil+self.total_sil_one_side_wav
+        pitch_T = pitch_16k_data[start_sample_include_sil:start_sample_include_sil+self.input_data_dim['T_S']]
+
+        tau_BM = pitch_T[self.start_n_matrix]
+
+        vuv_BM = numpy.ones((self.input_data_dim['B'], self.input_data_dim['M']))
+        vuv_BM[tau_BM<0] = 0.
+        vuv_BM[tau_BM>=self.win_T] = 0.
+
+        tau_BM[vuv_BM==0] = 0.
+
+        return tau_BM, vuv_BM
+
+    def make_f_BM(self, f0_16k_file_name, start_sample_no_sil):
+        '''
+        B * M
+        '''
+        f0_16k_data, sample_number = self.DIO.load_data_file_frame(f0_16k_file_name, 1)
+        f0_16k_data = numpy.squeeze(f0_16k_data)
+        return self.make_f_BM_from_data(f0_16k_data, start_sample_no_sil)
+
+    def make_f_BM_from_data(self, f0_16k_data, start_sample_no_sil):
+        start_sample_include_sil = start_sample_no_sil+self.total_sil_one_side_wav
+        f0_T = f0_16k_data[start_sample_include_sil:start_sample_include_sil+self.input_data_dim['T_S']]
+
+        f_BM = f0_T[self.mid_n_matrix]
+        # mid_n_matrix = self.mid_n_matrix + start_sample_no_sil
+        # f_BM = f0_16k_data[mid_n_matrix.astype(int)]
+        return f_BM
