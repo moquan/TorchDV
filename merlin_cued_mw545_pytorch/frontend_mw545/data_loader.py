@@ -300,7 +300,7 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speake
             pass
         
         h_BD = numpy.concatenate(data_list, axis=1)
-        return wav_BT, B, start_sample_number
+        return h_BD, B, start_sample_number
 
     def make_wav_BT_data_single_file(self, wav_resil_norm_file_name, start_sample_number=None):
         wav_data, sample_number = self.DIO.load_data_file_frame(wav_resil_norm_file_name, 1)
@@ -436,9 +436,6 @@ class Build_dv_y_cmp_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speake
         # kernel_size = self.dv_y_cfg.kernel_size
         out_lens = in_lens - kernel_size + 1
         return out_lens
-
-    
-
 
 
 ########################
