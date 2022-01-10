@@ -229,9 +229,9 @@ class Build_DV_Y_Testing(object):
             test_fn = Build_Positional_CMP_Test(self.cfg, self.test_cfg, fig_file_name)
         test_fn.test()
 
-    def number_utter_test(self, output_dir):
-        if self.test_cfg.y_feat_name == 'cmp':
-            test_fn = Build_Number_Utter_CMP_Test(self.cfg, self.test_cfg, output_dir)
+    def number_secs_accu_test(self, output_dir='/home/dawna/tts/mw545/Export_Temp'):
+        # if self.test_cfg.y_feat_name == 'cmp':
+        test_fn = Build_DV_Y_Number_Seconds_Accu_Test(self.cfg, self.test_cfg, output_dir)
         test_fn.test()
 
 class Build_DV_Y_Testing_Base(object):
@@ -334,55 +334,102 @@ class Build_DV_Y_CE_Accu_Test(Build_DV_Y_Testing_Base):
         one_hot_SB = feed_dict['one_hot_S_B']
         return self.dv_calculator.cal_accuracy_SB(logit_SBD, one_hot_SB)
 
-class Build_Positional_CMP_Test(Build_DV_Y_Testing_Base):
-    """ 
-    use test files only
-    compute win_ce, utter_accuracy, win_accuracy 
+class Build_DV_Y_Number_Seconds_Accu_Test(Build_DV_Y_Testing_Base):
     """
-    def __init__(self, cfg, dv_y_cfg, fig_file_name):
-        
+    Build_DV_Y_Number_Seconds_Accu_Test
+    Test the influence of number of utterances
+    1. Accuracy test
+        Plot mean and variance of accuracy, against number of utterances
+    2. Speaker embedding test
+        Plot mean cosine distance from speaker's average, against number of utterances
+    Note:
+        time is proportional to num_seconds_to_test
+        e.g. cmp model, 5s test, num_draw_per_speaker=1, 2min; 50s, 20min
+    """
+    def __init__(self, cfg, dv_y_cfg, output_dir):
         super().__init__(cfg, dv_y_cfg)
-        self.logger.info('Build_Positional_CMP_Test')
-        # use test files only
-        self.file_id_list = read_file_list(cfg.file_id_list_file['dv_pos_test']) # 186^5 files
-        self.cmp_dir = '/data/mifs_scratch/mjfg/mw545/dv_pos_test/cmp_shift_resil_norm'
+        self.output_dir = output_dir
+        self.logger.info('DV_Y_Number_Seconds_Accuracy_Test')
 
-        self.max_distance   = 50
-        # self.distance_space = 1
+        self.speaker_id_list = self.cfg.speaker_id_list_dict['train']
         self.dv_calculator = DV_Calculator()
 
+        self.list_num_seconds_to_test = [5,10,15,20,25,30,35,40,45,50,55]
+        self.num_accuracies_mean_std = 30
+        self.num_draw_per_speaker = 5
+
     def test(self):
+        mean_list = []
+        std_list  = []
+        for num_secs in self.list_num_seconds_to_test:
+            self.logger.info('Testing %i seconds' % num_secs)
+            m, s = self.accuracy_test(num_secs)
+            self.logger.info('Results are %s %s' % (str(m), str(s)))
+            mean_list.append(m)
+            std_list.append(s)
+        print(mean_list)
+        print(std_list)
+
+    def accuracy_test(self, num_secs):
+        '''
+        find mean and std of multiple accuracy values
+        '''
+        mean_accuracy_list = []
+        for i in range(self.num_accuracies_mean_std):
+            mean_accuracy = self.accuracy_single_test(num_secs)
+            mean_accuracy_list.append(mean_accuracy)
+        m = numpy.mean(mean_accuracy_list)
+        s = numpy.std(mean_accuracy_list,ddof=1)
+        return m,s
+
+    def accuracy_single_test(self, num_secs):
+        '''
+        find mean accuracy of multiple draws, up to num_secs
+        '''
+        total_accuracy = 0.
         total_batch_size = 0.
-        total_distance_list = numpy.zeros(self.max_distance)
 
-        for file_id in self.file_id_list:
-            distance_list, B = self.compute_distance_list(file_id)
-            total_batch_size += B
-            total_distance_list += distance_list
+        for speaker_id in self.speaker_id_list:
+            for i in range(self.num_draw_per_speaker):
+                file_id_str = self.data_loader.dv_selecter.draw_n_seconds(speaker_id, 'test', num_secs)
+                utter_accuracy = self.handle_file_id_str(file_id_str)
+                # file_id_list = file_id_str.split('|')
+                # n = len(file_id_list)
+                # feed_dict, batch_size = self.data_loader.make_feed_dict(file_id_list=[file_id_str],start_sample_list=[0])
+                # utter_accuracy = self.compute_utter_accuracy(feed_dict)
 
-        mean_distance_list = total_distance_list/total_batch_size
+                total_accuracy += utter_accuracy
+                total_batch_size += 1
 
-        self.logger.info('Results of model %s' % self.dv_y_cfg.nnets_file_name)
-        self.logger.info('batch size & mean_distance')
-        self.logger.info('%f & %s' %(total_batch_size, mean_distance_list))
-        print(mean_distance_list)
+        return (total_accuracy / total_batch_size)
 
-    def compute_distance_list(self, file_id):
-        distance_list = numpy.zeros(self.max_distance)
-        speaker_id = file_id.split('_')[0]
-        feed_dict, batch_size = self.data_loader.make_feed_dict(file_id_list=[file_id])
-        p_SBD_0 = self.model.gen_p_SBD_value(feed_dict)
+    def handle_file_id_str(self, file_id_str):
+        '''
+        1. find average lambda_D of multiple files
+        2. get logit and accuracy
+        '''
+        file_id_list = file_id_str.split('|')
+        n = len(file_id_list)
 
-        for i in range(0, self.max_distance):
-            cmp_resil_norm_file_name = '%s/%s/%s.cmp.%i' % (self.cmp_dir, speaker_id, file_id, i+1)
-            cmp_BD, B, start_sample_number = self.data_loader.dv_y_data_loader.make_cmp_BD_data_single_file(cmp_resil_norm_file_name)
-            cmp_SBD = numpy.expand_dims(cmp_BD, 0)
-            feed_dict['h'] = cmp_SBD
-            p_SBD_i = self.model.gen_p_SBD_value(feed_dict)
-            distance_list[i] = self.dv_calculator.compute_SBD_distance(p_SBD_0, p_SBD_i, 'entropy') # This is sum, not mean
+        if n == 1:
+            feed_dict, batch_size = self.data_loader.make_feed_dict(file_id_list=[file_id_str],start_sample_list=[0])
+            logit_SD = self.model.gen_logit_SD_value(feed_dict)
+        else:
+            lambda_SBD_list = []
+            for file_id in file_id_list:
+                feed_dict, batch_size = self.data_loader.make_feed_dict(file_id_list=[file_id],start_sample_list=[0])
+                lambda_SBD = self.model.gen_lambda_SBD_value(feed_dict)
+                lambda_SBD_list.append(lambda_SBD)
+            lambda_SBD_long = numpy.concatenate(lambda_SBD_list, axis=1)
+            lambda_SD = numpy.mean(lambda_SBD_long, axis=1)
+            feed_dict['lambda_SD'] = lambda_SD
+            logit_SD = self.model.gen_logit_SD_value_from_lambda_SD_value(feed_dict)
 
-        return distance_list, batch_size
+        one_hot_S = feed_dict['one_hot_S']
+        utter_accuracy = self.dv_calculator.cal_accuracy_S(logit_SD, one_hot_S)
+        return utter_accuracy
 
+        
 
 
 class Build_DV_Generator(Build_DV_Y_Testing_Base):
@@ -465,6 +512,59 @@ class Build_DV_Generator(Build_DV_Y_Testing_Base):
         self.DMLFIO.write_dv_spk_values_to_file(self.dv_spk_dict, dv_spk_dict_text, file_type='text')
         self.DMLFIO.write_dv_file_values_to_file(self.dv_file_dict, dv_file_dict_file, file_type='pickle')
         self.DMLFIO.write_dv_file_values_to_file(self.dv_file_dict, dv_file_dict_text, file_type='text')
+
+class Build_Positional_CMP_Test(Build_DV_Y_Testing_Base):
+    """ 
+    use test files only
+    compute win_ce, utter_accuracy, win_accuracy 
+    """
+    def __init__(self, cfg, dv_y_cfg, fig_file_name):
+        
+        super().__init__(cfg, dv_y_cfg)
+        self.logger.info('Build_Positional_CMP_Test')
+        # use test files only
+        self.file_id_list = read_file_list(cfg.file_id_list_file['dv_pos_test']) # 186^5 files
+        self.cmp_dir = '/data/mifs_scratch/mjfg/mw545/dv_pos_test/cmp_shift_resil_norm'
+
+        self.max_distance   = 50
+        # self.distance_space = 1
+        self.dv_calculator = DV_Calculator()
+
+    def test(self):
+        total_batch_size = 0.
+        total_distance_list = numpy.zeros(self.max_distance)
+
+        for file_id in self.file_id_list:
+            distance_list, B = self.compute_distance_list(file_id)
+            total_batch_size += B
+            total_distance_list += distance_list
+
+        mean_distance_list = total_distance_list/total_batch_size
+
+        self.logger.info('Results of model %s' % self.dv_y_cfg.nnets_file_name)
+        self.logger.info('batch size & mean_distance')
+        self.logger.info('%f & %s' %(total_batch_size, mean_distance_list))
+        print(mean_distance_list)
+
+    def compute_distance_list(self, file_id):
+        distance_list = numpy.zeros(self.max_distance)
+        speaker_id = file_id.split('_')[0]
+        feed_dict, batch_size = self.data_loader.make_feed_dict(file_id_list=[file_id])
+        p_SBD_0 = self.model.gen_p_SBD_value(feed_dict)
+
+        for i in range(0, self.max_distance):
+            cmp_resil_norm_file_name = '%s/%s/%s.cmp.%i' % (self.cmp_dir, speaker_id, file_id, i+1)
+            cmp_BD, B, start_sample_number = self.data_loader.dv_y_data_loader.make_cmp_BD_data_single_file(cmp_resil_norm_file_name)
+            cmp_SBD = numpy.expand_dims(cmp_BD, 0)
+            feed_dict['h'] = cmp_SBD
+            p_SBD_i = self.model.gen_p_SBD_value(feed_dict)
+            distance_list[i] = self.dv_calculator.compute_SBD_distance(p_SBD_0, p_SBD_i, 'entropy') # This is sum, not mean
+
+        return distance_list, batch_size
+
+
+
+
 
 class Build_Wav_VUV_Loss_Test(Build_DV_Y_Testing_Base):
     '''
@@ -827,70 +927,3 @@ class Build_Positional_Wav_Test(Build_DV_Y_Testing_Base):
 
 
 
-class Build_Number_Seconds_Accu_Test(Build_DV_Y_CE_Accu_Test):
-    """
-    Build_Number_Utter_CMP_Test
-    For vocoder-based system only
-    Test the influence of number of utterances
-    1. Accuracy test
-        Plot mean and variance of accuracy, against number of utterances
-    2. Speaker embedding test
-        Plot mean cosine distance from speaker's average, against number of utterances
-    """
-    def __init__(self, cfg, dv_y_cfg, output_dir):
-        super().__init__(cfg, dv_y_cfg)
-        self.output_dir = output_dir
-        self.logger.info('Number_Seconds_Accuracy_Test')
-
-        self.list_num_seconds_to_test = [5,10,15,20,25,30,35,40,45,50,55]
-        
-
-    def test(self, plot_loss=True):
-
-        self.accuracy_test()
-
-    def accuracy_test(self):
-        max_num_utter = 20
-
-        mean_list = []
-
-        for i in range(max_num_utter):
-            m, v = self.compute_accuracy(i+1)
-            self.logger.info('i: %i, mean %f, var %f' %((i+1), m, v))
-            mean_list.append(m)
-
-        i_list = range(1, max_num_utter+1)
-        graph_plotter = Graph_Plotting()
-        fig_file_name = os.path.join(self.output_dir, 'accuracy_vs_num_utter.png')
-        graph_plotter.single_plot(fig_file_name, [i_list],[mean_list], ['test'],title='Accuracy against number of utterances', x_label='number of utterances', y_label='Accuracy')
-
-    def compute_accuracy(self, n):
-        # Generate mean and variance of accuracy, of n utterances averaged
-        num_batches_speaker = 100
-
-        accuracy_list = []
-        for i in range(num_batches_speaker):
-            dv_y_cfg = self.dv_y_cfg
-            batch_speaker_id_list = self.data_loader.dv_selecter.draw_n_speakers(dv_y_cfg.input_data_dim['S'])
-
-            output_lens_list = []
-            lambda_SD_list = []
-            for j in range(n):
-                file_id_list = self.data_loader.draw_n_files(batch_speaker_id_list, utter_tvt_name='test')
-                feed_dict, batch_size = self.data_loader.make_feed_dict(file_id_list=file_id_list)
-                lambda_SD = self.model.gen_lambda_SD_value(feed_dict=feed_dict)
-                output_lens_list.append(feed_dict['out_lens'])
-                lambda_SD_list.append(lambda_SD)
-
-            output_lens_list = numpy.array(output_lens_list) # N*S
-            lambda_SD_list = numpy.array(lambda_SD_list)     # N*S*D
-            output_lens_total = numpy.sum(output_lens_list, axis=0) # S
-            lambda_SD_total = numpy.sum(lambda_SD_list * numpy.expand_dims(output_lens_list, axis=2), axis=0)
-            lambda_SD_mean = lambda_SD_total / numpy.expand_dims(output_lens_total, axis=1)
-
-            logits_SD = self.model.gen_logit_SD_value_from_lambda_SD_value({'lambda_SD': lambda_SD_mean})
-            batch_mean_accuracy = self.cal_accuracy(logits_SD, feed_dict['one_hot_S'])
-            accuracy_list.append(batch_mean_accuracy)
-
-        m = numpy.mean(accuracy_list)
-        return m, 0
