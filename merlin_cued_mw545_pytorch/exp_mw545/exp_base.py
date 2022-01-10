@@ -7,6 +7,47 @@ import math, numpy
 
 from frontend_mw545.modules import make_logger, log_class_attri
 
+#########
+# Tools #
+#########
+
+class DV_Calculator(object):
+    """ handy calculator functions for dv """
+    def __init__(self):
+        super().__init__()
+        pass
+
+    def cal_accuracy_S(self, logit_SD, one_hot_S):
+        pred_S = numpy.argmax(logit_SD, axis=1)
+        total_num = pred_S.size
+        correct_num = numpy.sum(pred_S==one_hot_S)
+        return correct_num/float(total_num)
+
+    def cal_accuracy_SB(self, logit_SBD, one_hot_SB, mask_SB=None):
+        pred_SB = numpy.argmax(logit_SBD, axis=2)
+        if mask_SB is None:
+            total_num = pred_SB.size
+            correct_num = numpy.sum(pred_SB==one_hot_SB)
+        else:
+            total_num = numpy.sum(mask_SB)
+            correct_num = numpy.sum(numpy.multiply(mask_SB, (pred_SB==one_hot_SB)))
+        return correct_num/float(total_num)
+
+    def compute_SBD_distance(self, p_SBD_1, p_SBD_2, distance_name='entropy'):
+        '''
+        Compute total distance between 2 sets of vectors
+        '''
+        S = p_SBD_1.shape[0]
+        B = p_SBD_1.shape[1]
+
+        distance_sum = 0.
+        for s in range(S):
+            for b in range(B):
+                if distance_name == 'entropy':
+                    distance_sum += scipy.stats.entropy(p_SBD_1[s,b], p_SBD_2[s,b])
+        # ce_mean = ce_sum / float(S*B)
+        return distance_sum
+        
 #############
 # Processes #
 #############
