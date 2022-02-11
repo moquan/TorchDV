@@ -131,7 +131,7 @@ class dv_y_configuration(dv_configuration_base):
 
     def init_wav_data(self):
         self.y_feat_name   = 'wav'
-        self.out_feat_list = ['wav_SBT', 'f_SBM', 'tau_SBM', 'vuv_SBM']
+        self.out_feat_list = ['wav_SBT', 'f_SBM', 'tau_SBM', 'vuv_SBM'] # This is the order, if features are included
         
         # self.input_data_dim['T_S_max'] = int(10 * self.cfg.wav_sr) # This is the maximum input length
         self.input_data_dim['T_S_max'] = numpy.inf # This is the maximum input length
@@ -139,7 +139,7 @@ class dv_y_configuration(dv_configuration_base):
         self.input_data_dim['B_stride'] = int(0.005 * self.cfg.wav_sr)
         self.input_data_dim['D'] = self.input_data_dim['T_B']
         # self.input_data_dim['T_M'] = int(0.04 * self.cfg.wav_sr)
-        # self.input_data_dim['M_shift'] = int(0.005 * self.cfg.wav_sr)
+        # self.input_data_dim['M_stride'] = int(0.005 * self.cfg.wav_sr)
 
     def init_cmp_data(self):
         self.y_feat_name   = 'cmp'
@@ -174,10 +174,11 @@ class dv_y_configuration(dv_configuration_base):
             elif feat_name in ['f_SBM', 'tau_SBM', 'vuv_SBM']:
                 self.cmp_dim += self.input_data_dim['M']
         self.input_data_dim['D'] = self.cmp_dim
+        self.compute_M()
 
     def compute_M(self):
-        if 'T_M' in self.input_data_dim and 'M_shift' in self.input_data_dim:
-            self.input_data_dim['M'] = int((self.input_data_dim['T_B'] - self.input_data_dim['T_M']) / self.input_data_dim['M_shift']) + 1
+        if 'T_M' in self.input_data_dim and 'M_stride' in self.input_data_dim:
+            self.input_data_dim['M'] = int((self.input_data_dim['T_B'] - self.input_data_dim['T_M']) / self.input_data_dim['M_stride']) + 1
 
     def change_to_class_test_mode(self):
         self.epoch_num_batch = {'test':40}
@@ -289,7 +290,7 @@ class dv_attention_configuration(dv_configuration_base):
 
     def init_model(self):
         super.init_model()
-        self.train_by_window = False      # Optimise lambda_w; False: optimise speaker level lambda
+        self.train_by_window = False
         self.dv_dim = self.dv_y_cfg.dv_dim
 
         try: 
