@@ -13,8 +13,6 @@ from frontend_mw545.data_loader import Build_dv_y_train_data_loader, Build_dv_TT
 
 from exp_mw545.exp_base import Build_Model_Trainer_Base, DV_Calculator
 
-
-
 #############
 # Processes #
 #############
@@ -325,11 +323,11 @@ class Build_DV_Y_Number_Seconds_Accu_Test(Build_DV_Y_Testing_Base):
         for num_secs in self.list_num_seconds_to_test:
             self.logger.info('Testing %i seconds' % num_secs)
             m, s = self.accuracy_test(num_secs)
-            self.logger.info('Results are %s %s' % (str(m), str(s)))
+            self.logger.info('Results are %.5f %.5f' % (m, s))
             mean_list.append(m)
             std_list.append(s)
-        print(mean_list)
-        print(std_list)
+            print(mean_list)
+            print(std_list)
 
     def accuracy_test(self, num_secs):
         '''
