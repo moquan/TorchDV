@@ -167,6 +167,7 @@ class dv_y_configuration(dv_configuration_base):
         Compute new acoustic feature dimension
         Based on the features in out_feat_list
         '''
+        self.compute_M()
         self.cmp_dim = 0
         for feat_name in self.out_feat_list:
             if feat_name == 'wav_SBT':
@@ -174,7 +175,6 @@ class dv_y_configuration(dv_configuration_base):
             elif feat_name in ['f_SBM', 'tau_SBM', 'vuv_SBM']:
                 self.cmp_dim += self.input_data_dim['M']
         self.input_data_dim['D'] = self.cmp_dim
-        self.compute_M()
 
     def compute_M(self):
         if 'T_M' in self.input_data_dim and 'M_stride' in self.input_data_dim:
