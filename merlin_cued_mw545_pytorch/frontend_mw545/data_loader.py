@@ -258,7 +258,8 @@ class Build_BD_data_loader_Multi_Speaker_Base(object):
             self.feed_dict['in_lens'][i] = B
 
         B_in_max = numpy.max(self.feed_dict['in_lens'])
-        self.feed_dict['h'] = numpy.zeros((train_cfg.input_data_dim['S'], B_in_max, train_cfg.input_data_dim['D']))
+        # Use ones instead of zeros; ones make sinenet output nan; investigating
+        self.feed_dict['h'] = numpy.ones((train_cfg.input_data_dim['S'], B_in_max, train_cfg.input_data_dim['D']))
         for i, BD_data in enumerate(BD_data_list):
             self.feed_dict['h'][i,:self.feed_dict['in_lens'][i],:] = BD_data
 
@@ -274,6 +275,39 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speake
         super().__init__(cfg, dv_y_cfg)
         self.max_len = dv_y_cfg.input_data_dim['T_S_max']
         self.win_len = dv_y_cfg.input_data_dim['T_B']
+
+        self.win_T = float(dv_y_cfg.input_data_dim['T_M']) / float(cfg.wav_sr)
+
+        self.init_n_matrix()
+
+    def init_n_matrix(self):
+        '''
+        Make matrices of index, B*M
+        '''
+        self.input_data_dim = self.dv_y_cfg.input_data_dim
+        if self.input_data_dim['T_S_max'] is numpy.inf:
+            self.input_data_dim['B_max'] = 100
+        else:
+            self.input_data_dim['B_max'] = self.compute_B(self.input_data_dim['T_S_max'])
+
+        self.start_n_matrix, self.mid_n_matrix = self.make_n_matrix(self.input_data_dim['B_max'])
+
+    def make_n_matrix(self, B):
+        B_M_grid = numpy.mgrid[0:B,0:self.input_data_dim['M']]
+        start_n_matrix = self.input_data_dim['B_stride'] * B_M_grid[0] + self.input_data_dim['M_stride'] * B_M_grid[1]
+        start_n_matrix = start_n_matrix.astype(int)
+        mid_n_matrix   = start_n_matrix + self.input_data_dim['T_M'] / 2
+        mid_n_matrix = mid_n_matrix.astype(int)
+
+        return start_n_matrix, mid_n_matrix
+
+    def get_n_matrices(self, B):
+        if B > self.input_data_dim['B_max']:
+            self.input_data_dim['B_max'] = B
+            self.start_n_matrix, self.mid_n_matrix = self.make_n_matrix(self.input_data_dim['B_max'])
+            return self.start_n_matrix, self.mid_n_matrix
+        else:
+            return self.start_n_matrix[:B], self.mid_n_matrix[:B]
 
     def init_directories(self):
         sr_k = int(self.cfg.wav_sr / 1000)
@@ -297,7 +331,17 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speake
         data_list.append(wav_BT)
         # Other features: 'f_SBM', 'tau_SBM', 'vuv_SBM'
         if 'f_SBM' in dv_y_cfg.out_feat_list:
+            f0_file_name = os.path.join(self.f0_dir, speaker_id, file_id+'.f0%ik'%sr_k)
+            f_BM = self.make_f_BM_data_single_file(f0_file_name, B, start_sample_number)
+            data_list.append(f_BM)
             pass
+        if ('tau_SBM' in dv_y_cfg.out_feat_list) or ('vuv_SBM' in dv_y_cfg.out_feat_list):
+            pitch_file_name = os.path.join(self.pitch_dir, speaker_id, file_id+'.pitch')
+            tau_BM, vuv_BM = self.make_tau_BM_single_file(pitch_file_name, B, start_sample_number)
+            if 'tau_SBM' in dv_y_cfg.out_feat_list:
+                data_list.append(tau_BM)
+            if 'vuv_SBM' in dv_y_cfg.out_feat_list:
+                data_list.append(vuv_BM)
         
         h_BD = numpy.concatenate(data_list, axis=1)
         return h_BD, B, start_sample_number
@@ -309,6 +353,32 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speake
         wav_BT, B = self.make_wav_BT_data(new_wav_data, new_sample_number)
 
         return wav_BT, B, start_sample_number
+
+    def make_f_BM_data_single_file(self, f0_file_name, B, start_sample_number):
+        f0_data, sample_number = self.DIO.load_data_file_frame(f0_file_name, 1)
+        f0_data = numpy.squeeze(f0_data)
+        new_f0_data = f0_data[start_sample_number:]
+
+        start_n_matrix, mid_n_matrix = self.get_n_matrices(B)
+        f_BM = new_f0_data[mid_n_matrix]
+
+        return f_BM
+
+    def make_tau_BM_single_file(self, pitch_file_name, B, start_sample_number):
+        pitch_data, sample_number = self.DIO.load_data_file_frame(pitch_file_name, 1)
+        pitch_data = numpy.squeeze(pitch_data)
+        new_pitch_data = pitch_data[start_sample_number:]
+
+        start_n_matrix, mid_n_matrix = self.get_n_matrices(B)
+        tau_BM = new_pitch_data[start_n_matrix]
+
+        vuv_BM = numpy.ones((B, self.input_data_dim['M']))
+        vuv_BM[tau_BM<0] = 0.
+        vuv_BM[tau_BM>=self.win_T] = 0.
+
+        tau_BM[vuv_BM==0] = 0.
+
+        return tau_BM, vuv_BM
 
     def modify_wav_data(self, wav_data, sample_number, start_sample_number, max_len, win_len):
         # modify the length of cmp data according to start_sample_number (if given). maximum length, and window length
