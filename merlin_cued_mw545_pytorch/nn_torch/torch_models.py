@@ -61,7 +61,8 @@ class Build_DV_Y_NN_model(torch.nn.Module):
     def gen_lambda_SBD(self, x_dict):
         ''' Simple sequential feed-forward '''
         x_dict = self.gen_feed_dict_SBD(x_dict)
-        return x_dict['h']
+        lambda_SBD = x_dict['h']
+        return lambda_SBD
 
     def gen_logit_SBD(self, x_dict):
         lambda_SBD = self.gen_lambda_SBD(x_dict)
@@ -84,6 +85,12 @@ class Build_DV_Y_NN_model(torch.nn.Module):
         Average over B
         For 1. better estimation of lambda; and 2. classification
         '''
+
+        # Add actual S, in case data and model config mismatch
+        if 'h' in x_dict:
+            S = x_dict['h'].size(0)
+            x_dict['S_data'] = S
+            
         lambda_SBD = self.gen_lambda_SBD(x_dict)
         mask_SB1 = torch.unsqueeze(x_dict['output_mask_S_B'], 2)
         lambda_SBD_zero_pad = torch.mul(lambda_SBD, mask_SB1)
@@ -458,6 +465,12 @@ class Build_DV_Y_model(General_Model):
                     y_dict['one_hot_SB'] = y_dict['one_hot_S_B'].view(-1)
             else:
                 x_dict[k] = k_tensor
+
+        # Add actual S, in case data and model config mismatch
+        # This is an integer, not a tensor
+        if 'h' in x_dict:
+            S = x_dict['h'].size(0)
+            x_dict['S_data'] = S
 
         return x_dict, y_dict
 
