@@ -135,6 +135,16 @@ def make_logger(logger_name):
         logger.addHandler(ch)
     return logger
 
+def copy_dict(x_dict, except_List=[]):
+    '''
+    Copy every key-value pair to the new dict, except keys in the list
+    '''
+    y_dict = {}
+    for k in x_dict:
+        if k not in except_List:
+            y_dict[k] = x_dict[k]
+    return y_dict
+
 def make_held_out_file_number(last_index, start_index=1):
     '''
     List of 3-digit strings of file numbers
