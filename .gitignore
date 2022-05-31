@@ -5,3 +5,4 @@ merlin_cued_mw545_pytorch/exp_mw545/temp_debug/exp_dv_cmp_pytorch_temp.py
 merlin_cued_mw545_pytorch/modules_2.py
 merlin_cued_mw545_pytorch/modules.py
 merlin_cued_mw545_pytorch/nn_torch/torch_tests.py
+merlin_cued_mw545_pytorch/config_24kHz.py
