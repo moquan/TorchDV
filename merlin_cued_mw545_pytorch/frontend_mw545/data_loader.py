@@ -4,7 +4,7 @@ import os, sys, pickle, time, shutil, logging, copy
 import math, numpy
 numpy.random.seed(547)
 
-from frontend_mw545.modules import make_logger, File_List_Selecter, List_Random_Loader
+from frontend_mw545.modules import make_logger, File_List_Selecter, List_Random_Loader, copy_dict
 # from frontend_mw545.modules import keep_by_speaker, remove_by_speaker, keep_by_file_number, remove_by_file_number
 
 from frontend_mw545.data_io import Data_File_IO, Data_List_File_IO, Data_Meta_List_File_IO
@@ -218,6 +218,7 @@ class Build_BD_data_loader_Multi_Speaker_Base(object):
         self.feed_dict = {}
         self.feed_dict['in_lens'] = numpy.zeros(train_cfg.input_data_dim['S'], dtype=int)
         self.feed_dict['out_lens'] = numpy.zeros(train_cfg.input_data_dim['S'], dtype=int)
+        self.feed_dict['start_sample_numbers'] = numpy.zeros(train_cfg.input_data_dim['S'], dtype=int)
 
     def init_directories(self):
         pass
@@ -245,7 +246,7 @@ class Build_BD_data_loader_Multi_Speaker_Base(object):
 
         return BD_data, B, start_sample_number
 
-    def make_feed_dict(self, file_id_list, start_sample_list=None):
+    def make_feed_dict(self, file_id_list, start_sample_list=None, out_lens_list=None):
         train_cfg = self.train_cfg
 
         if start_sample_list is None:
@@ -254,8 +255,12 @@ class Build_BD_data_loader_Multi_Speaker_Base(object):
         BD_data_list = []
         for i, file_id_str in enumerate(file_id_list):
             BD_data, B, start_sample_number = self.make_BD_data(file_id_str, start_sample_list[i])
+            if out_lens_list is not None:
+                B = out_lens_list[i]
+                BD_data = BD_data[:B]
             BD_data_list.append(BD_data)
             self.feed_dict['in_lens'][i] = B
+            self.feed_dict['start_sample_numbers'][i] = start_sample_number
 
         B_in_max = numpy.max(self.feed_dict['in_lens'])
         # Use ones instead of zeros; ones make sinenet output nan; investigating
@@ -276,9 +281,9 @@ class Build_dv_y_wav_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speake
         self.max_len = dv_y_cfg.input_data_dim['T_S_max']
         self.win_len = dv_y_cfg.input_data_dim['T_B']
 
-        self.win_T = float(dv_y_cfg.input_data_dim['T_M']) / float(cfg.wav_sr)
-
-        self.init_n_matrix()
+        if 'T_M' in dv_y_cfg.input_data_dim:
+            self.win_T = float(dv_y_cfg.input_data_dim['T_M']) / float(cfg.wav_sr)
+            self.init_n_matrix()
 
     def init_n_matrix(self):
         '''
@@ -479,7 +484,14 @@ class Build_dv_y_cmp_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speake
                 sample_number = max_len
                 cmp_data = cmp_data[start_sample_number:start_sample_number+self.max_len]
             else:
-                start_sample_number = 0
+                kernel_stride = self.dv_y_cfg.input_data_dim['B_stride']
+                if kernel_stride == 1:
+                    start_sample_number = 0
+                    cmp_data = cmp_data
+                else:
+                    start_sample_number = int(numpy.random.rand() * (kernel_stride))
+                    sample_number = sample_number - start_sample_number
+                    cmp_data = cmp_data[start_sample_number:]
 
         return cmp_data, sample_number, start_sample_number
 
@@ -491,10 +503,19 @@ class Build_dv_y_cmp_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speake
         dv_y_cfg = self.dv_y_cfg
         cmp_BD_data = numpy.zeros((B, dv_y_cfg.input_data_dim['D']))
 
+        kernel_size = self.dv_y_cfg.input_data_dim['T_B']
+        kernel_stride = self.dv_y_cfg.input_data_dim['B_stride']
         for b in range(B):
-            cmp_TD  = cmp_data[b:b+dv_y_cfg.input_data_dim['T_B']]
+            i_start = b * kernel_stride
+            i_end   = i_start + kernel_size
+            cmp_TD = cmp_data[i_start:i_end]
             cmp_D   = cmp_TD.reshape(-1)
             cmp_BD_data[b] = cmp_D
+
+        # for b in range(B):
+        #     cmp_TD  = cmp_data[b:b+dv_y_cfg.input_data_dim['T_B']]
+        #     cmp_D   = cmp_TD.reshape(-1)
+        #     cmp_BD_data[b] = cmp_D
 
         return cmp_BD_data, B
 
@@ -503,8 +524,75 @@ class Build_dv_y_cmp_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speake
         # This is output lengths
         # given kernel size, assume shift=sride=1
         kernel_size = self.dv_y_cfg.input_data_dim['T_B']
+        kernel_stride = self.dv_y_cfg.input_data_dim['B_stride']
+        out_lens = int((in_lens-kernel_size)/kernel_stride) + 1
         # kernel_size = self.dv_y_cfg.kernel_size
-        out_lens = in_lens - kernel_size + 1
+        return out_lens
+
+class Build_dv_atten_lab_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speaker_Base):
+    """
+    Output: feed_dict['h'], STD; feed_dict['h_lens'], S
+    Pad and stack T*D features from each file
+    """
+    def __init__(self, cfg=None, dv_attn_cfg=None):
+        self.dv_attn_cfg = dv_attn_cfg
+        super().__init__(cfg, dv_attn_cfg)
+        self.max_len = dv_attn_cfg.input_data_dim['T_S_max']
+        self.cfg_lab_dim = self.cfg.nn_feature_dims['lab']
+
+    def init_directories(self):
+        if self.dv_attn_cfg.data_dir_mode == 'scratch':
+            self.lab_dir = self.cfg.nn_feat_scratch_dirs['lab']
+        elif self.dv_attn_cfg.data_dir_mode == 'data':
+            self.lab_dir = self.cfg.nn_feat_resil_norm_dirs['lab']
+
+    def make_BD_data_single_file_id(self, file_id, start_sample_number=None):
+        speaker_id = file_id.split('_')[0]
+        lab_resil_norm_file_name = os.path.join(self.lab_dir, speaker_id, file_id+'.lab')
+        return self.make_lab_BD_data_single_file(lab_resil_norm_file_name, start_sample_number)
+
+    def make_lab_BD_data_single_file(self, lab_resil_norm_file_name, start_sample_number=None):
+        lab_data, sample_number = self.DIO.load_data_file_frame(lab_resil_norm_file_name, self.cfg_lab_dim)
+        new_lab_data, new_sample_number, start_sample_number = self.modify_lab_data(lab_data, sample_number, start_sample_number, self.max_len)
+        lab_BD_data, B = self.make_lab_BD_data(new_lab_data, new_sample_number)
+        return lab_BD_data, B, start_sample_number
+
+    def modify_lab_data(self, lab_data, sample_number, start_sample_number, max_len):
+        # modify the length of lab data according to start_sample_number and maximum length
+        # Note: unlike cmp_data_loader, sample_number cannot be None
+
+        # If given, start here, and use up to max_len
+        sample_number = sample_number - start_sample_number
+        if sample_number > max_len:
+            sample_number = max_len
+            lab_data = lab_data[start_sample_number:start_sample_number+max_len]
+        else:
+            lab_data = lab_data[start_sample_number:]
+
+        return lab_data, sample_number, start_sample_number
+
+    def make_lab_BD_data(self, lab_data, sample_number=None):
+        if sample_number is None:
+            sample_number = lab_data.shape[0]
+        B = self.compute_B(sample_number)
+
+        dv_attn_cfg = self.dv_attn_cfg
+        lab_BD_data = numpy.zeros((B, dv_attn_cfg.input_data_dim['D']))
+
+        for b in range(B):
+            lab_TD  = lab_data[b+dv_attn_cfg.label_index_list]
+            lab_D   = lab_TD.reshape(-1)
+            lab_BD_data[b] = lab_D
+
+        return lab_BD_data, B
+
+    def compute_B(self, in_lens):
+        # Compute lengths after CNN
+        # This is output lengths
+        kernel_size = self.dv_attn_cfg.input_data_dim['T_B']
+        kernel_stride = self.dv_attn_cfg.input_data_dim['B_stride']
+        # kernel_size = self.dv_y_cfg.kernel_size
+        out_lens = int((in_lens-kernel_size)/kernel_stride) + 1
         return out_lens
 
 
@@ -549,16 +637,16 @@ class Build_dv_y_train_data_loader(object):
     def make_feed_dict(self, utter_tvt_name='train', file_id_list=None, start_sample_list=None):
         if file_id_list is None:
             # Draw n speakers
-            batch_speaker_id_list = self.dv_selecter.draw_n_speakers(self.dv_y_cfg.input_data_dim['S'])
+            self.batch_speaker_id_list = self.dv_selecter.draw_n_speakers(self.dv_y_cfg.input_data_dim['S'])
             if self.dv_y_cfg.train_num_seconds == 0:
                 # Use 1 file
-                self.file_id_list = self.draw_n_files(batch_speaker_id_list, utter_tvt_name, n=1)
+                self.file_id_list = self.draw_n_files(self.batch_speaker_id_list, utter_tvt_name, n=1)
             else:
                 # Each "file_id" is a string, file_ids joined by '|'
-                self.file_id_list = self.draw_n_seconds(batch_speaker_id_list, utter_tvt_name, n=self.dv_y_cfg.train_num_seconds)
+                self.file_id_list = self.draw_n_seconds(self.batch_speaker_id_list, utter_tvt_name, n=self.dv_y_cfg.train_num_seconds)
         else:
             self.file_id_list = file_id_list
-            batch_speaker_id_list = self.dv_selecter.file_id_list_2_speaker_list(file_id_list)
+            self.batch_speaker_id_list = self.dv_selecter.file_id_list_2_speaker_list(file_id_list)
 
         feed_dict = self.dv_y_data_loader.make_feed_dict(self.file_id_list, start_sample_list=start_sample_list)
 
@@ -567,7 +655,7 @@ class Build_dv_y_train_data_loader(object):
         batch_size = numpy.sum(out_lens)
         feed_dict['output_mask_S_B'] = self.make_output_lens_mask(out_lens)
 
-        one_hot, one_hot_S, one_hot_S_B = self.dv_selecter.make_one_hot(batch_speaker_id_list, out_len_max)
+        one_hot, one_hot_S, one_hot_S_B = self.dv_selecter.make_one_hot(self.batch_speaker_id_list, out_len_max)
         feed_dict['one_hot'] = one_hot
         feed_dict['one_hot_S'] = one_hot_S
         feed_dict['one_hot_S_B'] = one_hot_S_B
@@ -607,6 +695,61 @@ class Build_dv_y_train_data_loader(object):
             output_mask_SB[i][:out_lens[i]] = 1.
 
         return output_mask_SB
+
+
+class Build_dv_atten_train_data_loader(object):
+    '''
+    This Data Loader does the following when called:
+    1. Draw Speaker List;
+    2. Draw file list
+    3. Draw starting index (implicit, inside Build_dv_y_cmp_data_loader_Multi_Speaker or Build_dv_y_wav_data_loader_Multi_Speaker)
+    4. Pass starting index to attention data loader
+    5. Make matrices and feed_dict
+    '''
+    def __init__(self, cfg=None, dv_attn_cfg=None, dv_selecter_type='DV'):
+        super(Build_dv_atten_train_data_loader, self).__init__()
+        self.logger = make_logger("Data_Loader Train")
+
+        self.cfg = cfg
+        self.dv_attn_cfg = dv_attn_cfg
+
+        if self.dv_attn_cfg.data_loader_random_seed > 0:
+            numpy.random.seed(547+self.dv_attn_cfg.data_loader_random_seed)
+
+        self.y_data_loader = Build_dv_y_train_data_loader(self.cfg, self.dv_attn_cfg.dv_y_cfg, dv_selecter_type)
+        self.dv_selecter = self.y_data_loader.dv_selecter
+
+        if dv_attn_cfg.feat_name == 'lab':
+            self.init_lab()
+
+    def init_lab(self):
+        self.dv_atten_data_loader = Build_dv_atten_lab_data_loader_Multi_Speaker(self.cfg, self.dv_attn_cfg)
+
+    def make_feed_dict(self, utter_tvt_name='train', file_id_list=None, start_sample_list=None):
+        feed_dict_y, batch_size = self.y_data_loader.make_feed_dict(utter_tvt_name, file_id_list, start_sample_list)
+        file_id_list = self.y_data_loader.file_id_list
+        start_sample_list = self.convert_start_sample_list(feed_dict_y['start_sample_numbers'])
+
+        feed_dict_a = self.dv_atten_data_loader.make_feed_dict(file_id_list, start_sample_list=start_sample_list, out_lens_list=feed_dict_y['out_lens'])
+
+        # Join h in both dicts; y first, then a
+        h = numpy.concatenate((feed_dict_y['h'], feed_dict_a['h']), axis=2)
+        feed_dict = copy_dict(feed_dict_y, except_List=['h', 'start_sample_numbers'])
+        feed_dict['h'] = h
+        return feed_dict, batch_size
+
+    def convert_start_sample_list(self, start_sample_list):
+        # Modify start_sample_list according to data types
+        if self.dv_attn_cfg.feat_name == 'lab':
+            if self.dv_attn_cfg.dv_y_cfg.y_feat_name == 'cmp':
+                # Same rate, make no change
+                return start_sample_list
+            elif self.dv_attn_cfg.dv_y_cfg.y_feat_name == 'wav':
+                # Round from 24kHz to 200Hz
+                start_sample_list_new = start_sample_list * numpy.true_divide(self.cfg.frame_sr, self.cfg.wav_sr)
+                return start_sample_list_new.astype(int)
+
+
 
 
 ###########
