@@ -37,7 +37,10 @@ def main_function(cfg):
         from frontend_mw545.data_norm import run_Data_List_Normaliser
         run_Data_List_Normaliser(cfg)
         
-        
+    #########################
+    # Acoustic-based Models #
+    # Flat attention        #
+    #########################
 
     if cfg.Processes['TrainCMPDVY']:
         from exp_mw545.exp_dv_cmp_baseline import train_model
@@ -45,27 +48,6 @@ def main_function(cfg):
 
     if cfg.Processes['TestCMPDVY']:
         from exp_mw545.exp_dv_cmp_baseline import test_model
-        test_model(cfg)
-
-    if cfg.Processes['TrainCMPLabAtten']:
-        from exp_mw545.exp_dv_cmp_lab_attention import train_model
-        train_model(cfg)
-
-    if cfg.Processes['TestCMPLabAtten']:
-        from exp_mw545.exp_dv_cmp_lab_attention import test_model
-        test_model(cfg)
-
-
-
-
-
-
-    if cfg.Processes['TrainWavSubwinDVY']:
-        from exp_mw545.exp_dv_wav_subwin import train_model
-        train_model(cfg)
-
-    if cfg.Processes['TestWavSubwinDVY']:
-        from exp_mw545.exp_dv_wav_subwin import test_model
         test_model(cfg)
 
     if cfg.Processes['TrainWavSincNet']:
@@ -76,6 +58,13 @@ def main_function(cfg):
         from exp_mw545.exp_dv_wav_sincnet import test_model
         test_model(cfg)
 
+    if cfg.Processes['TrainMFCCXVec']:
+        from exp_mw545.exp_dv_mfcc_xvector import train_model
+        train_model(cfg)
+
+    if cfg.Processes['TestMFCCXVec']:
+        from exp_mw545.exp_dv_mfcc_xvector import test_model
+        test_model(cfg)
 
     if cfg.Processes['TrainWavSineV0']:
         from exp_mw545.exp_dv_wav_sinenet_v0 import train_model
@@ -84,7 +73,7 @@ def main_function(cfg):
     if cfg.Processes['TestWavSineV0']:
         from exp_mw545.exp_dv_wav_sinenet_v0 import test_model
         test_model(cfg)
-
+    
     if cfg.Processes['TrainWavSineV1']:
         from exp_mw545.exp_dv_wav_sinenet_v1 import train_model
         train_model(cfg)
@@ -100,6 +89,47 @@ def main_function(cfg):
     if cfg.Processes['TestWavSineV2']:
         from exp_mw545.exp_dv_wav_sinenet_v2 import test_model
         test_model(cfg)
+
+    ##############################
+    # Lab Attention-based Models #
+    ##############################
+
+    if cfg.Processes['TrainCMPLabAtten']:
+        from exp_mw545.exp_dv_cmp_lab_attention import train_model
+        train_model(cfg)
+
+    if cfg.Processes['TestCMPLabAtten']:
+        from exp_mw545.exp_dv_cmp_lab_attention import test_model
+        test_model(cfg)
+
+    if cfg.Processes['TrainWavSincNetLabAtten']:
+        from exp_mw545.exp_dv_wav_sincnet_lab_attention import train_model
+        train_model(cfg)
+
+    if cfg.Processes['TestWavSincNetLabAtten']:
+        from exp_mw545.exp_dv_wav_sincnet_lab_attention import test_model
+        test_model(cfg)
+
+    if cfg.Processes['TrainWavSineV0LabAtten']:
+        from exp_mw545.exp_dv_wav_sinenet_v0_lab_attention import train_model
+        train_model(cfg)
+
+    if cfg.Processes['TestWavSineV0LabAtten']:
+        from exp_mw545.exp_dv_wav_sinenet_v0_lab_attention import test_model
+        test_model(cfg)
+
+    if cfg.Processes['TrainWavSineV2LabAtten']:
+        from exp_mw545.exp_dv_wav_sinenet_v2_lab_attention import train_model
+        train_model(cfg)
+
+    if cfg.Processes['TestWavSineV2LabAtten']:
+        from exp_mw545.exp_dv_wav_sinenet_v2_lab_attention import test_model
+        test_model(cfg)
+
+
+
+
+    
 
 if __name__ == '__main__': 
 
