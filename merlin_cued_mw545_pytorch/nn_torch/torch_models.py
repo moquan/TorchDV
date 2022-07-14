@@ -5,8 +5,8 @@ import math, numpy, scipy
 import torch
 # torch.autograd.set_detect_anomaly(True)
 
-from frontend_mw545.modules import make_logger
-from nn_torch.torch_layers  import Build_DV_Y_Input_Layer, Build_NN_Layer
+from frontend_mw545.modules import make_logger, copy_dict
+from nn_torch.torch_layers  import Build_DV_Y_Input_Layer, Build_NN_Layer, Build_ATTEN_Input_Layer, Build_SB1_Masked_Softmax_Layer
 
 ########################
 # PyTorch-based Models #
@@ -60,6 +60,7 @@ class Build_DV_Y_NN_model(torch.nn.Module):
 
     def gen_lambda_SBD(self, x_dict):
         ''' Simple sequential feed-forward '''
+
         x_dict = self.gen_feed_dict_SBD(x_dict)
         lambda_SBD = x_dict['h']
         return lambda_SBD
@@ -129,6 +130,120 @@ class Build_DV_Y_NN_model(torch.nn.Module):
         logit_SD = self.expansion_layer(x_dict['lambda_SD'])
         return logit_SD
 
+
+class Build_ATTEN_NN_model(torch.nn.Module):
+    '''Attention Model, as part of dv_atten_nn_model'''
+    def __init__(self, dv_attn_cfg):
+        super().__init__()
+        
+        self.num_nn_layers = dv_attn_cfg.num_nn_layers
+
+        self.input_layer = Build_ATTEN_Input_Layer(dv_attn_cfg)
+        self.input_dim_values = self.input_layer.params["output_dim_values"]
+        prev_layer = self.input_layer
+
+        # Hidden layers
+        # The last is bottleneck, output_dim is lambda_dim
+        self.layer_list = torch.nn.ModuleList()
+        for i in range(self.num_nn_layers):
+            layer_config = dv_attn_cfg.nn_layer_config_list[i]
+
+            layer_temp = Build_NN_Layer(layer_config, prev_layer)
+            prev_layer = layer_temp
+            self.layer_list.append(layer_temp)
+
+        # Normalisation Layer
+        S = dv_attn_cfg.input_data_dim['S']
+        self.norm_layer = Build_SB1_Masked_Softmax_Layer(S)
+
+    def forward(self, x_dict):
+        # This should generate alpha_SB1
+        return self.gen_alpha_SB1(x_dict)
+
+    def gen_feed_dict_SBD(self, x_dict):
+        # The output dict, contains more than just lambda
+        # e.g. may contain in_lens
+        for i in range(self.num_nn_layers):
+            layer_temp = self.layer_list[i]
+            x_dict = layer_temp(x_dict)
+        return x_dict
+
+    def gen_beta_SB1(self, x_dict):
+        x_dict = self.gen_feed_dict_SBD(x_dict)
+        beta_SB1 = x_dict['h']
+        return beta_SB1
+
+    def gen_alpha_SB1(self, x_dict):
+        output_mask_S_B = x_dict['output_mask_S_B']
+        beta_SB1 = self.gen_beta_SB1(x_dict)
+        y_dict = {'h': beta_SB1}
+        y_dict['output_mask_S_B'] = output_mask_S_B
+        alpha_SB1 = self.norm_layer(y_dict)['h']
+        return alpha_SB1
+
+class Build_DV_Atten_NN_model(torch.nn.Module):
+    ''' 
+    Attention-based d-vector model
+    2 nn_models within
+    '''
+    def __init__(self, dv_attn_cfg):
+        super().__init__()
+        dv_y_cfg = dv_attn_cfg.dv_y_cfg
+        self.dv_y_nn_model = Build_DV_Y_NN_model(dv_y_cfg)
+        self.atten_nn_model = Build_ATTEN_NN_model(dv_attn_cfg)
+
+        # Dimensions to split h_SBD
+        self.h_dim_y = dv_y_cfg.input_data_dim['D']
+        self.h_dim_a = dv_attn_cfg.input_data_dim['D']
+
+    def split_h_for_y_a(self, x_dict):
+        h_y = x_dict['h'][:,:,:self.h_dim_y]
+        h_a = x_dict['h'][:,:,self.h_dim_y:self.h_dim_y+self.h_dim_a]
+        x_dict_y = copy_dict(x_dict, except_List=['h','x'])
+        x_dict_a = copy_dict(x_dict, except_List=['h','x'])
+        x_dict_y['h'] = h_y
+        x_dict_a['h'] = h_a
+        # Add actual S, in case data and model config mismatch
+        S = x_dict['h'].size(0)
+        x_dict_y['S_data'] = S
+        x_dict_a['S_data'] = S
+        return x_dict_y, x_dict_a
+
+    def gen_lambda_SD(self, x_dict):
+        # Generate lambda_SD
+        x_dict_y, x_dict_a = self.split_h_for_y_a(x_dict)
+
+        lambda_SBD = self.dv_y_nn_model.gen_lambda_SBD(x_dict_y)
+        alpha_SB1 = self.atten_nn_model.gen_alpha_SB1(x_dict_a)
+
+        lambda_SBD_zero_pad = torch.mul(lambda_SBD, alpha_SB1)
+        lambda_SD  = torch.sum(lambda_SBD_zero_pad, dim=1, keepdim=False)
+        return lambda_SD
+
+    def gen_lambda_SBD(self, x_dict):
+        x_dict_y, x_dict_a = self.split_h_for_y_a(x_dict)
+        lambda_SBD = self.dv_y_nn_model.gen_lambda_SBD(x_dict_y)
+        return lambda_SBD
+
+    def gen_beta_SB1(self, x_dict):
+        x_dict_y, x_dict_a = self.split_h_for_y_a(x_dict)
+        beta_SB1 = self.atten_nn_model.gen_beta_SB1(x_dict_a)
+        return beta_SB1
+
+    def gen_logit_SD(self, x_dict):
+        lambda_SD = self.gen_lambda_SD(x_dict)
+        logit_SD  = self.dv_y_nn_model.expansion_layer(lambda_SD)
+        return logit_SD
+
+    def logit_SD_from_lambda_SD(self, x_dict):
+        logit_SD = self.dv_y_nn_model.expansion_layer(x_dict['lambda_SD'])
+        return logit_SD
+
+
+    def forward(self, x_dict):
+        # This should generate lambda_SD as interface with TTS model
+        return self.gen_lambda_SD(x_dict)
+
        
 ##############################################
 # Model Wrappers, between Python and PyTorch #
@@ -196,9 +311,10 @@ class General_Model(object):
 
     def print_model_parameter_sizes(self, logger):
         logger.info('Print Parameter Sizes')
+        print(self.nn_model)
         size = 0
         for name, param in self.nn_model.named_parameters():
-            print(str(name)+'  '+str(param.size())+'  '+str(param.type()))
+            # print(str(name)+'  '+str(param.size())+'  '+str(param.type()))
             s = 1
             for n in param.size():
                 s *= n
@@ -286,20 +402,103 @@ class General_Model(object):
     def count_parameters(self):
         return sum(p.numel() for p in self.nn_model.parameters() if p.requires_grad)
 
-class Build_DV_Y_model(General_Model):
+class Build_DV_model_Base(General_Model):
+    ''' 
+    Acoustic data --> Speaker Code --> Classification 
+    For this model, feed_dict['one_hot] --> y (tensor)
+    Reference y is a 1*SB vector, for CE computation
+    '''
+    def __init__(self, dv_cfg):
+        super().__init__()
+        self.nn_model = None
+        
+        self.dv_cfg = dv_cfg
+        self.model_config = dv_cfg
+        self.learning_rate = dv_cfg.learning_rate
+
+    def build_optimiser(self):
+        self.optimiser = torch.optim.Adam(self.nn_model.parameters(), lr=self.learning_rate)
+        # Zero gradients
+        self.optimiser.zero_grad()
+
+    def gen_loss_S(self, feed_dict):
+        ''' Returns Tensor, not value! For value, use gen_loss_value '''
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        y_pred = self.nn_model.gen_logit_SD(x_dict) # This should be logit_S_D
+        self.loss = self.criterion(y_pred, y_dict['one_hot_S'])
+        return self.loss
+
+    def gen_lambda_SD_value(self, feed_dict):
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        lambda_SD = self.nn_model.gen_lambda_SD(x_dict)
+        return self.tensor_to_numpy(lambda_SD)
+
+    def gen_logit_SD_value_from_lambda_SD_value(self, feed_dict):
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        logit_SD = self.nn_model.logit_SD_from_lambda_SD(x_dict)
+        return self.tensor_to_numpy(logit_SD)
+
+    def gen_logit_SD_value(self, feed_dict):
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        logit_SD = self.nn_model.gen_logit_SD(x_dict)
+        return self.tensor_to_numpy(logit_SD)
+
+    def gen_lambda_SBD_value(self, feed_dict):
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        lambda_SBD = self.nn_model.gen_lambda_SBD(x_dict)
+        return self.tensor_to_numpy(lambda_SBD)
+
+    def numpy_to_tensor(self, feed_dict):
+        x_dict = {}
+        y_dict = {}
+        y_list = ['one_hot','one_hot_S','one_hot_S_B']
+        long_list = ['one_hot','one_hot_S','one_hot_S_B'] # one-hot speaker class, high precision for cross-entropy function
+        for k in feed_dict:
+            k_val = feed_dict[k]
+            if k in long_list:
+                k_dtype = torch.long
+            else:
+                k_dtype = torch.float
+            k_tensor = torch.tensor(k_val, dtype=k_dtype, device=self.device_id)
+
+            if k in y_list:
+                y_dict[k] = k_tensor
+                if k == 'one_hot_S_B':
+                    y_dict['one_hot_SB'] = y_dict['one_hot_S_B'].view(-1)
+            else:
+                x_dict[k] = k_tensor
+
+        # Add actual S, in case data and model config mismatch
+        # This is an integer, not a tensor
+        if 'h' in x_dict:
+            S = x_dict['h'].size(0)
+            x_dict['S_data'] = S
+
+        return x_dict, y_dict
+
+    def tensor_to_numpy(self, x_tensor):
+        return x_tensor.cpu().detach().numpy()
+
+    def print_output_dim_values(self, logger, nn_model=None):
+        logger.info('Print Output Dim Values')
+        if nn_model is None:
+            nn_model = self.nn_model
+
+        print(nn_model.input_layer.params["output_dim_values"])
+        for nn_layer in nn_model.layer_list:
+            print(nn_layer.params["output_dim_values"])
+
+
+class Build_DV_Y_model(Build_DV_model_Base):
     ''' 
     Acoustic data --> Speaker Code --> Classification 
     For this model, feed_dict['one_hot] --> y (tensor)
     Reference y is a 1*SB vector, for CE computation
     '''
     def __init__(self, dv_y_cfg):
-        super().__init__()
+        super().__init__(dv_y_cfg)
         self.nn_model = Build_DV_Y_NN_model(dv_y_cfg)
         
-        self.dv_y_cfg = dv_y_cfg
-        self.model_config = dv_y_cfg
-        self.learning_rate = dv_y_cfg.learning_rate
-
         self.build_loss_function(dv_y_cfg.train_by_window, dv_y_cfg.use_voiced_only)
 
     def build_loss_function(self, train_by_window, use_voiced_only):
@@ -316,11 +515,6 @@ class Build_DV_Y_model(General_Model):
         else:
             self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
             self.gen_loss = self.gen_loss_S
-
-    def build_optimiser(self):
-        self.optimiser = torch.optim.Adam(self.nn_model.parameters(), lr=self.learning_rate)
-        # Zero gradients
-        self.optimiser.zero_grad()
 
     def gen_loss_SB_variable_lengths(self, feed_dict):
         ''' Window-level average loss '''
@@ -353,23 +547,6 @@ class Build_DV_Y_model(General_Model):
         self.loss = self.criterion(y_pred, y_dict['one_hot_SB'])
         return self.loss
 
-    def gen_loss_S(self, feed_dict):
-        ''' Returns Tensor, not value! For value, use gen_loss_value '''
-        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
-        y_pred = self.nn_model.gen_logit_SD(x_dict) # This should be logit_S_D
-        self.loss = self.criterion(y_pred, y_dict['one_hot_S'])
-        return self.loss
-
-    def gen_lambda_SD_value(self, feed_dict):
-        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
-        lambda_SD = self.nn_model.gen_lambda_SD(x_dict)
-        return self.tensor_to_numpy(lambda_SD)
-
-    def gen_logit_SD_value_from_lambda_SD_value(self, feed_dict):
-        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
-        logit_SD = self.nn_model.logit_SD_from_lambda_SD(x_dict)
-        return self.tensor_to_numpy(logit_SD)
-
     def gen_SB_loss(self, feed_dict):
         ''' Returns Tensor, not value! For value, use gen_loss_value '''
         x_dict, y_dict = self.numpy_to_tensor(feed_dict)
@@ -384,25 +561,20 @@ class Build_DV_Y_model(General_Model):
         SB_loss = self.gen_SB_loss(feed_dict)
         return self.tensor_to_numpy(SB_loss)
 
-    def gen_lambda_SBD_value(self, feed_dict):
-        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
-        lambda_SBD = self.nn_model.gen_lambda_SBD(x_dict)
-        return self.tensor_to_numpy(lambda_SBD)
-
     def gen_logit_SBD_value(self, feed_dict):
         x_dict, y_dict = self.numpy_to_tensor(feed_dict)
         logit_SBD = self.nn_model.gen_logit_SBD(x_dict)
         return self.tensor_to_numpy(logit_SBD)
 
-    def gen_logit_SD_value(self, feed_dict):
-        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
-        logit_SD = self.nn_model.gen_logit_SD(x_dict)
-        return self.tensor_to_numpy(logit_SD)
-
     def gen_p_SBD_value(self, feed_dict):
         x_dict, y_dict = self.numpy_to_tensor(feed_dict)
         p_SBD = self.nn_model.gen_p_SBD(x_dict)
         return self.tensor_to_numpy(p_SBD)
+
+    def gen_p_SD_value(self, feed_dict):
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        p_SD = self.nn_model.gen_p_SD(x_dict)
+        return self.tensor_to_numpy(p_SD)
 
     def lambda_to_indices(self, feed_dict):
         ''' lambda_S_B_D to indices_S_B '''
@@ -446,39 +618,40 @@ class Build_DV_Y_model(General_Model):
         h_list.append(self.tensor_to_numpy(logit_SBD))
         return h_list
 
-    def numpy_to_tensor(self, feed_dict):
-        x_dict = {}
-        y_dict = {}
-        y_list = ['one_hot','one_hot_S','one_hot_S_B']
-        long_list = ['one_hot','one_hot_S','one_hot_S_B'] # one-hot speaker class, high precision for cross-entropy function
-        for k in feed_dict:
-            k_val = feed_dict[k]
-            if k in long_list:
-                k_dtype = torch.long
-            else:
-                k_dtype = torch.float
-            k_tensor = torch.tensor(k_val, dtype=k_dtype, device=self.device_id)
 
-            if k in y_list:
-                y_dict[k] = k_tensor
-                if k == 'one_hot_S_B':
-                    y_dict['one_hot_SB'] = y_dict['one_hot_S_B'].view(-1)
-            else:
-                x_dict[k] = k_tensor
 
-        # Add actual S, in case data and model config mismatch
-        # This is an integer, not a tensor
-        if 'h' in x_dict:
-            S = x_dict['h'].size(0)
-            x_dict['S_data'] = S
+class Build_DV_Attention_model(Build_DV_model_Base):
+    ''' 
+    Acoustic data --> Speaker Code --> Classification 
+    For this model, feed_dict['one_hot] --> y (tensor)
+    Reference y is a 1*SB vector, for CE computation
+    '''
+    def __init__(self, dv_attn_cfg):
+        super().__init__(dv_attn_cfg)
+        self.nn_model = Build_DV_Atten_NN_model(dv_attn_cfg)
+        self.build_loss_function()
 
-        return x_dict, y_dict
-
-    def tensor_to_numpy(self, x_tensor):
-        return x_tensor.cpu().detach().numpy()
+    def build_loss_function(self):
+        self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
+        self.gen_loss = self.gen_loss_S
 
     def print_output_dim_values(self, logger):
-        logger.info('Print Output Dim Values')
-        print(self.nn_model.input_layer.params["output_dim_values"])
-        for nn_layer in self.nn_model.layer_list:
-            print(nn_layer.params["output_dim_values"])
+        logger.info('Y Model')
+        super().print_output_dim_values(logger, self.nn_model.dv_y_nn_model)
+        logger.info('Attention Model')
+        super().print_output_dim_values(logger, self.nn_model.atten_nn_model)
+
+    def load_y_nn_model(self, nnets_file_name):
+        ''' Load both Model and Optimiser '''
+        checkpoint = torch.load(nnets_file_name)
+        self.nn_model.dv_y_nn_model.load_state_dict(checkpoint['model_state_dict'])
+
+    def load_a_nn_model(self, nnets_file_name):
+        ''' Load both Model and Optimiser '''
+        checkpoint = torch.load(nnets_file_name)
+        self.nn_model.atten_nn_model.load_state_dict(checkpoint['model_state_dict'])
+
+    def gen_beta_SB1_value(self, feed_dict):
+        x_dict, y_dict = self.numpy_to_tensor(feed_dict)
+        beta_SB1 = self.nn_model.gen_beta_SB1(x_dict)
+        return self.tensor_to_numpy(beta_SB1)
