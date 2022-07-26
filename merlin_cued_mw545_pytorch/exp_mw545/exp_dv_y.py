@@ -96,6 +96,13 @@ class Build_DV_Y_Model_Trainer(Build_Model_Trainer_Base):
         self.build_data_loader()
 
         feed_dict, batch_size = self.data_loader.make_feed_dict(utter_tvt_name='train')
+        self.logger.info('Print batch size: %i' & batch_size)
+        self.logger.info('Print feed_dict shapes')
+        for k in feed_dict:
+            print('%s, %s' %(k, str(feed_dict[k].shape)))
+        self.logger.info('Print feed_dict details')
+        print(feed_dict)
+        
 
         nnets_file_name = self.train_cfg.nnets_file_name
         epoch_num = 0
