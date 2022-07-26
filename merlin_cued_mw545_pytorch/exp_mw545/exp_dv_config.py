@@ -4,7 +4,6 @@ import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy
 
 from frontend_mw545.modules import make_logger, prepare_script_file_path
-# from nn_torch.torch_tests import return_gpu_memory
 
 class dv_configuration_base(object):
     """docstring for dv_configuration_base"""
@@ -120,15 +119,6 @@ class dv_y_configuration(dv_configuration_base):
         self.init_model()
         self.init_train()
         
-    def init_data(self):
-        super().init_data()
-        if 'wav' in self.cfg.work_dir:
-            self.init_wav_data()
-        elif 'cmp' in self.cfg.work_dir:
-            self.init_cmp_data()
-        # else:
-        #     self.init_wav_data()
-
     def init_wav_data(self):
         self.y_feat_name   = 'wav'
         self.out_feat_list = ['wav_SBT', 'f_SBM', 'tau_SBM', 'vuv_SBM'] # This is the order, if features are included
@@ -150,6 +140,16 @@ class dv_y_configuration(dv_configuration_base):
         self.input_data_dim['T_B'] = int(0.2 * self.cfg.frame_sr) # T, 0.2s, 40 frames
         self.input_data_dim['B_stride'] = 1
         self.input_data_dim['D'] = self.cmp_dim * self.input_data_dim['T_B']
+
+    def init_mfcc_data(self):
+        self.y_feat_name   = 'mfcc'
+        self.out_feat_list = ['mfcc']
+        self.cmp_dim = 23
+        
+        self.input_data_dim['T_S_max'] = numpy.inf # This is the maximum input length of waveform
+        self.input_data_dim['T_B'] = int(0.025 * self.cfg.wav_sr) # each mfcc frame
+        self.input_data_dim['B_stride'] = int(0.005 * self.cfg.wav_sr) # each mfcc frame
+        self.input_data_dim['D'] = self.cmp_dim
 
     def update_cmp_dim(self):
         '''
@@ -175,6 +175,12 @@ class dv_y_configuration(dv_configuration_base):
             elif feat_name in ['f_SBM', 'tau_SBM', 'vuv_SBM']:
                 self.cmp_dim += self.input_data_dim['M']
         self.input_data_dim['D'] = self.cmp_dim
+
+    def update_mfcc_dim(self):
+        '''
+        '''
+        self.input_data_dim['D'] = self.cmp_dim
+        pass
 
     def compute_M(self):
         if 'T_M' in self.input_data_dim and 'M_stride' in self.input_data_dim:
@@ -211,13 +217,17 @@ class dv_y_configuration(dv_configuration_base):
         self.h_list_file_name = os.path.join(self.exp_dir, "h_spk_list.dat")
         self.file_list_dict = {(spk_id, 'gen'): [spk_id+'_'+self.utter_name] for spk_id in self.batch_speaker_list}
 
-    def make_dv_exp_dir_name(self, cfg):
-        exp_dir = cfg.work_dir + '/dvy_%s_lr%.0E_fpu%i_' %(self.y_feat_name, self.learning_rate, self.feed_per_update)
+    def make_dv_exp_dir_name(self, cfg=None):
+        if cfg is None: cfg = self.cfg
+        dv_exp_dir = 'dvy_%s_lr%.0E_fpu%i_' %(self.y_feat_name, self.learning_rate, self.feed_per_update)
+
         for nn_layer_config in self.nn_layer_config_list:
             if nn_layer_config['type'] == 'Tensor_Reshape':
                 layer_str = ''
             else:
-                layer_str = '%s%i' % (nn_layer_config['type'][:3], nn_layer_config['size'])
+                layer_str = '%s' % (nn_layer_config['type'][:3])
+                if 'size' in nn_layer_config:
+                    layer_str = layer_str + '%i' % (nn_layer_config['size'])
                 if 'inc_a' in nn_layer_config and nn_layer_config['inc_a']:
                     layer_str = layer_str + 'a'
                 if 'batch_norm' in nn_layer_config and nn_layer_config['batch_norm']:
@@ -232,24 +242,27 @@ class dv_y_configuration(dv_configuration_base):
                     layer_str = layer_str + 'L'
                 if 'k_train' in nn_layer_config and nn_layer_config['k_train']:
                     layer_str = layer_str + 'T'
-                
                 layer_str = layer_str + "_"
-            exp_dir = exp_dir + layer_str
+            dv_exp_dir = dv_exp_dir + layer_str
+
         if self.y_feat_name == 'wav':
             if 'wav_SBT' in self.out_feat_list:
-                exp_dir = exp_dir + "DV%iS%iT%i" %(self.dv_dim, self.input_data_dim['S'], self.input_data_dim['T_B'])
+                dv_exp_dir = dv_exp_dir + "DV%iS%iT%i" %(self.dv_dim, self.input_data_dim['S'], self.input_data_dim['T_B'])
                 if 'T_M' in self.input_data_dim:
-                    exp_dir = exp_dir + 'TM%i' % self.input_data_dim['T_M']
+                    dv_exp_dir = dv_exp_dir + 'TM%i' % self.input_data_dim['T_M']
         elif self.y_feat_name == 'cmp':
-            exp_dir = exp_dir + "DV%iS%iT%iD%i" %(self.dv_dim, self.input_data_dim['S'], self.input_data_dim['T_B'], self.input_data_dim['D'])
+            dv_exp_dir = dv_exp_dir + "DV%iS%iT%iD%i" %(self.dv_dim, self.input_data_dim['S'], self.input_data_dim['T_B'], self.input_data_dim['D'])
         if self.use_voiced_only:
-            exp_dir = exp_dir + "_vO"+str(self.use_voiced_threshold)
+            dv_exp_dir = dv_exp_dir + "_vO"+str(self.use_voiced_threshold)
         if not self.train_by_window:
-            exp_dir = exp_dir + "_nTW"
+            dv_exp_dir = dv_exp_dir + "_nTW"
             if self.train_num_seconds > 0:
-                exp_dir = exp_dir + str(self.train_num_seconds) + 's'
+                dv_exp_dir = dv_exp_dir + str(self.train_num_seconds) + 's'
         if self.data_loader_random_seed > 0:
-            exp_dir = exp_dir  + '_seed' + str(self.data_loader_random_seed)
+            dv_exp_dir = dv_exp_dir  + '_seed' + str(self.data_loader_random_seed)
+        
+        self.dv_exp_dir = dv_exp_dir
+        exp_dir = os.path.join(cfg.work_dir, self.dv_exp_dir)
         return exp_dir
 
 
@@ -263,34 +276,55 @@ class dv_attention_configuration(dv_configuration_base):
         self.dv_y_cfg = dv_y_cfg
         self.logger = make_logger('dv_attn_conf')
         self.log_except_list = ['cfg', 'dv_y_cfg', 'feat_index']
-        self.run_mode = 'normal'
-
-        self.y_model_name = ''
-        self.load_y_model = False
-        self.load_attention_model = False
-        self.retrain_model = False
 
         self.init_dir()
         self.init_data()
         self.init_model()
         self.init_train()
 
+    def init_dir(self):
+        super().init_dir()
+        self.y_model_name = None
+        self.attention_model_name = None
+        self.load_y_model = False
+        self.load_attention_model = False
+        self.prev_y_model_name = ''
+        self.prev_attention_model_name = ''
+
+    def init_data(self):
+        super().init_data()
+        self.input_data_dim['S'] = self.dv_y_cfg.input_data_dim['S']
+        # Get T_B and B_stride from dv_y_cfg; convert to frame_sr
+
     def init_lab_data(self):
         self.feat_name = 'lab'
+        self.input_data_dim['S'] = self.dv_y_cfg.input_data_dim['S']
+        self.input_data_dim['T_S_max'] = numpy.inf # This is the maximum input length
+        self.input_data_dim['T_B'] = int(0.2 * self.cfg.frame_sr)
         self.label_index_list = [0,10,20,30,39]         #indices of labels within the frame, to stack and use
+        self.label_index_list = numpy.array(self.label_index_list)
         self.lab_dim = self.cfg.nn_feature_dims['lab']
+        self.input_data_dim['B_stride'] = 1
         self.update_lab_dim()
 
     def update_lab_dim(self):
         '''
         label_index_list may change, update accordingly
         '''
-        self.input_data_dim['T_B'] = len(self.label_index_list)
-        self.input_data_dim['D'] = self.lab * self.input_data_dim['T_B']
+        self.input_data_dim['M']  = len(self.label_index_list)
+        self.label_index_list = numpy.array(self.label_index_list)
+        self.input_data_dim['D'] = self.lab_dim * self.input_data_dim['M']
+        if self.dv_y_cfg.y_feat_name == 'wav':
+            self.input_data_dim['T_B'] = self.dv_y_cfg.input_data_dim['T_B'] * self.cfg.frame_sr / self.cfg.wav_sr
+            self.input_data_dim['B_stride'] = self.dv_y_cfg.input_data_dim['B_stride'] * self.cfg.frame_sr / self.cfg.wav_sr
+        elif self.dv_y_cfg.y_feat_name == 'cmp':
+            self.input_data_dim['T_B'] = self.dv_y_cfg.input_data_dim['T_B']
+            self.input_data_dim['B_stride'] = self.dv_y_cfg.input_data_dim['B_stride']
 
     def init_model(self):
-        super.init_model()
+        super().init_model()
         self.train_by_window = False
+        self.train_num_seconds = self.dv_y_cfg.train_num_seconds
         self.dv_dim = self.dv_y_cfg.dv_dim
 
         try: 
@@ -298,8 +332,20 @@ class dv_attention_configuration(dv_configuration_base):
         except AttributeError: 
             self.gpu_id = 0
 
-    def make_dv_exp_dir_name(self, cfg):
-        exp_dir = cfg.work_dir + '/dvatten_%s_%s_lr%.0E_fpu%i_' %(self.feat_name, self.y_model_name, self.learning_rate, self.feed_per_update)
+    def init_train(self):
+        super().init_train()
+        self.feed_per_update = self.dv_y_cfg.feed_per_update
+        self.epoch_num_batch  = self.dv_y_cfg.epoch_num_batch
+
+    def make_dv_exp_dir_name(self, cfg=None, dv_y_cfg=None):
+        # exp_dir_name contains 3 parts:
+        # work_dir, atten_exp_dir, dv_y_exp_dir
+        if cfg is None: cfg = self.cfg
+        if dv_y_cfg is None: dv_y_cfg = self.dv_y_cfg
+
+        self.dv_y_exp_dir = dv_y_cfg.dv_exp_dir
+        
+        atten_exp_dir = 'dvatten_%s_%s_lr%.0E_fpu%i_' %(self.feat_name, self.y_model_name, self.learning_rate, self.feed_per_update)
         for nn_layer_config in self.nn_layer_config_list:
             if nn_layer_config['type'] == 'Tensor_Reshape':
                 layer_str = ''
@@ -323,7 +369,16 @@ class dv_attention_configuration(dv_configuration_base):
                 #     layer_str = layer_str + 'T'
                 
                 layer_str = layer_str + "_"
-            exp_dir = exp_dir + layer_str
+            atten_exp_dir = atten_exp_dir + layer_str
+
+        if self.feat_name == 'lab':
+            atten_exp_dir = atten_exp_dir + "S%iM%iD%i" %(self.input_data_dim['S'], self.input_data_dim['M'], self.input_data_dim['D'])
+
+        if self.data_loader_random_seed > 0:
+            atten_exp_dir = atten_exp_dir  + '_seed' + str(self.data_loader_random_seed)
+
+        self.atten_exp_dir = atten_exp_dir
+        exp_dir = os.path.join(cfg.work_dir, self.dv_y_exp_dir, self.atten_exp_dir)
         return exp_dir
 
 
@@ -333,5 +388,5 @@ class dv_attention_configuration(dv_configuration_base):
         # Features
         self.dv_y_cfg.gpu_id = self.gpu_id
         self.dv_y_cfg.auto_complete(cfg, cache_files=False)
-        super().auto_complete(self, cfg, cache_files)
+        super().auto_complete(cfg, cache_files)
 
