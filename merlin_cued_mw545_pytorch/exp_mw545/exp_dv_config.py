@@ -344,6 +344,8 @@ class dv_attention_configuration(dv_configuration_base):
         if dv_y_cfg is None: dv_y_cfg = self.dv_y_cfg
 
         self.dv_y_exp_dir = dv_y_cfg.dv_exp_dir
+        if self.load_y_model:
+            self.dv_y_exp_dir += '_LY'
         
         atten_exp_dir = 'dvatten_%s_%s_lr%.0E_fpu%i_' %(self.feat_name, self.y_model_name, self.learning_rate, self.feed_per_update)
         for nn_layer_config in self.nn_layer_config_list:
