@@ -96,7 +96,7 @@ class Build_DV_Y_Model_Trainer(Build_Model_Trainer_Base):
         self.build_data_loader()
 
         feed_dict, batch_size = self.data_loader.make_feed_dict(utter_tvt_name='train')
-        self.logger.info('Print batch size: %i' & batch_size)
+        self.logger.info('Print batch size: %i' % batch_size)
         self.logger.info('Print feed_dict shapes')
         for k in feed_dict:
             print('%s, %s' %(k, str(feed_dict[k].shape)))
@@ -198,14 +198,14 @@ class Build_DV_Y_Testing(object):
             test_fn = Build_Positional_CMP_Test(self.cfg, self.test_cfg, fig_file_name)
         test_fn.test(distance_type)
 
-    def number_secs_accu_test(self, output_dir='/home/dawna/tts/mw545/Export_Temp'):
+    def number_secs_accu_test(self, output_dir='/home/dawna/tts/mw545/Export_Temp', list_num_seconds_to_test=None):
         # if self.test_cfg.y_feat_name == 'cmp':
-        test_fn = Build_DV_Y_Number_Seconds_Accu_Test(self.cfg, self.test_cfg, output_dir)
+        test_fn = Build_DV_Y_Number_Seconds_Accu_Test(self.cfg, self.test_cfg, output_dir, list_num_seconds_to_test)
         test_fn.test()
 
 class Build_DV_Y_Testing_Base(object):
     """Base class of tests of dv_y models"""
-    def __init__(self, cfg, dv_y_cfg):
+    def __init__(self, cfg, dv_y_cfg, load_model=True, load_data_loader=True):
         super().__init__()
         self.logger = make_logger("test_model")
         self.cfg = cfg
@@ -213,10 +213,12 @@ class Build_DV_Y_Testing_Base(object):
         self.dv_y_cfg.input_data_dim['S'] = 1
         log_class_attri(self.dv_y_cfg, self.logger, except_list=self.dv_y_cfg.log_except_list)
 
-        self.load_model()
-        numpy.random.seed(546)
-        self.logger.info('Creating data loader')
-        self.data_loader = Build_dv_y_train_data_loader(self.cfg, self.dv_y_cfg)
+        if load_model:
+            self.load_model()
+        if load_data_loader:
+            numpy.random.seed(546)
+            self.logger.info('Creating data loader')
+            self.data_loader = Build_dv_y_train_data_loader(self.cfg, self.dv_y_cfg)
 
     def load_model(self):
         dv_y_cfg = self.dv_y_cfg
@@ -342,7 +344,7 @@ class Build_DV_Y_Number_Seconds_Accu_Test(Build_DV_Y_Testing_Base):
         time is proportional to num_seconds_to_test
         e.g. cmp model, 5s test, num_draw_per_speaker=1, 2min; 50s, 20min
     """
-    def __init__(self, cfg, dv_y_cfg, output_dir):
+    def __init__(self, cfg, dv_y_cfg, output_dir, list_num_seconds_to_test=None):
         super().__init__(cfg, dv_y_cfg)
         self.output_dir = output_dir
         self.logger.info('DV_Y_Number_Seconds_Accuracy_Test')
@@ -350,7 +352,10 @@ class Build_DV_Y_Number_Seconds_Accu_Test(Build_DV_Y_Testing_Base):
         self.speaker_id_list = self.cfg.speaker_id_list_dict['train']
         self.dv_calculator = DV_Calculator()
 
-        self.list_num_seconds_to_test = [5,10,15,20,25,30,35,40,45,50,55]
+        if list_num_seconds_to_test is None:
+            self.list_num_seconds_to_test = [5,10,15,20,25,30,35,40,45,50,55]
+        else:
+            self.list_num_seconds_to_test = list_num_seconds_to_test
         self.num_accuracies_mean_std = 30
         self.num_draw_per_speaker = 5
 
@@ -701,19 +706,20 @@ class DV_Y_Config_CMP_2_Wav(object):
         super().__init__()
         self.out_feat_list = ['vuv_SBM']
         self.input_data_dim = {}
-        for k in ['S','B','M']:
+        for k in ['S','M']:
             self.input_data_dim[k] = dv_y_cfg.input_data_dim[k]
 
         self.input_data_dim['S'] = dv_y_cfg.input_data_dim['S']
-        self.input_data_dim['B'] = dv_y_cfg.input_data_dim['B']
+        # self.input_data_dim['B'] = dv_y_cfg.input_data_dim['B']
         self.input_data_dim['M'] = dv_y_cfg.input_data_dim['T_B']
 
-        self.input_data_dim['B_stride'] = 80
+        # self.input_data_dim['B_stride'] = 80 
+        self.input_data_dim['B_stride'] = 0.005 * dv_y_cfg.cfg.wav_sr
         self.input_data_dim['T_M'] = 640
         self.input_data_dim['M_stride'] = 80
 
         self.input_data_dim['T_B'] = self.input_data_dim['T_M'] + (self.input_data_dim['M']-1) * self.input_data_dim['M_stride']
-        self.input_data_dim['T_S'] = self.input_data_dim['T_B'] + (self.input_data_dim['B']-1) * self.input_data_dim['B_stride']
+        # self.input_data_dim['T_S'] = self.input_data_dim['T_B'] + (self.input_data_dim['B']-1) * self.input_data_dim['B_stride']
 
         self.log_except_list = []
 

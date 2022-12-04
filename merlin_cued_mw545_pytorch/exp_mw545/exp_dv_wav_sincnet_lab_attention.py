@@ -22,7 +22,7 @@ class dv_wav_sincnet_lab_attention_configuration(dv_attention_configuration):
         self.load_y_model = True
         self.y_model_name = 'sincnet_frame'
         # self.prev_y_model_name = '/home/dawna/tts/mw545/TorchDV/dv_wav_sincnet/dvy_wav_lr1E-04_fpu40_Sin60_LRe512L_LRe512L_Lin512L_DV512S10T3000/Model'
-        self.prev_y_model_name = '/home/dawna/tts/mw545/TorchDV/dv_wav_sincnet/dvy_wav_lr1E-04_fpu10_Sin80_LRe512L_LRe512L_Lin512L_DV512S10T3000/Model'
+        self.prev_y_model_name = '/data/vectra2/tts/mw545/TorchDV/dv_wav_sincnet/dvy_wav_lr1E-04_fpu10_Sin80_LRe512L_LRe512L_Lin512L_DV512S10T3000/Model'
         # self.y_model_name = 'sincnet'
         # self.prev_y_model_name = '/home/dawna/tts/mw545/TorchDV/dv_wav_sincnet/dvy_wav_lr1E-04_fpu40_Sin60_LRe512L_LRe512L_Lin512L_DV512S10T3000_nTW5s/Model'
 
@@ -111,9 +111,10 @@ def test_model(cfg, dv_attn_cfg=None, dv_y_cfg=None):
     # dv_model_test.positional_test(fig_file_name)
 
     # Additional output dir; also output to the exp dir
-    output_dir = '/home/dawna/tts/mw545/Export_Temp/PNG_out'
-    dv_model_test.gen_dv(output_dir)
-    dv_model_test.cross_entropy_accuracy_test()
-    dv_model_test.number_secs_accu_test(output_dir)
+    # output_dir = '/home/dawna/tts/mw545/Export_Temp/PNG_out'
+    output_dir = '/data/vectra2/tts/mw545/Export_Temp/PNG_out'
+    # dv_model_test.gen_dv(output_dir)
+    # dv_model_test.cross_entropy_accuracy_test()
+    dv_model_test.number_secs_accu_test(output_dir,[40,45,50,55])
 
 

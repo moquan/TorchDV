@@ -20,32 +20,53 @@ class configuration(object):
         self.Processes['TrainCMPDVY'] = True
         self.Processes['TestCMPDVY']  = False
 
-        self.Processes['TrainCMPLabAtten'] = False
-        self.Processes['TestCMPLabAtten'] = False
-
-        # 200ms window is sliced into smaller windows of 40ms
-        # lf0, tau, vuv are concatenated to the wav vector
-        self.Processes['TrainWavSubwinDVY'] = False
-        self.Processes['TestWavSubwinDVY']  = False
-
         # Experiments with SincNet
         self.Processes['TrainWavSincNet'] = False
         self.Processes['TestWavSincNet']  = False
+
+        # Experiments with MFCC-based x-vector
+        self.Processes['TrainMFCCXVec'] = False
+        self.Processes['TestMFCCXVec']  = False
 
         # Experiments where F0 and phase shift info are predicted
         # 200ms window is sliced into smaller frames of 40ms
         self.Processes['TrainWavSineV0'] = False
         self.Processes['TestWavSineV0']  = False
 
+        # 
         self.Processes['TrainWavSineV1'] = False
         self.Processes['TestWavSineV1']  = False
+
+        #
 
         self.Processes['TrainWavSineV2'] = False
         self.Processes['TestWavSineV2']  = False
 
+        '''
+        Lab-based Attention
+        '''
+        self.Processes['TrainCMPLabAtten'] = False
+        self.Processes['TestCMPLabAtten']  = False
+
+        self.Processes['TrainWavSincNetLabAtten'] = False
+        self.Processes['TestWavSincNetLabAtten']  = False
+
+        self.Processes['TrainWavSineV0LabAtten'] = False
+        self.Processes['TestWavSineV0LabAtten']  = False
+
+        self.Processes['TrainWavSineV2LabAtten'] = False
+        self.Processes['TestWavSineV2LabAtten']  = False
+
+        '''
+        Useless?
+        '''
+        self.Processes['TrainWavSubwinDVY'] = False
+        self.Processes['TestWavSubwinDVY']  = False
+
     def init_all(self, work_dir, cache_files=True):
         if work_dir is None:
-            self.work_dir = "/home/dawna/tts/mw545/TorchDV/debug_nausicaa"
+            # self.work_dir = "/home/dawna/tts/mw545/TorchDV/debug_nausicaa"
+            self.work_dir = "/data/vectra2/tts/mw545/TorchDV/debug_nausicaa"
         else:
             self.work_dir = work_dir # Comes from bash command argument, ${PWD}
 

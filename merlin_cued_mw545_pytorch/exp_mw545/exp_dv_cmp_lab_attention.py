@@ -13,16 +13,16 @@ class dv_cmp_lab_attention_configuration(dv_attention_configuration):
     """docstring for dv_cmp_attention_configuration"""
     def __init__(self, cfg, dv_y_cfg, cache_files=True):
         super().__init__(cfg, dv_y_cfg)
-        self.retrain_model = False
+        self.retrain_model = True
         self.learning_rate  = 0.000001
-        # self.prev_nnets_file_name = '/home/dawna/tts/mw545/TorchDV/dv_cmp_lab_attention/dvy_cmp_lr1E-04_fpu40_LRe512L_LRe512L_Lin512L_DV512S10T40D3440_nTW10s/dvatten_lab_cmp_frame_lr1E-05_fpu40_LRe256L_LRe16L_LRe1L_S10M5D3005/Model'
+        self.prev_nnets_file_name = '/data/vectra2/tts/mw545/TorchDV/dv_cmp_dnn_lab_atten/dvy_cmp_lr1E-04_fpu40_LRe512L_LRe512L_Lin512L_DV512S10T40D3440_nTW20s_LY/dvatten_lab_cmp_frame_lr1E-06_fpu40_LRe256L_LRe16L_LRe1L_S10M5D3005/Model'
         self.python_script_name = os.path.realpath(__file__)
         self.data_dir_mode = 'scratch' # Use scratch for speed up
         self.data_loader_random_seed = 0
 
-        self.load_y_model = False
+        self.load_y_model = True
         self.y_model_name = 'cmp_frame'
-        self.prev_y_model_name = '/home/dawna/tts/mw545/TorchDV/dv_cmp_baseline/dvy_cmp_lr1E-04_fpu40_LRe512L_LRe512L_Lin512L_DV512S10T40D3440/Model'
+        self.prev_y_model_name = '/data/vectra2/tts/mw545/TorchDV/dv_cmp_dnn/dvy_cmp_lr1E-04_fpu40_LRe512L_LRe512L_Lin512L_DV512S10T40D3440/Model'
         # self.y_model_name = 'cmp_random'
         # self.prev_y_model_name = '/home/dawna/tts/mw545/TorchDV/dv_cmp_baseline/dvy_cmp_lr1E-04_fpu40_LRe512L_LRe512L_Lin512L_DV512S10T40D3440_nTW5s/Model'
         # self.y_model_name = 'cmp_train_stride40'
@@ -110,7 +110,8 @@ def test_model(cfg, dv_attn_cfg=None, dv_y_cfg=None):
     # dv_model_test.positional_test(fig_file_name)
 
     # Additional output dir; also output to the exp dir
-    output_dir = '/home/dawna/tts/mw545/Export_Temp/PNG_out'
+    # output_dir = '/home/dawna/tts/mw545/Export_Temp/PNG_out'
+    output_dir = '/data/vectra2/tts/mw545/Export_Temp/PNG_out'
     dv_model_test.gen_dv(output_dir)
     dv_model_test.cross_entropy_accuracy_test()
     dv_model_test.number_secs_accu_test(output_dir)

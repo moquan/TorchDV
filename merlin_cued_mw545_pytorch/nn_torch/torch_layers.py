@@ -6,7 +6,7 @@ numpy.random.seed(545)
 import torch
 torch.manual_seed(545)
 
-from modules import make_logger
+from frontend_mw545.modules import make_logger, copy_dict
 
 #####################
 # PyTorch functions #
@@ -54,6 +54,8 @@ class Build_DV_Y_Input_Layer(object):
             self.init_wav(dv_y_cfg)
         elif dv_y_cfg.y_feat_name == 'cmp':
             self.init_cmp(dv_y_cfg)
+        elif dv_y_cfg.y_feat_name == 'mfcc':
+            self.init_mfcc(dv_y_cfg)
 
     def init_wav(self, dv_y_cfg):
         self.params = {}
@@ -71,6 +73,53 @@ class Build_DV_Y_Input_Layer(object):
         self.params = {}
         self.params["output_dim_seq"]      = ['S', 'B', 'D']
         self.params["output_dim_values"]   = {'S':dv_y_cfg.input_data_dim['S'], 'B':None, 'D':dv_y_cfg.input_data_dim['D']}
+
+    def init_mfcc(self, dv_y_cfg):
+        self.params = {}
+        self.params["output_dim_seq"]      = ['S', 'B', 'D']
+        self.params["output_dim_values"]   = {'S':dv_y_cfg.input_data_dim['S'], 'B':None, 'D':dv_y_cfg.input_data_dim['D']}
+
+class Build_ATTEN_Input_Layer(object):
+    ''' This layer has only parameters, no torch.nn.module '''
+    ''' Mainly for the prev_layer argument '''
+    def __init__(self, dv_attn_cfg):
+        self.dv_attn_cfg = dv_attn_cfg
+        if dv_attn_cfg.feat_name == 'lab':
+            self.init_lab(dv_attn_cfg)
+
+    def init_lab(self, dv_attn_cfg):
+        self.params = {}
+        self.params["output_dim_seq"]      = ['S', 'B', 'D']
+        self.params["output_dim_values"]   = {'S':dv_attn_cfg.input_data_dim['S'], 'B':None, 'D':dv_attn_cfg.input_data_dim['D']}
+
+class Build_SB1_Masked_Softmax_Layer(torch.nn.Module):
+    '''
+    Masked Soffmax Layer
+    Input: S*B*1
+    Mask: S*B
+    Output: S*B*1
+    '''
+    def __init__(self, S):
+        super().__init__()
+
+    def forward(self, x_dict):
+        if 'h' in x_dict:
+            x = x_dict['h']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+        mask_SB1 = torch.unsqueeze(x_dict['output_mask_S_B'], 2)
+        x_exp = torch.exp(x)
+        x_exp_masked = torch.mul(mask_SB1, x_exp)
+        x_sum_S_1_1 = torch.sum(x_exp_masked, dim=1, keepdim=True)
+        y_norm = torch.true_divide(x_exp_masked, x_sum_S_1_1)
+
+        y_dict = copy_dict(x_dict, except_List=['h','x', 'output_mask_S_B'])
+        y_dict['h'] = y_norm
+        return y_dict
+
+
+
+
 
 class Build_FC_Layer(torch.nn.Module):
     """
@@ -166,11 +215,7 @@ class Build_Tensor_Reshape(torch.nn.Module):
         '''
         Copy every key-value pair to the new dict, except keys in the list
         '''
-        y_dict = {}
-        for k in x_dict:
-            if k not in except_List:
-                y_dict[k] = x_dict[k]
-        return y_dict
+        return copy_dict(x_dict, except_List)
 
     def wav_SBT_2_wav_SBMT(self):
         '''
@@ -179,7 +224,7 @@ class Build_Tensor_Reshape(torch.nn.Module):
         win_len_shift = self.params["layer_config"]["win_len_shift"]
         S = self.params["input_dim_values"]['S']
         B = self.params["input_dim_values"]['B']
-        T = self.params["input_dim_values"]['T']        
+        T = self.params["input_dim_values"]['T']
         M = self.compute_num_seq(T, win_len_shift[0], win_len_shift[1])
 
         self.params["output_dim_seq"] = ['S', 'B', 'M', 'T']
@@ -302,16 +347,44 @@ class Build_Tensor_Reshape(torch.nn.Module):
         Reshape 2D into 3D
         '''
         h_SB_D = x_dict['h']
-        S = self.params["input_dim_values"]['S']
+        if 'S_data' in x_dict:
+            S = x_dict['S_data']
+        else:
+            S = self.params["input_dim_values"]['S']
         D = self.params["input_dim_values"]['D']
         h_SBD  = h_SB_D.view([S, -1, D])
         y_dict = self.copy_dict(x_dict, except_List=['h'])
         y_dict['h'] = h_SBD
         return y_dict
 
+    def h_SBD_wav_feats_split(self):
+        '''
+        Split h_SBD into features
+        possible values are ['wav_SBT', 'f_SBM', 'tau_SBM', 'vuv_SBM']
+        '''
+        self.params["output_dim_seq"] = ['S', 'B', 'T', 'M'] # This T is T_B
+        self.params['output_dim_values'] = self.params["input_dim_values"]
+        self.params['output_dim_values']['M'] = self.params["layer_config"]["input_data_dim"]['M']
+        self.params['out_feat_list'] = self.params["layer_config"]["out_feat_list"]
 
+        self.forward = self.h_SBD_wav_feats_split_fn
 
-    
+    def h_SBD_wav_feats_split_fn(self, x_dict):
+        start_index = 0
+        T = self.params['output_dim_values']['T']
+        M = self.params['output_dim_values']['M']
+
+        for feat_name in self.params['out_feat_list']:
+            if feat_name == 'wav_SBT':
+                wav_SBT = x_dict['h'][:,:,start_index:start_index+T]
+                y_dict = {'wav_SBT': wav_SBT}
+                start_index += T
+            else:
+                feat_tensor = x_dict['h'][:,:,start_index:start_index+M]
+                y_dict[feat_name] = feat_tensor
+                start_index += M
+
+        return y_dict
 
 class Build_NN_Layer(torch.nn.Module):
     def __init__(self, layer_config, prev_layer=None):
@@ -387,7 +460,10 @@ class Build_NN_Layer(torch.nn.Module):
         self.layer_fn = Build_Sinenet_V1_Residual(self.params)
 
     def SincNet(self):
-        self.layer_fn = Build_SincNet(self.params)        
+        self.layer_fn = Build_SincNet(self.params)
+
+    def X_vector(self):
+        self.layer_fn = Build_X_vector(self.params)        
 
 class Build_SincNet(torch.nn.Module):
     ''' 
@@ -416,7 +492,8 @@ class Build_SincNet(torch.nn.Module):
 
         h_SB_D = self.sincnet_fn(x)
 
-        y_dict = {'h': h_SB_D}
+        y_dict = copy_dict(x_dict, except_List=['h','wav_SB_T'])
+        y_dict['h'] = h_SB_D
         return y_dict
 
     def make_sincnet_config(self):
@@ -435,6 +512,53 @@ class Build_SincNet(torch.nn.Module):
           'cnn_drop':[0.0,0.0,0.0],          
         }
         return sincnet_config
+
+class Build_X_vector(torch.nn.Module):
+    def __init__(self, params):
+        super(X_vector, self).__init__()
+        self.params = params
+
+        from nn_torch.x_vector import TDNN
+        D_in  = self.params['input_dim_values']['D']
+        D_out = self.params["layer_config"]['size']
+
+        self.params["output_dim_seq"] = ['S','B', 'D']
+        self.params["output_dim_values"] = {'S': self.params["input_dim_values"]['S'], 'B': None, 'D': D_out}
+
+        self.tdnn1 = TDNN(input_dim=input_dim, output_dim=512, context_size=5, dilation=1,dropout_p=0.5)
+        self.tdnn2 = TDNN(input_dim=512, output_dim=512, context_size=3, dilation=1,dropout_p=0.5)
+        self.tdnn3 = TDNN(input_dim=512, output_dim=512, context_size=2, dilation=2,dropout_p=0.5)
+        self.tdnn4 = TDNN(input_dim=512, output_dim=512, context_size=1, dilation=1,dropout_p=0.5)
+        self.tdnn5 = TDNN(input_dim=512, output_dim=D_out, context_size=1, dilation=3,dropout_p=0.5)
+        #### Frame levelPooling
+        # self.segment6 = nn.Linear(1024, 512)
+        # self.segment7 = nn.Linear(512, 512)
+        # self.output = nn.Linear(512, num_classes)
+        # self.softmax = nn.Softmax(dim=1)
+    def forward(self, x_dict):
+        if 'h' in x_dict:
+            x = x_dict['h']
+        elif 'x' in x_dict:
+            x = x_dict['x']
+        tdnn1_out = self.tdnn1(x)
+        tdnn2_out = self.tdnn2(tdnn1_out)
+        tdnn3_out = self.tdnn3(tdnn2_out)
+        tdnn4_out = self.tdnn4(tdnn3_out)
+        tdnn5_out = self.tdnn5(tdnn4_out)
+        ### Stat Pool
+        # mean = torch.mean(tdnn5_out,1)
+        # std = torch.std(tdnn5_out,1)
+        # stat_pooling = torch.cat((mean,std),1)
+        # segment6_out = self.segment6(stat_pooling)
+        # x_vec = self.segment7(segment6_out)
+        # predictions = self.softmax(self.output(x_vec))
+        # return predictions,x_vec
+        y_dict = {'h': tdnn5_out}
+        return y_dict
+
+    def modify_x_dict(self, x_dict):
+        # Modify lens and mask
+        pass
 
 
 
@@ -581,7 +705,244 @@ class Build_Sinenet(torch.nn.Module):
         s_c = torch.cat([s,c], dim=3)    # S*B*M*2K*T
         return s_c
 
+class Build_Sinenet_V0(torch.nn.Module):
+    ''' 
+        Inputs: wav_SBMT, f0_SBM, tau_SBM
+        Output: h: S*B*M*D
+        1. Apply sinenet on each sub-window within
+            1.1 f and tau may come from data, or model parameter
+            1.2 f and tau cannot be both model parameters; use Sinenet_V2 instead
+        2. Stack nlf_SBM, tau_SBM, vuv_SBM (if inc_a)
+        3. Apply fc, add, batch_norm, relu
+    '''
+    def __init__(self, params):
+        super().__init__()
+        self.params = params
+        layer_config = self.params["layer_config"]
+        D_out = layer_config['size']
+
+        self.params["output_dim_seq"] = ['S', 'B', 'M', 'D']
+        self.num_freq = layer_config['num_freq']
+        # Options; D: from data, f_SBM; P: model parameter
+        self.use_f   = layer_config['use_f']
+        self.use_tau = layer_config['use_tau']
+        self.inc_a   = layer_config['inc_a']
+        # assert layer_config['size'] == sine_size + 3
+        # D_out = (layer_config['size']) * self.params["input_dim_values"]['M']
+        self.params["output_dim_values"] = {'S': self.params["input_dim_values"]['S'], 'B': self.params["input_dim_values"]['B'], 'M': self.params["input_dim_values"]['M'], 'D': D_out}
+        self.make_f_tau()
+
+        self.sinenet_fn = Build_Sinenet(params)
+
+        self.linear_fn_1 = torch.nn.Linear(self.num_freq*2, D_out)
+        if self.inc_a:
+            self.linear_fn_2 = torch.nn.Linear(3, D_out)
+
+        self.activation_fn = self.params['activation_fn']
+
+    def make_f_tau(self):
+        # Make f and tau if they are model parameters
+        if self.use_f == 'P':
+            # gamma_k is already in sinenet_fn
+            # feed f_bar of data
+            self.f_init_value = 155.
+            S = self.params["output_dim_values"]['S']
+            B = self.params["output_dim_values"]['B']
+            M = self.params["output_dim_values"]['M']
+            f_value  = numpy.ones((S,B,M)) * self.f_init_value
+            f_tensor = torch.tensor(f_value, dtype=torch.float, requires_grad=False)
+            self.f_use = torch.nn.Parameter(f_tensor, requires_grad=False) # K
+
+        if self.use_tau == 'P':
+            # TODO: this is slightly tricky; data tau_SBM; param tau_K
+            pass
+            # tau_vec = numpy.zeros(self.num_freq)
+            # tau_tensor = torch.tensor(tau_vec, dtype=torch.float, requires_grad=True)
+            # tau_tensor = torch.nn.Parameter(tau_tensor, requires_grad=True) # K
+
+    def read_f_tau(self, f, tau):
+        # Use data or parameter f and tau
+        if self.use_f == 'D':
+            f_use = f
+        else:
+            f_use = self.f_use
+
+        if self.use_tau == 'D':
+            tau_use = tau
+        else:
+            # Expand from K to SBMK
+            tau_use = self.tau_use
+
+        return f_use, tau_use
+
+
+    def forward(self, x_dict):
+        
+        if 'wav_SBMT' in x_dict:
+            x = x_dict['wav_SBMT']
+        elif 'h' in x_dict:
+            x = x_dict['h']
+        
+        f, nlf = compute_f_nlf(x_dict)
+        tau = x_dict['tau_SBM']
+        vuv = x_dict['vuv_SBM']
+        
+        f_use, tau_use = self.read_f_tau(f, tau)
+        # sinenet
+        sin_cos_x = self.sinenet_fn(x, f_use, tau_use)  # S*B*M*2K
+        y_SBMD = self.linear_fn_1(sin_cos_x) # S*B*M*2K -> S*B*M*D
+
+        # nlf, tau, vuv
+        if self.inc_a:
+            nlf_1 = torch.unsqueeze(nlf, 3)
+            tau_1 = torch.unsqueeze(tau, 3)
+            vuv_1 = torch.unsqueeze(vuv, 3)
+            nlf_tau_vuv = torch.cat([nlf_1, tau_1, vuv_1], 3)
+            y_SBMD_2 = self.linear_fn_2(nlf_tau_vuv) # S*B*M*3 -> S*B*M*D
+
+            y_SBMD = y_SBMD + y_SBMD_2
+
+        # ReLU
+        h_SBMD = self.activation_fn(y_SBMD)
+
+        y_dict = {'h': h_SBMD}
+        return y_dict
+
 class Build_Sinenet_V1(torch.nn.Module):
+    ''' 
+        Inputs: wav_SBMT, f0_SBM, tau_SBM
+        Output: h: S*B*M*D
+        1. Apply sinenet on each sub-window within
+            1.1 f and tau come from data
+        2. Apply fc, add, batch_norm, relu
+        3. Stack nlf_SBM, tau_SBM, vuv_SBM
+    '''
+    def __init__(self, params):
+        super().__init__()
+        self.params = params
+        layer_config = self.params["layer_config"]
+        D_out = layer_config['size']
+
+        self.params["output_dim_seq"] = ['S', 'B', 'M', 'D']
+        self.num_freq = layer_config['num_freq']
+        self.params["output_dim_values"] = {'S': self.params["input_dim_values"]['S'], 'B': self.params["input_dim_values"]['B'], 'M': self.params["input_dim_values"]['M'], 'D': D_out+3}
+
+        self.sinenet_fn = Build_Sinenet(params)
+        self.linear_fn_1 = torch.nn.Linear(self.num_freq*2, D_out)
+        self.activation_fn = self.params['activation_fn']
+
+
+    def read_f_tau(self, f, tau):
+        # Use data or parameter f and tau
+        if self.use_f == 'D':
+            f_use = f
+        else:
+            f_use = self.f_use
+
+        if self.use_tau == 'D':
+            tau_use = tau
+        else:
+            # Expand from K to SBMK
+            tau_use = self.tau_use
+
+        return f_use, tau_use
+
+
+    def forward(self, x_dict):
+        
+        if 'wav_SBMT' in x_dict:
+            x = x_dict['wav_SBMT']
+        elif 'h' in x_dict:
+            x = x_dict['h']
+        
+        f, nlf = compute_f_nlf(x_dict)
+        tau = x_dict['tau_SBM']
+        vuv = x_dict['vuv_SBM']
+        
+        # sinenet
+        sin_cos_x = self.sinenet_fn(x, f, tau)  # S*B*M*2K
+        y_SBMD = self.linear_fn_1(sin_cos_x) # S*B*M*2K -> S*B*M*D
+        # ReLU
+        y_SBMD_1 = self.activation_fn(y_SBMD)
+
+        # nlf, tau, vuv
+        nlf_1 = torch.unsqueeze(nlf, 3)
+        tau_1 = torch.unsqueeze(tau, 3)
+        vuv_1 = torch.unsqueeze(vuv, 3)
+        h_SBMD = torch.cat([y_SBMD_1, nlf_1, tau_1, vuv_1], 3)
+
+        y_dict = {'h': h_SBMD}
+        return y_dict
+
+class Build_Sinenet_V2(torch.nn.Module):
+    ''' 
+        Inputs: wav_SBMT, f0_SBM, tau_SBM
+        Output: h: S*B*M*D
+        1. Apply sinenet on each sub-window within
+            1.1 f and tau come from data
+        2. Apply fc, add, batch_norm, relu
+        3. Stack nlf_SBM, tau_SBM, vuv_SBM
+    '''
+    def __init__(self, params):
+        super().__init__()
+        self.params = params
+        layer_config = self.params["layer_config"]
+        D_out = layer_config['size']
+
+        self.params["output_dim_seq"] = ['S', 'B', 'M', 'D']
+        self.num_freq = layer_config['num_freq']
+        self.params["output_dim_values"] = {'S': self.params["input_dim_values"]['S'], 'B': self.params["input_dim_values"]['B'], 'M': self.params["input_dim_values"]['M'], 'D': D_out+3}
+
+        self.sinenet_fn = Build_Sinenet(params)
+        self.linear_fn_1 = torch.nn.Linear(self.num_freq*2, D_out)
+        self.uv_net = self.build_uv_net(params, layer_config)
+        self.activation_fn = self.params['activation_fn']
+
+    def build_uv_net(self, params, layer_config):
+        if layer_config['uv_net'] == 'DNN':
+            D_in = self.params["input_dim_values"]['T']
+            D_out = layer_config['size']
+            return torch.nn.Linear(D_in, D_out)
+
+    def forward(self, x_dict):
+        
+        if 'wav_SBMT' in x_dict:
+            x = x_dict['wav_SBMT']
+        elif 'h' in x_dict:
+            x = x_dict['h']
+        
+        f, nlf = compute_f_nlf(x_dict)
+        tau = x_dict['tau_SBM']
+        vuv = x_dict['vuv_SBM']
+        
+        # sinenet
+        sin_cos_x = self.sinenet_fn(x, f, tau)  # S*B*M*2K
+        y_SBMD_v = self.linear_fn_1(sin_cos_x) # S*B*M*2K -> S*B*M*D
+
+        # uv_net
+        y_SBMD_uv = self.uv_net(x)
+
+        # gating
+        vuv_1 = torch.unsqueeze(vuv, 3)
+        y_SBMD = torch.mul(vuv_1, y_SBMD_v) + torch.mul((1-vuv_1), y_SBMD_uv)
+
+        # ReLU
+        y_SBMD_1 = self.activation_fn(y_SBMD)
+
+        # nlf, tau, vuv
+        nlf_1 = torch.unsqueeze(nlf, 3)
+        tau_1 = torch.unsqueeze(tau, 3)
+        vuv_1 = torch.unsqueeze(vuv, 3)
+        h_SBMD = torch.cat([y_SBMD_1, nlf_1, tau_1, vuv_1], 3)
+
+        y_dict = {'h': h_SBMD}
+        return y_dict
+
+###########################
+# SineNet old and useless #
+###########################
+
+class Build_Sinenet_V1_old(torch.nn.Module):
     ''' 
         Inputs: wav_SBMT, f0_SBM, tau_SBM
         Output: h: S*B*M*D
@@ -642,7 +1003,7 @@ class Build_Sinenet_V1(torch.nn.Module):
         y_dict = {'h': h_SBMD}
         return y_dict
 
-class Build_Sinenet_V2(torch.nn.Module):
+class Build_Sinenet_V2_old(torch.nn.Module):
     ''' 
         Model Parameters lf0 and tau values
         Input:  wav_SBMT
@@ -808,123 +1169,6 @@ class Build_Sinenet_V1_Residual(torch.nn.Module):
         # Batch Norm
         if self.batch_norm:
             y_SBMD = batch_norm_D_tensor(y_SBMD, self.bn_fn, index_D=self.D_index)
-
-        # ReLU
-        h_SBMD = self.activation_fn(y_SBMD)
-
-        y_dict = {'h': h_SBMD}
-        return y_dict
-
-
-class Build_Sinenet_V0(torch.nn.Module):
-    ''' 
-        Inputs: wav_SBMT, f0_SBM, tau_SBM
-        Output: h: S*B*M*D
-        1. Apply sinenet on each sub-window within
-            1.1 f and tau may come from data, or model parameter
-            1.2 f and tau cannot be both model parameters; use Sinenet_V2 instead
-        2. Stack nlf_SBM, tau_SBM, vuv_SBM (if inc_a)
-        3. Apply fc, add, batch_norm, relu
-    '''
-    def __init__(self, params):
-        super().__init__()
-        self.params = params
-        layer_config = self.params["layer_config"]
-        D_out = layer_config['size']
-
-        self.params["output_dim_seq"] = ['S', 'B', 'M', 'D']
-        self.num_freq = layer_config['num_freq']
-        # Options; D: from data, f_SBM; P: model parameter
-        self.use_f   = layer_config['use_f']
-        self.use_tau = layer_config['use_tau']
-        self.inc_a   = layer_config['inc_a']
-        # assert layer_config['size'] == sine_size + 3
-        # D_out = (layer_config['size']) * self.params["input_dim_values"]['M']
-        self.params["output_dim_values"] = {'S': self.params["input_dim_values"]['S'], 'B': self.params["input_dim_values"]['B'], 'M': self.params["input_dim_values"]['M'], 'D': D_out}
-        self.make_f_tau()
-
-        self.sinenet_fn = Build_Sinenet(params)
-
-        self.linear_fn_1 = torch.nn.Linear(self.num_freq*2, D_out)
-        if self.inc_a:
-            self.linear_fn_2 = torch.nn.Linear(3, D_out)
-
-        self.activation_fn = self.params['activation_fn']
-
-
-
-
-
-
-
-
-
-
-
-
-    def make_f_tau(self):
-        # Make f and tau if they are model parameters
-        if self.use_f == 'P':
-            # gamma_k is already in sinenet_fn
-            # feed f_bar of data
-            self.f_init_value = 155.
-            S = self.params["output_dim_values"]['S']
-            B = self.params["output_dim_values"]['B']
-            M = self.params["output_dim_values"]['M']
-            f_value  = numpy.ones((S,B,M)) * self.f_init_value
-            f_tensor = torch.tensor(f_value, dtype=torch.float, requires_grad=False)
-            self.f_use = torch.nn.Parameter(f_tensor, requires_grad=False) # K
-
-        if self.use_tau == 'P':
-            # TODO: this is slightly tricky; data tau_SBM; param tau_K
-            pass
-            # tau_vec = numpy.zeros(self.num_freq)
-            # tau_tensor = torch.tensor(tau_vec, dtype=torch.float, requires_grad=True)
-            # tau_tensor = torch.nn.Parameter(tau_tensor, requires_grad=True) # K
-
-
-
-    def read_f_tau(self, f, tau):
-        # Use data or parameter f and tau
-        if self.use_f == 'D':
-            f_use = f
-        else:
-            f_use = self.f_use
-
-        if self.use_tau == 'D':
-            tau_use = tau
-        else:
-            # Expand from K to SBMK
-            tau_use = self.tau_use
-
-        return f_use, tau_use
-
-
-    def forward(self, x_dict):
-        
-        if 'wav_SBMT' in x_dict:
-            x = x_dict['wav_SBMT']
-        elif 'h' in x_dict:
-            x = x_dict['h']
-        
-        f, nlf = compute_f_nlf(x_dict)
-        tau = x_dict['tau_SBM']
-        vuv = x_dict['vuv_SBM']
-        
-        f_use, tau_use = self.read_f_tau(f, tau)
-        # sinenet
-        sin_cos_x = self.sinenet_fn(x, f_use, tau_use)  # S*B*M*2K
-        y_SBMD = self.linear_fn_1(sin_cos_x) # S*B*M*2K -> S*B*M*D
-
-        # nlf, tau, vuv
-        if self.inc_a:
-            nlf_1 = torch.unsqueeze(nlf, 3)
-            tau_1 = torch.unsqueeze(tau, 3)
-            vuv_1 = torch.unsqueeze(vuv, 3)
-            nlf_tau_vuv = torch.cat([nlf_1, tau_1, vuv_1], 3)
-            y_SBMD_2 = self.linear_fn_2(nlf_tau_vuv) # S*B*M*3 -> S*B*M*D
-
-            y_SBMD = y_SBMD + y_SBMD_2
 
         # ReLU
         h_SBMD = self.activation_fn(y_SBMD)

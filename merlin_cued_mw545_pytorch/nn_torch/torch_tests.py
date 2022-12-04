@@ -9,6 +9,12 @@ torch.manual_seed(545)
 from frontend_mw545.modules import make_logger, log_class_attri
 from frontend_mw545.frontend_tests import Graph_Plotting
 
+from exp_mw545.exp_dv_config import dv_y_configuration
+from nn_torch.torch_models import Build_DV_Y_model
+from frontend_mw545.data_loader import Build_dv_y_train_data_loader
+
+from exp_mw545.exp_dv_wav_subwin import dv_y_wav_subwin_configuration
+
 #############################
 # PyTorch-based Simple Test #
 #############################
@@ -52,8 +58,6 @@ class Numpy_Pytorch_Unfold_Test(object):
         self.spk_num_seq = int((self.batch_seq_total_len - self.batch_seq_len) / self.batch_seq_shift) + 1
         self.seq_num_win = int((self.batch_seq_len - self.seq_win_len) / self.seq_win_shift) + 1
 
-        import torch
-        global torch
         self.device_id = torch.device("cuda:0")
         self.win_len_shift_list = [[self.batch_seq_len, self.batch_seq_shift], [self.seq_win_len, self.seq_win_shift]]
         
@@ -127,14 +131,13 @@ class DV_Y_Build_Test(object):
     def __init__(self, cfg):
         super(DV_Y_Build_Test, self).__init__()
         self.logger = make_logger("Test")
-        from exp_mw545.exp_dv_wav_subwin import dv_y_wav_subwin_configuration
+        
 
         self.cfg = cfg
         self.dv_y_cfg = dv_y_wav_subwin_configuration(cfg)
         # log_class_attri(dv_y_cfg, self.logger)
 
     def model_build_test(self):
-        from nn_torch.torch_models import Build_DV_Y_model
         dv_y_model = Build_DV_Y_model(self.dv_y_cfg)
         dv_y_model.torch_initialisation()
         dv_y_model.build_optimiser()
@@ -149,7 +152,7 @@ class DV_Y_Build_Test(object):
         2. See if this batch can be perfectly matched
             Result: Good enough; loss 1.0467; accuracy 0.9146; although slowly
         '''
-        from frontend_mw545.data_loader import Build_dv_y_train_data_loader
+        
         dv_y_data_loader = Build_dv_y_train_data_loader(self.cfg, self.dv_y_cfg)
         feed_dict, batch_size = dv_y_data_loader.make_feed_dict(utter_tvt_name='train')
 
@@ -177,7 +180,6 @@ class DV_Y_Build_Test(object):
         Average of logit_SB_D may not be same as logit_S_D; only same if Linear expansion layer
         Result: Good; max(abs(diff)) almost zero, e-7, precision
         '''
-        from frontend_mw545.data_loader import Build_dv_y_train_data_loader
         dv_y_data_loader = Build_dv_y_train_data_loader(self.cfg, self.dv_y_cfg)
         feed_dict, batch_size = dv_y_data_loader.make_feed_dict(utter_tvt_name='train')
 
@@ -200,7 +202,6 @@ class DV_Y_Build_Test(object):
         Test speed difference of calling model.train() and model.eval()
         Decide where to wrap, on batch or epoch level
         '''
-        from frontend_mw545.data_loader import Build_dv_y_train_data_loader
         dv_y_data_loader = Build_dv_y_train_data_loader(self.cfg, self.dv_y_cfg)
         feed_dict, batch_size = dv_y_data_loader.make_feed_dict(utter_tvt_name='train')
         self.model = self.model_build_test()
@@ -249,44 +250,6 @@ class DV_Y_Build_Test(object):
             time_2 = time.time() - start_time
             print('%.2f %.2f' % (time_1, time_2))
 
-
-def vuv_loss_multiple(cfg):
-    '''
-    plot loss vs vuv for different experiments
-    each experiment has 3 curves, train/valid/test
-    '''
-    from exp_mw545.exp_dv_y import Build_DV_Y_Testing
-
-    fig_file_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/sinenet_test/vuv_loss.png'
-
-    dv_y_cfg_list = []
-    legend_name_list = ['sine16','DNN']
-    from exp_mw545.exp_dv_wav_sinenet_v1 import dv_y_wav_sinenet_configuration
-    dv_y_cfg_1 = dv_y_wav_sinenet_configuration(cfg)
-    dv_y_cfg_1.prev_nnets_file_name = '/home/dawna/tts/mw545/TorchDV/dv_wav_sinenet_v1/dv_y_wav_lr_0.000100_Sin83f16_LRe256B_LRe256B_Lin8BD_DV8S10B36M33T640/Model'
-    dv_y_cfg_list.append(dv_y_cfg_1)
-
-    from exp_mw545.exp_dv_wav_subwin import dv_y_wav_subwin_configuration
-    dv_y_cfg_2 = dv_y_wav_subwin_configuration(cfg)
-    dv_y_cfg_2.prev_nnets_file_name = '/home/dawna/tts/mw545/TorchDV/dv_wav_subwin/dv_y_wav_lr_0.000100_LRe80_LRe256B_LRe256B_Lin8BD_DV8S10B36M33T640/Model'
-    dv_y_cfg_list.append(dv_y_cfg_2)
-
-    
-
-    error_list  = []
-    legend_list = []
-
-    for dv_y_cfg, legend_name in zip(dv_y_cfg_list, legend_name_list):
-        dv_y_model_test = Build_DV_Y_Testing(cfg, dv_y_cfg)
-        loss_dict = dv_y_model_test.vuv_loss_test(plot_loss=False)
-
-        error_list.extend([loss_dict['train'], loss_dict['valid'], loss_dict['test']])
-        legend_list.extend([legend_name+'_train', legend_name+'_valid', legend_name+'_test'])
-
-
-    graph_plotter = Graph_Plotting()
-    graph_plotter.single_plot(fig_file_name, None, error_list, legend_list)
-
 def return_gpu_memory(gpu_id):
     device_id = torch.device("cuda:%i" % gpu_id)
     return torch.cuda.memory_summary(device_id)
@@ -302,7 +265,7 @@ class Sinenet_Test(object):
 
         self.cfg = cfg
         self.graph_plotter = Graph_Plotting()
-        self.device_id = torch.device("cuda:2")
+        self.device_id = torch.device("cuda:0")
 
         layer_config = {'type': 'Sinenet_V1', 'size':86, 'num_freq':16, 'dropout_p':0, 'batch_norm':False}
         self.params = {'layer_config': layer_config, "input_dim_values": {'T': 640}}
@@ -546,12 +509,566 @@ class Sinenet_Test(object):
         fig_file_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/sinenet_test/inv_e_25.png'
         self.graph_plotter.single_plot(fig_file_name, [f_list[25:]], [a_a_off_list[25:]], ['inversion error'])
 
+    def test_6(self):
+        '''
+        Check SineNet_Numpy is the same as the Pytorch version
+        Result: w_sin_cos are slightly different on the plots; 
+            Difference is larger in high frequency
+            Possible due to different sine / cosine methods? Maybe check later
+            h = w * x is consistent within each method
+        '''
+        from frontend_mw545.data_loader import Build_Sinenet_Numpy
+        sinenet_layer_numpy = Build_Sinenet_Numpy(self.params)
+
+        tau_val = 0.013
+        f_val   = 150
+
+        for f_val in range(100,101):
+            tau_val = numpy.random.rand(1).astype(float)
+            # w_1 = self.gen_w_f_tau(f_val=f_val,tau_val=tau_val)
+
+            input_dim_values = {'S':1, 'B':1, 'M':1, 'T': 640}
+            self.params['input_dim_values'] = input_dim_values
+            f   = numpy.ones((input_dim_values['S'], input_dim_values['B'], input_dim_values['M'])).astype(float)
+            tau = numpy.ones((input_dim_values['S'], input_dim_values['B'], input_dim_values['M'])).astype(float)
+            x = numpy.random.rand(input_dim_values['S'], input_dim_values['B'], input_dim_values['M'], input_dim_values['T']).astype(float)
+            f   = f * f_val
+            tau = tau * tau_val
+            f_SBM, tau_SBM, x_SBMT = self.numpy_to_tensor([f, tau, x])
+            w_1 = self.sinenet_layer.construct_w_sin_cos_matrix(f_SBM, tau_SBM).cpu().detach().numpy()
+            w_2 = sinenet_layer_numpy.construct_w_sin_cos_matrix(f, tau)
+            print(numpy.max(numpy.abs(w_1 - w_2)))
+
+            h_1 = self.sinenet_layer(x_SBMT, f_SBM, tau_SBM).cpu().detach().numpy()
+            h_2 = sinenet_layer_numpy(x, f, tau)
+
+            s_1 = 0
+            s_2 = 0
+
+            for t in range(input_dim_values['T']):
+                s_1 += w_1[0,0,0,0,t] * x[0,0,0,t]
+                s_2 += w_2[0,0,0,0,t] * x[0,0,0,t]
+
+            print(h_1[0,0,0,0]-s_1)
+            print(h_2[0,0,0,0]-s_2)
+
+            print((h_1-h_2)[0,0,0])
+            print(numpy.max(numpy.abs(h_1 - h_2)))
+
+            # for k in range(self.params["layer_config"]['num_freq']):
+            #     fig_file_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/sinenet_test/w_sc_%i.png' % k
+            #     self.graph_plotter.single_plot(fig_file_name, [range(input_dim_values['T'])]*2, [w_1[0,0,0,k]+0.5, w_2[0,0,0,k]], ['w_1', 'w_2'])
+
+            
+class dv_y_test_configuration(dv_y_configuration):
+    def __init__(self, cfg):
+        super().__init__(cfg)
+
+        self.use_voiced_only = False   # Use voiced regions only
+        self.use_voiced_threshold = 1. # Percentage of voiced required
+        self.retrain_model = False
+        self.learning_rate  = 0.00001
+        # self.prev_nnets_file_name = ''
+        self.python_script_name = os.path.realpath(__file__)
+        self.data_dir_mode = 'data' # Use scratch for speed up
+
+        # Waveform-level input configuration
+        self.y_feat_name   = 'wav'
+        self.init_wav_data()
+        # self.out_feat_list = ['wav_ST', 'f_SBM', 'tau_SBM', 'vuv_SBM']
+        self.out_feat_list = ['wav_SBT', 'f_SBM', 'tau_SBM', 'vuv_SBM']
+
+        self.exp_dir = cfg.work_dir + '/exp_test'
+
+        self.input_data_dim['S'] = 1
+        self.feed_per_update = 2
+        self.learning_rate = self.learning_rate / self.feed_per_update
+        S_per_update = self.input_data_dim['S'] * self.feed_per_update
+        self.epoch_num_batch  = {'train': int(52000/S_per_update), 'valid': int(8000/self.input_data_dim['S'])}
+        self.input_data_dim['T_M'] = 160
+        self.input_data_dim['M_shift'] = 40
+        
+        self.dv_dim = 2048
+        self.nn_layer_config_list = [
+            # {'type': 'Tensor_Reshape', 'io_name': 'wav_ST_2_wav_SBMT', 'win_len_shift_list':[[self.input_data_dim['T_B'], self.input_data_dim['B_shift']], [self.input_data_dim['T_M'], self.input_data_dim['M_shift']]]},
+            {'type': 'Tensor_Reshape', 'io_name': 'wav_SBT_2_wav_SBMT', 'win_len_shift':[self.input_data_dim['T_M'], self.input_data_dim['M_shift']]},
+            {'type': 'DW3', 'size':80, 'dropout_p':0, 'batch_norm':False},
+            {'type': 'Tensor_Reshape', 'io_name': 'h_SBMD_2_h_SBD'},     # h_SBD
+            # {'type': 'LReLU', 'size':256*8, 'dropout_p':0, 'batch_norm':True},
+            # {'type': 'LReLU', 'size':256*8, 'dropout_p':0, 'batch_norm':True},
+            {'type': 'Linear', 'size':self.dv_dim, 'dropout_p':0, 'batch_norm':True}
+        ]
+
+        # self.gpu_id = 'cpu'
+        self.gpu_id = 0
+        self.auto_complete(cfg)
+
+class Pytorch_Batch_Test(object):
+    """
+    Pytorch_Batch_Test
+    Test the effect of multiple loss.backward(), then one optimizer.step()
+    """
+    def __init__(self, cfg):
+        super(Pytorch_Batch_Test, self).__init__()
+        self.logger = make_logger("Test")
+        self.cfg = cfg
+        self.dv_y_cfg = dv_y_test_configuration(self.cfg)
+        self.data_S = 60
+        self.make_data()
+
+    def test(self):
+        self.test_2()
+
+    def make_data(self):
+        # Make a feed_dict for usage
+        # S = 60 for all situations
+        numpy.random.seed(545)
+        dv_y_cfg = self.dv_y_cfg
+        dv_y_cfg.input_data_dim['S'] = self.data_S
+        self.data_loader = Build_dv_y_train_data_loader(self.cfg, dv_y_cfg)
+
+        self.feed_dict, batch_size = self.data_loader.make_feed_dict(utter_tvt_name='train')
+        # Remember to set this
+        self.s_index = 0
+
+    def load_s_data(self, s, s_index=None):
+        '''
+        Return s samples from self.feed_dict
+        Add s to self.s_index
+        Reset if self.data_S is reached
+        '''
+        if s_index is None:
+            s_index = self.s_index
+
+        new_feed_dict = {k: self.feed_dict[k][s_index:s_index+s] for k in self.feed_dict}
+        # one_hot is 1-D S*B, need special care
+        new_feed_dict['one_hot'] = self.feed_dict['one_hot'][s_index*self.dv_y_cfg.input_data_dim['B']:(s_index+s)*self.dv_y_cfg.input_data_dim['B']]
+
+        self.s_index = s_index + s
+        if self.s_index == self.data_S:
+            self.s_index = 0
+
+        return new_feed_dict       
+
+    def build_model(self, dv_y_cfg):
+        model = Build_DV_Y_model(dv_y_cfg)
+        model.torch_initialisation()
+        model.build_optimiser()
+
+        return model
+
+    def tensor_to_numpy(self, x_tensor):
+        return x_tensor.cpu().detach().numpy()
+
+    def print_model_parameters(self, model):
+        self.logger.info('Print Parameters')
+        for name, param in model.nn_model.named_parameters():
+            print(str(name)+'  '+str(param.size())+'  '+str(param.type()))
+            print(str(param.grad))
+
+    def test_1(self):
+        '''
+        Debug run
+        1. model.optimiser.state_dict() remains the same after zero_grad, unaffected
+        2. param.grad remains the same after model.optimiser.step()
+        3. param.grad becomes all 0 after model.optimiser.zero_grad()
+        '''
+        S = 1
+        dv_y_cfg = self.dv_y_cfg
+        dv_y_cfg.input_data_dim['S'] = S
+        model = self.build_model(dv_y_cfg)
+
+        feed_dict = self.load_s_data(S)
+        loss = model.gen_loss(feed_dict)
+        loss.backward()
+
+        self.print_model_parameters(model)
+
+        model.optimiser.step()
+        # self.logger.info("print optimiser state_dict")
+        # print(model.optimiser.state_dict())
+        self.print_model_parameters(model)
+
+
+        model.optimiser.zero_grad()
+        # self.logger.info("print optimiser state_dict")
+        # print(model.optimiser.state_dict())
+        self.print_model_parameters(model)
+
+    def test_2(self):
+        '''
+        Debug run
+        1. (Done) loss.backward() twice, gradient double
+            True for 2 different batches
+        2. 2 different batches, gradient add?
+            Not equal yet... Precision?
+        '''
+
+        S = 1
+        dv_y_cfg = self.dv_y_cfg
+        dv_y_cfg.input_data_dim['S'] = S
+        model = self.build_model(dv_y_cfg)
+        model.optimiser.zero_grad()
+
+        feed_dict_1 = self.load_s_data(S)
+        feed_dict_2 = self.load_s_data(S)
+        
+
+        grad_dict_1 = {}
+        loss = model.gen_loss(feed_dict_1)
+        loss.backward()
+        for name, param in model.nn_model.named_parameters():
+            grad_dict_1[name] = self.tensor_to_numpy(param.grad)
+        print(grad_dict_1)
+
+        model.optimiser.zero_grad()
+        grad_dict_2 = {}
+        loss = model.gen_loss(feed_dict_2)
+        loss.backward()
+        for name, param in model.nn_model.named_parameters():
+            grad_dict_2[name] = self.tensor_to_numpy(param.grad)
+        print(grad_dict_2)
+
+        grad_dict_3 = {}
+        loss = model.gen_loss(feed_dict_1)
+        loss.backward()
+        for name, param in model.nn_model.named_parameters():
+            grad_dict_3[name] = self.tensor_to_numpy(param.grad)
+        print(grad_dict_3)
+
+        # Expect: grad_dict_3 = grad_dict_1 + grad_dict_2
+        for k in grad_dict_1:
+            diff = grad_dict_3[k] - grad_dict_1[k] - grad_dict_2[k]
+            print(k)
+            print((diff==0).all())
+
+    def test_3(self):
+        '''
+        batch_norm test
+        1. test train()
+        '''
+        pass
+
+
+class SBD_to_SD_mask_Test(object):
+    """docstring for SBD_to_SD_mask_Test"""
+    def __init__(self, arg):
+        super(SBD_to_SD_mask_Test, self).__init__()
+        self.arg = arg
+
+    def test_1(self):
+        '''
+        Test the current method of lambda_SBD+mask_SB1 --> lambda_SD
+        '''
+        S = 10
+        B = 20
+        D = 30
+        
+
+    def gen_lambda_SD(self, x_dict):
+        ''' 
+        Average over B
+        For 1. better estimation of lambda; and 2. classification
+        '''
+        lambda_SBD = self.gen_lambda_SBD(x_dict)
+        mask_SB1 = torch.unsqueeze(x_dict['output_mask_SB'], 2)
+        lambda_SBD_zero_pad = torch.mul(lambda_SBD, mask_SB1)
+        lambda_SD_sum  = torch.sum(lambda_SBD_zero_pad, dim=1, keepdim=False)
+        out_lens_S1 = torch.unsqueeze(x_dict['out_lens'],1)
+        lambda_SD = torch.true_divide(lambda_SD_sum, out_lens_S1)
+        return lambda_SD
+
+    def make_pad_mask(self, lengths, xs=None, length_dim=-1):
+        """Make mask tensor containing indices of padded part.
+
+        Args:
+            lengths (LongTensor or List): Batch of lengths (B,).
+            xs (Tensor, optional): The reference tensor.
+                If set, masks will be the same shape as this tensor.
+            length_dim (int, optional): Dimension indicator of the above tensor.
+                See the example.
+
+        Returns:
+            Tensor: Mask tensor containing indices of padded part.
+                    dtype=torch.uint8 in PyTorch 1.2-
+                    dtype=torch.bool in PyTorch 1.2+ (including 1.2)
+
+        Examples:
+            With only lengths.
+
+            >>> lengths = [5, 3, 2]
+            >>> make_non_pad_mask(lengths)
+            masks = [[0, 0, 0, 0 ,0],
+                     [0, 0, 0, 1, 1],
+                     [0, 0, 1, 1, 1]]
+
+            With the reference tensor.
+
+            >>> xs = torch.zeros((3, 2, 4))
+            >>> make_pad_mask(lengths, xs)
+            tensor([[[0, 0, 0, 0],
+                     [0, 0, 0, 0]],
+                    [[0, 0, 0, 1],
+                     [0, 0, 0, 1]],
+                    [[0, 0, 1, 1],
+                     [0, 0, 1, 1]]], dtype=torch.uint8)
+            >>> xs = torch.zeros((3, 2, 6))
+            >>> make_pad_mask(lengths, xs)
+            tensor([[[0, 0, 0, 0, 0, 1],
+                     [0, 0, 0, 0, 0, 1]],
+                    [[0, 0, 0, 1, 1, 1],
+                     [0, 0, 0, 1, 1, 1]],
+                    [[0, 0, 1, 1, 1, 1],
+                     [0, 0, 1, 1, 1, 1]]], dtype=torch.uint8)
+
+            With the reference tensor and dimension indicator.
+
+            >>> xs = torch.zeros((3, 6, 6))
+            >>> make_pad_mask(lengths, xs, 1)
+            tensor([[[0, 0, 0, 0, 0, 0],
+                     [0, 0, 0, 0, 0, 0],
+                     [0, 0, 0, 0, 0, 0],
+                     [0, 0, 0, 0, 0, 0],
+                     [0, 0, 0, 0, 0, 0],
+                     [1, 1, 1, 1, 1, 1]],
+                    [[0, 0, 0, 0, 0, 0],
+                     [0, 0, 0, 0, 0, 0],
+                     [0, 0, 0, 0, 0, 0],
+                     [1, 1, 1, 1, 1, 1],
+                     [1, 1, 1, 1, 1, 1],
+                     [1, 1, 1, 1, 1, 1]],
+                    [[0, 0, 0, 0, 0, 0],
+                     [0, 0, 0, 0, 0, 0],
+                     [1, 1, 1, 1, 1, 1],
+                     [1, 1, 1, 1, 1, 1],
+                     [1, 1, 1, 1, 1, 1],
+                     [1, 1, 1, 1, 1, 1]]], dtype=torch.uint8)
+            >>> make_pad_mask(lengths, xs, 2)
+            tensor([[[0, 0, 0, 0, 0, 1],
+                     [0, 0, 0, 0, 0, 1],
+                     [0, 0, 0, 0, 0, 1],
+                     [0, 0, 0, 0, 0, 1],
+                     [0, 0, 0, 0, 0, 1],
+                     [0, 0, 0, 0, 0, 1]],
+                    [[0, 0, 0, 1, 1, 1],
+                     [0, 0, 0, 1, 1, 1],
+                     [0, 0, 0, 1, 1, 1],
+                     [0, 0, 0, 1, 1, 1],
+                     [0, 0, 0, 1, 1, 1],
+                     [0, 0, 0, 1, 1, 1]],
+                    [[0, 0, 1, 1, 1, 1],
+                     [0, 0, 1, 1, 1, 1],
+                     [0, 0, 1, 1, 1, 1],
+                     [0, 0, 1, 1, 1, 1],
+                     [0, 0, 1, 1, 1, 1],
+                     [0, 0, 1, 1, 1, 1]]], dtype=torch.uint8)
+
+        """
+        if length_dim == 0:
+            raise ValueError("length_dim cannot be 0: {}".format(length_dim))
+
+        if not isinstance(lengths, list):
+            lengths = lengths.tolist()
+        bs = int(len(lengths))
+        if xs is None:
+            maxlen = int(max(lengths))
+        else:
+            maxlen = xs.size(length_dim)
+
+        seq_range = torch.arange(0, maxlen, dtype=torch.int64)
+        seq_range_expand = seq_range.unsqueeze(0).expand(bs, maxlen)
+        seq_length_expand = seq_range_expand.new(lengths).unsqueeze(-1)
+        mask = seq_range_expand >= seq_length_expand
+
+        if xs is not None:
+            assert xs.size(0) == bs, (xs.size(0), bs)
+
+            if length_dim < 0:
+                length_dim = xs.dim() + length_dim
+            # ind = (:, None, ..., None, :, , None, ..., None)
+            ind = tuple(
+                slice(None) if i in (0, length_dim) else None for i in range(xs.dim())
+            )
+            mask = mask[ind].expand_as(xs).to(xs.device)
+        return mask
+
+def make_pad_mask(lengths, xs=None, length_dim=-1):
+    """Make mask tensor containing indices of padded part.
+
+    Args:
+        lengths (LongTensor or List): Batch of lengths (B,).
+        xs (Tensor, optional): The reference tensor.
+            If set, masks will be the same shape as this tensor.
+        length_dim (int, optional): Dimension indicator of the above tensor.
+            See the example.
+
+    Returns:
+        Tensor: Mask tensor containing indices of padded part.
+                dtype=torch.uint8 in PyTorch 1.2-
+                dtype=torch.bool in PyTorch 1.2+ (including 1.2)
+
+    Examples:
+        With only lengths.
+
+        >>> lengths = [5, 3, 2]
+        >>> make_non_pad_mask(lengths)
+        masks = [[0, 0, 0, 0 ,0],
+                 [0, 0, 0, 1, 1],
+                 [0, 0, 1, 1, 1]]
+
+        With the reference tensor.
+
+        >>> xs = torch.zeros((3, 2, 4))
+        >>> make_pad_mask(lengths, xs)
+        tensor([[[0, 0, 0, 0],
+                 [0, 0, 0, 0]],
+                [[0, 0, 0, 1],
+                 [0, 0, 0, 1]],
+                [[0, 0, 1, 1],
+                 [0, 0, 1, 1]]], dtype=torch.uint8)
+        >>> xs = torch.zeros((3, 2, 6))
+        >>> make_pad_mask(lengths, xs)
+        tensor([[[0, 0, 0, 0, 0, 1],
+                 [0, 0, 0, 0, 0, 1]],
+                [[0, 0, 0, 1, 1, 1],
+                 [0, 0, 0, 1, 1, 1]],
+                [[0, 0, 1, 1, 1, 1],
+                 [0, 0, 1, 1, 1, 1]]], dtype=torch.uint8)
+
+        With the reference tensor and dimension indicator.
+
+        >>> xs = torch.zeros((3, 6, 6))
+        >>> make_pad_mask(lengths, xs, 1)
+        tensor([[[0, 0, 0, 0, 0, 0],
+                 [0, 0, 0, 0, 0, 0],
+                 [0, 0, 0, 0, 0, 0],
+                 [0, 0, 0, 0, 0, 0],
+                 [0, 0, 0, 0, 0, 0],
+                 [1, 1, 1, 1, 1, 1]],
+                [[0, 0, 0, 0, 0, 0],
+                 [0, 0, 0, 0, 0, 0],
+                 [0, 0, 0, 0, 0, 0],
+                 [1, 1, 1, 1, 1, 1],
+                 [1, 1, 1, 1, 1, 1],
+                 [1, 1, 1, 1, 1, 1]],
+                [[0, 0, 0, 0, 0, 0],
+                 [0, 0, 0, 0, 0, 0],
+                 [1, 1, 1, 1, 1, 1],
+                 [1, 1, 1, 1, 1, 1],
+                 [1, 1, 1, 1, 1, 1],
+                 [1, 1, 1, 1, 1, 1]]], dtype=torch.uint8)
+        >>> make_pad_mask(lengths, xs, 2)
+        tensor([[[0, 0, 0, 0, 0, 1],
+                 [0, 0, 0, 0, 0, 1],
+                 [0, 0, 0, 0, 0, 1],
+                 [0, 0, 0, 0, 0, 1],
+                 [0, 0, 0, 0, 0, 1],
+                 [0, 0, 0, 0, 0, 1]],
+                [[0, 0, 0, 1, 1, 1],
+                 [0, 0, 0, 1, 1, 1],
+                 [0, 0, 0, 1, 1, 1],
+                 [0, 0, 0, 1, 1, 1],
+                 [0, 0, 0, 1, 1, 1],
+                 [0, 0, 0, 1, 1, 1]],
+                [[0, 0, 1, 1, 1, 1],
+                 [0, 0, 1, 1, 1, 1],
+                 [0, 0, 1, 1, 1, 1],
+                 [0, 0, 1, 1, 1, 1],
+                 [0, 0, 1, 1, 1, 1],
+                 [0, 0, 1, 1, 1, 1]]], dtype=torch.uint8)
+
+    """
+    if length_dim == 0:
+        raise ValueError("length_dim cannot be 0: {}".format(length_dim))
+
+    if not isinstance(lengths, list):
+        lengths = lengths.tolist()
+    bs = int(len(lengths))
+    if xs is None:
+        maxlen = int(max(lengths))
+    else:
+        maxlen = xs.size(length_dim)
+
+    seq_range = torch.arange(0, maxlen, dtype=torch.int64)
+    seq_range_expand = seq_range.unsqueeze(0).expand(bs, maxlen)
+    seq_length_expand = seq_range_expand.new(lengths).unsqueeze(-1)
+    mask = seq_range_expand >= seq_length_expand
+
+    if xs is not None:
+        assert xs.size(0) == bs, (xs.size(0), bs)
+
+        if length_dim < 0:
+            length_dim = xs.dim() + length_dim
+        # ind = (:, None, ..., None, :, , None, ..., None)
+        ind = tuple(
+            slice(None) if i in (0, length_dim) else None for i in range(xs.dim())
+        )
+        mask = mask[ind].expand_as(xs).to(xs.device)
+    return mask
+        
+def make_pad_mask_test():
+    S = 3
+    B = 4
+    lengths_SB_n = numpy.random.randint(1,10,(S,B))
+    print(lengths_SB_n)
+    lengths_SB_t = torch.tensor(lengths_SB_n)
+    mask_SBT = make_pad_mask(lengths_SB_t)
+    print(mask_SBT)
+    print(mask_SBT.numpy())
+
+def TDNN_test():
+    # Test this new TDNN module
+    from nn_torch.x_vector import TDNN
+    input_dim = 23
+    x_numpy = numpy.random.rand(10,300,input_dim)
+    x = torch.tensor(x_numpy)
+    tdnn = TDNN(input_dim=input_dim, output_dim=512, context_size=3, dilation=1,dropout_p=0.5)
+    y = tdnn(x)
+    print(y)
+    print(y.size())
+
+class Build_Layer(torch.nn.Module):
+    '''
+    Masked Soffmax Layer
+    Input: S*B*1
+    Mask: S*B
+    Output: S*B*1
+    '''
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x_dict):
+        
+        x = x_dict['h'] +1
+        y_dict = {'h':x}
+        x_dict['l'] += 2
+        return y_dict
+
+def dict_modify_test():
+    x = numpy.random.rand(10,300,23)
+    l = numpy.random.randint(low=0,high=300,size=10)
+    x = torch.tensor(x)
+    l = torch.tensor(l)
+    x_dict = {'h':x, 'l':l}
+
+    print(x_dict['l'])
+    layer_fn = Build_Layer()
+    y_dict = layer_fn(x_dict)
+    print(x_dict['l'])
+
+
 def run_Torch_Test(cfg):
-    # sinenet_test = Sinenet_Test(cfg)
-    # sinenet_test.test_5()
+    # torch_test = Pytorch_Batch_Test(cfg)
+    # torch_test.test()
 
-    dvy_test = DV_Y_Build_Test(cfg)
-    dvy_test.speed_test()
+    # dvy_test = DV_Y_Build_Test(cfg)
+    # dvy_test.speed_test()
 
-    # vuv_loss_multiple(cfg)
+    # make_pad_mask_test()
+    # TDNN_test()
+    # dict_modify_test()
+    from  nn_torch.sinenet_f_tau_test import run_sinenet_f_tau_test
+    run_sinenet_f_tau_test(cfg)
+
+
 

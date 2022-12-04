@@ -529,6 +529,80 @@ class Build_dv_y_cmp_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speake
         # kernel_size = self.dv_y_cfg.kernel_size
         return out_lens
 
+class Build_dv_y_mfcc_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speaker_Base):
+    """
+    """
+    def __init__(self, cfg=None, dv_y_cfg=None):
+        self.dv_y_cfg = dv_y_cfg
+        super().__init__(cfg, dv_y_cfg)
+        self.max_len = dv_y_cfg.input_data_dim['T_S_max']
+        self.win_len = dv_y_cfg.input_data_dim['T_B']
+        self.win_stride = dv_y_cfg.input_data_dim['B_stride']
+        self.mfcc_cmp_dim = dv_y_cfg.cmp_dim
+        self.wav_sr = self.cfg.wav_sr
+
+        import librosa
+        self.mfcc_method = librosa.feature.mfcc
+
+    def init_directories(self):
+        if self.dv_y_cfg.data_dir_mode == 'scratch':
+            self.wav_dir   = self.cfg.nn_feat_scratch_dirs['wav']
+        elif self.dv_y_cfg.data_dir_mode == 'data':
+            self.wav_dir   = self.cfg.nn_feat_resil_norm_dirs['wav']
+
+    def make_BD_data_single_file_id(self, file_id, start_sample_number):
+        dv_y_cfg = self.dv_y_cfg
+        speaker_id = file_id.split('_')[0]
+        wav_resil_norm_file_name = os.path.join(self.wav_dir, speaker_id, file_id+'.wav')
+        mfcc_BD, B, start_sample_number = self.make_mfcc_BD_data_single_file(wav_resil_norm_file_name, start_sample_number)
+        
+        h_BD = mfcc_BD
+        return h_BD, B, start_sample_number
+
+    def make_mfcc_BD_data_single_file(self, wav_resil_norm_file_name, start_sample_number=None):
+        wav_data, sample_number = self.DIO.load_data_file_frame(wav_resil_norm_file_name, 1)
+
+        new_wav_data, new_sample_number, start_sample_number = self.modify_wav_data(wav_data, sample_number, start_sample_number, self.max_len, self.win_len)
+        mfcc_BD, B = self.make_mfcc_BD_data(new_wav_data)
+
+        return mfcc_BD, B, start_sample_number
+
+    def modify_wav_data(self, wav_data, sample_number, start_sample_number, max_len, win_len):
+        # modify the length of cmp data according to start_sample_number (if given). maximum length, and window length
+        # 1. The final length does not exceed max_len
+        # 2. Use start_sample_number if given
+        # 3. If not, start with a random integer [0, win_len-1]
+
+        if start_sample_number is not None:
+            # If given, start here, and use up to max_len
+            sample_number = sample_number - start_sample_number
+            if sample_number > max_len:
+                sample_number = max_len
+                wav_data = wav_data[start_sample_number:start_sample_number+max_len]
+            else:
+                wav_data = wav_data[start_sample_number:]
+        else:
+            if sample_number > max_len:
+                # Use up to max_len, with random starting position
+                extra_file_len = sample_number - max_len
+                start_sample_number = int(numpy.random.rand() * extra_file_len)
+                sample_number = max_len
+                wav_data = wav_data[start_sample_number:start_sample_number+self.max_len]
+            else:
+                # start with a random integer [0, win_len-1]
+                start_sample_number = int(numpy.random.rand() * win_len)
+                sample_number = sample_number - start_sample_number
+                wav_data = wav_data[start_sample_number:]
+
+        return wav_data, sample_number, start_sample_number
+
+    def make_mfcc_BD_data(self, wav_data):
+        # Input: wav_data, [N*1]
+        mfcc_DB = self.mfcc_method(wav_data[:,0], sr=self.wav_sr, n_mfcc=self.mfcc_cmp_dim, win_length=self.win_len, hop_length=self.win_stride)
+        mfcc_BD = mfcc_DB.T
+        B = mfcc_BD.shape[0]
+        return mfcc_BD, B
+
 class Build_dv_atten_lab_data_loader_Multi_Speaker(Build_BD_data_loader_Multi_Speaker_Base):
     """
     Output: feed_dict['h'], STD; feed_dict['h_lens'], S
@@ -627,12 +701,17 @@ class Build_dv_y_train_data_loader(object):
             self.init_wav()
         elif dv_y_cfg.y_feat_name == 'cmp':
             self.init_cmp()
+        elif dv_y_cfg.y_feat_name == 'mfcc':
+            self.init_mfcc()
 
     def init_wav(self):
         self.dv_y_data_loader = Build_dv_y_wav_data_loader_Multi_Speaker(self.cfg, self.dv_y_cfg)
 
     def init_cmp(self):
         self.dv_y_data_loader = Build_dv_y_cmp_data_loader_Multi_Speaker(self.cfg, self.dv_y_cfg)
+
+    def init_mfcc(self):
+        self.dv_y_data_loader = Build_dv_y_mfcc_data_loader_Multi_Speaker(self.cfg, self.dv_y_cfg)
 
     def make_feed_dict(self, utter_tvt_name='train', file_id_list=None, start_sample_list=None):
         if file_id_list is None:

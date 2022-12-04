@@ -1,9 +1,9 @@
-# exp_dv_wav_sincnet.py
+# exp_dv_mfcc_xvector.py
 
 import os
 from exp_mw545.exp_dv_config import dv_y_configuration
 
-class dv_y_wav_sincnet_configuration(dv_y_configuration):
+class dv_y_mfcc_xvector_configuration(dv_y_configuration):
     def __init__(self, cfg, cache_files=True):
         super().__init__(cfg)
 
@@ -16,14 +16,13 @@ class dv_y_wav_sincnet_configuration(dv_y_configuration):
         self.train_num_seconds = 5
         self.data_loader_random_seed = 0
 
-        # Waveform-level input configuration
-        self.init_wav_data()
-        self.y_feat_name   = 'wav'
-        self.out_feat_list = ['wav_SBT']
-        self.input_data_dim['T_B'] = int(0.125 * self.cfg.wav_sr)
-        # self.input_data_dim['T_B'] = int(0.2 * self.cfg.wav_sr)
-        self.input_data_dim['B_stride'] = self.input_data_dim['T_B']
-        self.update_wav_dim()
+        # MFCC input configuration
+        self.init_mfcc_data()
+        self.y_feat_name   = 'mfcc'
+        self.out_feat_list = ['mfcc_SBD']
+        self.input_data_dim['T_B'] = int(0.025 * self.cfg.wav_sr)
+        self.input_data_dim['B_stride'] = int(0.005 * self.cfg.wav_sr)
+        self.update_mfcc_dim()
 
         self.input_data_dim['S'] = 10
         self.feed_per_update = 10
@@ -32,11 +31,12 @@ class dv_y_wav_sincnet_configuration(dv_y_configuration):
 
         self.dv_dim = 512
         self.nn_layer_config_list = [
-            {'type': 'Tensor_Reshape', 'io_name': 'h_SBD_2_wav_SBT'},
-            {'type': 'Tensor_Reshape', 'io_name': 'wav_SBT_2_wav_SB_T'},
-            {'type': 'SincNet', 'size':80, 'dropout_p':0, 'batch_norm':False},
-            {'type': 'Tensor_Reshape', 'io_name': 'h_SB_D_2_h_SBD'},     # h_SBD
-            {'type': 'LReLU', 'size':256*2, 'dropout_p':0, 'layer_norm':True},
+            # {'type': 'Tensor_Reshape', 'io_name': 'h_SBD_2_h_SB_T'},
+            # {'type': 'Tensor_Reshape', 'io_name': 'wav_SBT_2_wav_SB_T'},
+            {'type': 'X_vector', 'size':1500, 'dropout_p':0, 'batch_norm':False},
+            {'type': 'StatsPooling'},
+            # {'type': 'Tensor_Reshape', 'io_name': 'h_SB_D_2_h_SBD'},     # h_SBD
+            # {'type': 'LReLU', 'size':256*2, 'dropout_p':0, 'layer_norm':True},
             {'type': 'LReLU', 'size':256*2, 'dropout_p':0, 'layer_norm':True},
             {'type': 'Linear', 'size':self.dv_dim, 'dropout_p':0, 'layer_norm':True}
         ]
@@ -46,7 +46,7 @@ class dv_y_wav_sincnet_configuration(dv_y_configuration):
         self.auto_complete(cfg, cache_files)
 
 def train_model(cfg, dv_y_cfg=None):
-    if dv_y_cfg is None: dv_y_cfg = dv_y_wav_sincnet_configuration(cfg)
+    if dv_y_cfg is None: dv_y_cfg = dv_y_mfcc_xvector_configuration(cfg)
     
     from exp_mw545.exp_dv_y import Build_DV_Y_Model_Trainer
     dv_y_model_trainer = Build_DV_Y_Model_Trainer(cfg, dv_y_cfg)
@@ -54,7 +54,7 @@ def train_model(cfg, dv_y_cfg=None):
     # dv_y_model_trainer.train_overfit_train()
 
 def test_model(cfg, dv_y_cfg=None):
-    if dv_y_cfg is None: dv_y_cfg = dv_y_wav_sincnet_configuration(cfg)
+    if dv_y_cfg is None: dv_y_cfg = dv_y_mfcc_xvector_configuration(cfg)
     dv_y_cfg.input_data_dim['B_stride'] = int( dv_y_cfg.cfg.wav_sr/200)   # Change stride at inference time
     dv_y_cfg.update_wav_dim()
 
@@ -66,9 +66,8 @@ def test_model(cfg, dv_y_cfg=None):
     # dv_y_model_test.positional_test(fig_file_name)
 
     # Additional output dir; also output to the exp dir
-    # output_dir = '/home/dawna/tts/mw545/Export_Temp/PNG_out'
-    output_dir = '/data/vectra2/tts/mw545/Export_Temp/PNG_out'
+    output_dir = '/home/dawna/tts/mw545/Export_Temp/PNG_out'
     # dv_y_model_test.gen_dv(output_dir)
     # dv_y_model_test.cross_entropy_accuracy_test()
-    dv_y_model_test.number_secs_accu_test(output_dir,[55])
+    # dv_y_model_test.number_secs_accu_test()
     dv_y_model_test.positional_test(output_dir)

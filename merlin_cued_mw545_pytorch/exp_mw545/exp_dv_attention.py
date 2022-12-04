@@ -35,12 +35,13 @@ class Build_DV_Attention_Model_Trainer(Build_Model_Trainer_Base):
         if dv_attn_cfg.retrain_model:
             self.logger.info('Loading %s for retraining' % dv_attn_cfg.prev_nnets_file_name)
             self.model.load_nn_model_optim(dv_attn_cfg.prev_nnets_file_name)
-        if dv_attn_cfg.load_y_model:
-            self.logger.info('Loading %s for initialisation' % dv_attn_cfg.prev_y_model_name)
-            self.model.load_y_nn_model(dv_attn_cfg.prev_y_model_name)
-        if dv_attn_cfg.load_attention_model:
-            self.logger.info('Loading %s for initialisation' % dv_attn_cfg.prev_attention_model_name)
-            self.model.load_a_nn_model(dv_attn_cfg.prev_attention_model_name)
+        else:
+            if dv_attn_cfg.load_y_model:
+                self.logger.info('Loading %s for initialisation' % dv_attn_cfg.prev_y_model_name)
+                self.model.load_y_nn_model(dv_attn_cfg.prev_y_model_name)
+            if dv_attn_cfg.load_attention_model:
+                self.logger.info('Loading %s for initialisation' % dv_attn_cfg.prev_attention_model_name)
+                self.model.load_a_nn_model(dv_attn_cfg.prev_attention_model_name)
 
         self.model.print_model_parameter_sizes(self.logger)
         self.model.print_output_dim_values(self.logger)
@@ -188,9 +189,9 @@ class Build_DV_Attention_Testing(object):
         test_fn.test()
     '''
 
-    def number_secs_accu_test(self, output_dir='/home/dawna/tts/mw545/Export_Temp'):
+    def number_secs_accu_test(self, output_dir='/home/dawna/tts/mw545/Export_Temp', list_num_seconds_to_test=None):
         # if self.test_cfg.y_feat_name == 'cmp':
-        test_fn = Build_DV_Attention_Number_Seconds_Accu_Test(self.cfg, self.test_cfg, output_dir)
+        test_fn = Build_DV_Attention_Number_Seconds_Accu_Test(self.cfg, self.test_cfg, output_dir, list_num_seconds_to_test)
         test_fn.test()
 
     def cross_entropy_accuracy_test(self):
@@ -265,7 +266,7 @@ class Build_DV_Attention_Number_Seconds_Accu_Test(Build_DV_Attention_Testing_Bas
         time is proportional to num_seconds_to_test
         e.g. cmp model, 5s test, num_draw_per_speaker=1, 2min; 50s, 20min
     """
-    def __init__(self, cfg, dv_attn_cfg, output_dir):
+    def __init__(self, cfg, dv_attn_cfg, output_dir, list_num_seconds_to_test=None):
         super().__init__(cfg, dv_attn_cfg)
         self.output_dir = output_dir
         self.logger.info('DV_Attention_Number_Seconds_Accuracy_Test')
@@ -273,7 +274,10 @@ class Build_DV_Attention_Number_Seconds_Accu_Test(Build_DV_Attention_Testing_Bas
         self.speaker_id_list = self.cfg.speaker_id_list_dict['train']
         self.dv_calculator = DV_Calculator()
 
-        self.list_num_seconds_to_test = [5,10,15,20,25,30,35,40,45,50,55]
+        if list_num_seconds_to_test is None:
+            self.list_num_seconds_to_test = [5,10,15,20,25,30,35,40,45,50,55]
+        else:
+            self.list_num_seconds_to_test = list_num_seconds_to_test
         self.num_accuracies_mean_std = 30
         self.num_draw_per_speaker = 5
 
@@ -409,6 +413,86 @@ class Build_DV_Generator(Build_DV_Attention_Testing_Base):
         super().__init__(cfg, dv_attn_cfg)
         self.output_dir = output_dir
         self.logger.info('Build_DV_Generator')
+
+        # change S to 1; re-build data_loader
+        dv_attn_cfg.input_data_dim['S'] = 1
+        dv_attn_cfg.dv_y_cfg.input_data_dim['S'] = 1
+        self.dv_tts_selector = Build_dv_TTS_selecter(self.cfg, dv_attn_cfg.dv_y_cfg)
+        self.speaker_id_list = self.cfg.speaker_id_list_dict['all']
+
+        self.dv_file_dict = {}
+        self.dv_spk_dict = {}
+        self.DMLFIO = Data_Meta_List_File_IO(cfg)
+
+
+    def test(self):
+        for k in self.dv_tts_selector.file_list_dict:
+            if self.dv_attn_cfg.run_mode == 'debug':
+                # Keep 10 files only in debug mode
+                self.dv_tts_selector.file_list_dict[k] = self.dv_tts_selector.file_list_dict[k][:10]
+
+        for speaker_id in self.speaker_id_list:
+            file_id_list = self.dv_tts_selector.file_list_dict[(speaker_id, 'SR')]
+            for file_id in file_id_list:
+                self.logger.info('Processing %s' % file_id)
+                feed_dict, batch_size = self.data_loader.make_feed_dict(file_id_list=[file_id],start_sample_list=[0])
+                lambda_SD = self.model.gen_lambda_SD_value(feed_dict)
+                dv_file = lambda_SD[0]
+                self.dv_file_dict[file_id] = (batch_size, dv_file)
+
+        for speaker_id in self.speaker_id_list:
+            self.logger.info('Processing %s' % speaker_id)
+            dv_speaker = numpy.zeros(self.dv_attn_cfg.dv_y_cfg.dv_dim)
+            total_num_frames = 0.
+            file_id_list = self.dv_tts_selector.file_list_dict[(speaker_id, 'SR')]
+            for file_id in file_id_list:
+                num_frames = self.dv_file_dict[file_id][0]
+                total_num_frames += num_frames
+                dv_speaker += self.dv_file_dict[file_id][1] * float(num_frames)
+
+            self.dv_spk_dict[speaker_id] = dv_speaker / total_num_frames
+
+        self.save_dv_files(self.dv_attn_cfg.exp_dir)
+        if self.output_dir is not None:
+            self.save_dv_files(self.output_dir)
+
+    def action_per_file(self, file_id):
+        self.logger.info('Processing %s' % file_id)
+        speaker_id = file_id.split('_')[0]
+
+        feed_dict, batch_size = self.data_loader.make_feed_dict(file_id_list=[file_id])
+        lambda_SD = self.model.gen_lambda_SD_value(feed_dict=feed_dict)
+
+        self.dv_file_dict[file_id] = (batch_size, lambda_SD[0])
+
+    def save_dv_files(self, output_dir):
+
+        dv_spk_dict_file  = os.path.join(output_dir, 'dv_spk_dict.dat')
+        dv_spk_dict_text  = os.path.join(output_dir, 'dv_spk_dict.txt')
+        dv_file_dict_file = os.path.join(output_dir, 'dv_file_dict.dat')
+        dv_file_dict_text = os.path.join(output_dir, 'dv_file_dict.txt')
+        self.logger.info('Saving to files:')
+        print(dv_spk_dict_file)
+        print(dv_spk_dict_text)
+        print(dv_file_dict_file)
+        print(dv_file_dict_text)
+        self.DMLFIO.write_dv_spk_values_to_file(self.dv_spk_dict, dv_spk_dict_file, file_type='pickle')
+        self.DMLFIO.write_dv_spk_values_to_file(self.dv_spk_dict, dv_spk_dict_text, file_type='text')
+        self.DMLFIO.write_dv_file_values_to_file(self.dv_file_dict, dv_file_dict_file, file_type='pickle')
+        self.DMLFIO.write_dv_file_values_to_file(self.dv_file_dict, dv_file_dict_text, file_type='text')
+
+
+
+class Build_DV_Attention_Plotter(Build_DV_Attention_Testing_Base):
+    """
+    Build_DV_Attention_Plotter
+    Generate a dict of speaker representations:
+        Plot attention against text/label
+    """
+    def __init__(self, cfg, dv_attn_cfg, output_dir=None):
+        super().__init__(cfg, dv_attn_cfg)
+        self.output_dir = output_dir
+        self.logger.info('Build_DV_Atten_Plot')
 
         # change S to 1; re-build data_loader
         dv_attn_cfg.input_data_dim['S'] = 1
