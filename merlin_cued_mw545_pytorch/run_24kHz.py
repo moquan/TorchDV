@@ -133,10 +133,8 @@ def main_function(cfg):
 
 if __name__ == '__main__': 
 
-    if len(sys.argv) == 2:
-        work_dir = sys.argv[1]
-    else:
-        work_dir = None
+    work_dir = sys.argv[1]
+    config_file = sys.argv[2]
 
-    cfg = configuration(work_dir)
+    cfg = configuration(work_dir, config_file)
     main_function(cfg)

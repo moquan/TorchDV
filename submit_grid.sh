@@ -1,8 +1,14 @@
 #mv run_grid.sh.* log/ 2>/dev/null
-#qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=low,tests=0,mem_grab=0M,osrel=* run_grid.sh
-# qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=cuda-low,tests=0,mem_grab=0M,osrel=*,gpuclass=*,hostname=air208 run_grid.sh
-qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=cuda-low,tests=0,mem_grab=0M,osrel=*,gpuclass=* run_grid.sh
-# qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=cuda-low,tests=0,mem_grab=0M,osrel=*,gpuclass=volta run_grid.sh
+if [ $1 = cudaAll ]; then
+    qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=cuda-low,tests=0,mem_grab=0M,osrel=*,gpuclass=* run_grid.sh $2 ${PWD}
+if [ $1 = cuda ]; then
+    qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=cuda-low,tests=0,mem_grab=0M,osrel=*,gpuclass=volta run_grid.sh $2 ${PWD}
+elif [ $1 = cpu ]; then
+    qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=low,tests=0,mem_grab=0M,osrel=* run_grid.sh $2 ${PWD}
+else
+    qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=cuda-low,tests=0,mem_grab=0M,osrel=*,gpuclass=*,hostname=air$1 run_grid.sh $2 ${PWD}
+fi
+
 
 
 # for h in 208 210 211 212 213; do

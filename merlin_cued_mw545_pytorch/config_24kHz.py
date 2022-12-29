@@ -1,9 +1,11 @@
-import os
+import os, json
 from frontend_mw545.modules import prepare_script_file_path
 
 class configuration(object):
-    def __init__(self, work_dir=None, cache_files=True):
+    def __init__(self, work_dir=None, config_file="", cache_files=True):
         self.init_all(work_dir, cache_files)
+        json_conf = json.load(open(config_file, ))
+        print(json_conf)
 
         self.Processes = {}
         # All kinds of tests
