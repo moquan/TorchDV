@@ -7,7 +7,7 @@ export CUDA_HOME=/usr/local/cuda-10.1
 # export VENV=py36torch15cuda101
 # export PATH=${PATH}:${CUDA_HOME}/bin:/home/dawna/tts/mw545/tools/anaconda2/bin
 export VENV=espnetpy36torch15cuda101
-export MerlinDir=${workDir}/merlin_cued_mw545
+export MerlinDir=${workDir}/merlin_cued_mw545_pytorch
 export PATH=${PATH}:${CUDA_HOME}/bin:/data/vectra2/tts/mw545/TorchTTS/anaconda/bin
 
 cd ${workDir}
