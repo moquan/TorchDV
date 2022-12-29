@@ -1,7 +1,7 @@
 #mv run_grid.sh.* log/ 2>/dev/null
 if [ $1 = cudaAll ]; then
     qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=cuda-low,tests=0,mem_grab=0M,osrel=*,gpuclass=* run_grid.sh $2 ${PWD}
-if [ $1 = cuda ]; then
+elif [ $1 = cuda ]; then
     qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=cuda-low,tests=0,mem_grab=0M,osrel=*,gpuclass=volta run_grid.sh $2 ${PWD}
 elif [ $1 = cpu ]; then
     qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=low,tests=0,mem_grab=0M,osrel=* run_grid.sh $2 ${PWD}
