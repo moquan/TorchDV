@@ -1,0 +1,6 @@
+{
+    "mode": "debug",
+    "processes": "trainCMP|testCMP",
+    "tests": "",
+    "script": "exp_dv_cmp"
+}

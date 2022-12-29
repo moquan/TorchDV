@@ -3,7 +3,7 @@
 import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy
 
-from frontend_mw545.modules import make_logger, prepare_script_file_path
+from frontend_mw545.modules import make_logger, prepare_script_file_path, check_and_change_to_list
 
 class dv_configuration_base(object):
     """docstring for dv_configuration_base"""
