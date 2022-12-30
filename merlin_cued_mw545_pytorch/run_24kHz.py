@@ -1,4 +1,4 @@
-import os, sys, pickle, time, shutil, logging
+import os, sys, pickle, time, shutil, logging, importlib
 import math, numpy, scipy, scipy.io.wavfile#, sigproc, sigproc.pystraight
 
 from frontend_mw545.modules import make_logger, prepare_script_file_path, log_class_attri
@@ -42,93 +42,13 @@ def main_function(cfg):
     # Flat attention        #
     #########################
 
-    if cfg.Processes['TrainCMPDVY']:
-        from scripts.exp_dv_cmp import train_model
-        train_model(cfg)
+    if cfg.Processes['Train']:
+        mymodule = importlib.import_module("scripts."+cfg.script_name)
+        mymodule.train_model(cfg)
 
-    if cfg.Processes['TestCMPDVY']:
-        from scripts.exp_dv_cmp import test_model
-        test_model(cfg)
-
-    if cfg.Processes['TrainWavSincNet']:
-        from scripts.exp_dv_wav_sincnet import train_model
-        train_model(cfg)
-
-    if cfg.Processes['TestWavSincNet']:
-        from scripts.exp_dv_wav_sincnet import test_model
-        test_model(cfg)
-
-    if cfg.Processes['TrainMFCCXVec']:
-        from scripts.exp_dv_mfcc_xvector import train_model
-        train_model(cfg)
-
-    if cfg.Processes['TestMFCCXVec']:
-        from scripts.exp_dv_mfcc_xvector import test_model
-        test_model(cfg)
-
-    if cfg.Processes['TrainWavSineV0']:
-        from scripts.exp_dv_wav_sinenet_v0 import train_model
-        train_model(cfg)
-
-    if cfg.Processes['TestWavSineV0']:
-        from scripts.exp_dv_wav_sinenet_v0 import test_model
-        test_model(cfg)
-    
-    if cfg.Processes['TrainWavSineV1']:
-        from scripts.exp_dv_wav_sinenet_v1 import train_model
-        train_model(cfg)
-
-    if cfg.Processes['TestWavSineV1']:
-        from scripts.exp_dv_wav_sinenet_v1 import test_model
-        test_model(cfg)
-
-    if cfg.Processes['TrainWavSineV2']:
-        from scripts.exp_dv_wav_sinenet_v2 import train_model
-        train_model(cfg)
-
-    if cfg.Processes['TestWavSineV2']:
-        from scripts.exp_dv_wav_sinenet_v2 import test_model
-        test_model(cfg)
-
-    ##############################
-    # Lab Attention-based Models #
-    ##############################
-
-    if cfg.Processes['TrainCMPLabAtten']:
-        from scripts.exp_dv_cmp_lab_attention import train_model
-        train_model(cfg)
-
-    if cfg.Processes['TestCMPLabAtten']:
-        from scripts.exp_dv_cmp_lab_attention import test_model
-        test_model(cfg)
-
-    if cfg.Processes['TrainWavSincNetLabAtten']:
-        from scripts.exp_dv_wav_sincnet_lab_attention import train_model
-        train_model(cfg)
-
-    if cfg.Processes['TestWavSincNetLabAtten']:
-        from scripts.exp_dv_wav_sincnet_lab_attention import test_model
-        test_model(cfg)
-
-    if cfg.Processes['TrainWavSineV0LabAtten']:
-        from scripts.exp_dv_wav_sinenet_v0_lab_attention import train_model
-        train_model(cfg)
-
-    if cfg.Processes['TestWavSineV0LabAtten']:
-        from scripts.exp_dv_wav_sinenet_v0_lab_attention import test_model
-        test_model(cfg)
-
-    if cfg.Processes['TrainWavSineV2LabAtten']:
-        from scripts.exp_dv_wav_sinenet_v2_lab_attention import train_model
-        train_model(cfg)
-
-    if cfg.Processes['TestWavSineV2LabAtten']:
-        from scripts.exp_dv_wav_sinenet_v2_lab_attention import test_model
-        test_model(cfg)
-
-
-
-
+    if cfg.Processes['Test']:
+        mymodule = importlib.import_module("scripts."+cfg.script_name)
+        mymodule.test_model(cfg)
     
 
 if __name__ == '__main__': 

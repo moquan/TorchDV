@@ -3,82 +3,73 @@ from frontend_mw545.modules import prepare_script_file_path
 
 class configuration(object):
     def __init__(self, work_dir=None, config_file="", cache_files=True):
+        self.load_json_config(config_file)
         self.init_all(work_dir, cache_files)
-        json_conf = json.load(open(config_file, ))
-        print(json_conf)
 
+    def load_json_config(self, config_file):
+        json_conf = json.load(open(config_file, ))
+        
+        json_base_conf = json.load(open(json_conf.baseConfig, ))
+        self.data_dir = json_base_conf.dataDir
+        self.result_dir = json_base_conf.resultDir
+        
+        self.run_mode = json_conf.mode
+        self.init_processes(json_conf.processes.split("|"))
+        self.test_list = json_conf.tests.split("|")
+        self.script_name = json_conf.script
+
+    def init_processes(self, processes_true):
         self.Processes = {}
+        process_list = []
         # All kinds of tests
-        self.Processes['TemporaryTest'] = False
-        self.Processes['FrontendTest']  = False
-        self.Processes['TorchTest']  = False
+        process_list.extend(['TemporaryTest', 'FrontendTest', 'TorchTest'])
 
         # New Data Preparation Functions
-        self.Processes['DataConvert']       = False
-        self.Processes['DataSilenceReduce'] = False
-        self.Processes['DataNorm']          = False
+        process_list.extend(['DataConvert', 'DataSilenceReduce', 'DataNorm'])
 
-
-        self.Processes['TrainCMPDVY'] = True
-        self.Processes['TestCMPDVY']  = False
-
-        # Experiments with SincNet
-        self.Processes['TrainWavSincNet'] = False
-        self.Processes['TestWavSincNet']  = False
-
-        # Experiments with MFCC-based x-vector
-        self.Processes['TrainMFCCXVec'] = False
-        self.Processes['TestMFCCXVec']  = False
-
+        # train and test
+        process_list.extend(['Train', 'Test'])
+        '''
+        # Vocoder-based d-vector
+        process_list.extend(['TrainCMP', 'TestCMP'])
+        # Wav-based SincNet
+        process_list.extend(['TrainWavSincNet', 'TestWavSincNet'])
+        # MFCC-based x-vector: TODO not implemented yet
+        process_list.extend(['TrainMFCCXVec', 'TestMFCCXVec'])
         # Experiments where F0 and phase shift info are predicted
         # 200ms window is sliced into smaller frames of 40ms
-        self.Processes['TrainWavSineV0'] = False
-        self.Processes['TestWavSineV0']  = False
-
-        # 
-        self.Processes['TrainWavSineV1'] = False
-        self.Processes['TestWavSineV1']  = False
-
-        #
-
-        self.Processes['TrainWavSineV2'] = False
-        self.Processes['TestWavSineV2']  = False
-
+        process_list.extend(['TrainWavSineV0', 'TestWavSineV0'])
+        process_list.extend(['TrainWavSineV1', 'TestWavSineV1'])
+        process_list.extend(['TrainWavSineV2', 'TestWavSineV2'])
+        
+        # Lab-based Attention
+        process_list.extend(['TrainCMPLabAtten', 'TestCMPLabAtten'])
+        process_list.extend(['TrainWavSincNetLabAtten', 'TestWavSincNetLabAtten'])
+        process_list.extend(['TrainWavSineV0LabAtten', 'TestWavSineV0LabAtten'])
+        process_list.extend(['TrainWavSineV2LabAtten', 'TestWavSineV2LabAtten'])
         '''
-        Lab-based Attention
-        '''
-        self.Processes['TrainCMPLabAtten'] = False
-        self.Processes['TestCMPLabAtten']  = False
 
-        self.Processes['TrainWavSincNetLabAtten'] = False
-        self.Processes['TestWavSincNetLabAtten']  = False
+        for p in process_list:
+            self.Processes[p] = False
 
-        self.Processes['TrainWavSineV0LabAtten'] = False
-        self.Processes['TestWavSineV0LabAtten']  = False
-
-        self.Processes['TrainWavSineV2LabAtten'] = False
-        self.Processes['TestWavSineV2LabAtten']  = False
-
-        '''
-        Useless?
-        '''
-        self.Processes['TrainWavSubwinDVY'] = False
-        self.Processes['TestWavSubwinDVY']  = False
+        for p in processes_true:
+            self.Processes[p] = True
 
     def init_all(self, work_dir, cache_files=True):
         if work_dir is None:
             # self.work_dir = "/home/dawna/tts/mw545/TorchDV/debug_nausicaa"
-            self.work_dir = "/data/vectra2/tts/mw545/TorchDV/debug_nausicaa"
+            self.work_dir = "/data/vectra2/tts/mw545/TorchDV"
         else:
             self.work_dir = work_dir # Comes from bash command argument, ${PWD}
 
-        # self.python_script_name = os.path.join(self.work_dir, 'run_nn_iv_batch_T4_DV.py')
+        
+
         self.python_script_name = os.path.realpath(__file__)
         if cache_files:
             prepare_script_file_path(self.work_dir, self.python_script_name)
         
         # self.data_dir = os.path.join(self.work_dir, 'data')
-        self.data_dir = '/data/vectra2/tts/mw545/Data/exp_dirs/data_voicebank_24kHz'
+        
         self.file_id_list_dir = os.path.join(self.data_dir, 'file_id_lists')
         
         self.question_file_name = os.path.join(self.data_dir, 'questions.hed')

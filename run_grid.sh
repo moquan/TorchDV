@@ -1,4 +1,5 @@
 echo Running on $HOSTNAME, X_SGE_CUDA_DEVICE ${X_SGE_CUDA_DEVICE}
+echo Loading $1
 export CUDA_VISIBLE_DEVICES=${X_SGE_CUDA_DEVICE}
 export workDir=$2
 

@@ -1,6 +1,7 @@
 {
     "mode": "debug",
-    "processes": "trainCMP|testCMP",
+    "processes": "Train|Test",
     "tests": "",
-    "script": "exp_dv_cmp"
+    "script": "exp_dv_cmp", 
+    "baseConfig": "./config/base_config.json"
 }
