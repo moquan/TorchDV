@@ -9,14 +9,14 @@ class configuration(object):
     def load_json_config(self, config_file):
         json_conf = json.load(open(config_file, ))
         
-        json_base_conf = json.load(open(json_conf.baseConfig, ))
-        self.data_dir = json_base_conf.dataDir
-        self.result_dir = json_base_conf.resultDir
+        json_base_conf = json.load(open(json_conf["baseConfig"], ))
+        self.data_dir = json_base_conf["dataDir"]
+        self.result_dir = json_base_conf["resultDir"]
         
-        self.run_mode = json_conf.mode
-        self.init_processes(json_conf.processes.split("|"))
-        self.test_list = json_conf.tests.split("|")
-        self.script_name = json_conf.script
+        self.run_mode = json_conf["mode"]
+        self.init_processes(json_conf["processes"].split("|"))
+        self.test_list = json_conf["tests"].split("|")
+        self.script_name = json_conf["script"]
 
     def init_processes(self, processes_true):
         self.Processes = {}
