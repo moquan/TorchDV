@@ -1,2 +1,4 @@
 merlin_cued_mw545_pytorch/nn_torch/torch_tests.py
 *__pycache__
+log/*
+exps/*
