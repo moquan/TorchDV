@@ -88,7 +88,7 @@ class dv_configuration_base(object):
             self.exp_dir = cfg.script_name
         self.model_dir = self.make_model_dir_name(cfg)
 
-        self.run_mode == 'debug': self.change_to_debug_mode()
+        if self.run_mode == 'debug': self.change_to_debug_mode()
         if self.retrain_model: self.change_to_retrain_mode()
         
         complete_model_dir = os.path.join(self.work_dir, self.exp_dir, self.model_dir)
