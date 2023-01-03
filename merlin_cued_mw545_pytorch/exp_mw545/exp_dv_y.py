@@ -484,7 +484,7 @@ class Build_DV_Generator(Build_DV_Y_Testing_Base):
 
             self.dv_spk_dict[speaker_id] = dv_speaker / total_num_frames
 
-        self.save_dv_files(self.dv_y_cfg.exp_dir)
+        self.save_dv_files(self.dv_y_cfg.complete_model_dir)
         if self.output_dir is not None:
             self.save_dv_files(self.output_dir)
 

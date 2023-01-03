@@ -91,13 +91,13 @@ class dv_configuration_base(object):
         if self.run_mode == 'debug': self.change_to_debug_mode()
         if self.retrain_model: self.change_to_retrain_mode()
         
-        complete_model_dir = os.path.join(self.work_dir, "exps", self.exp_dir, self.model_dir)
-        self.nnets_file_name = os.path.join(complete_model_dir, "Model")
-        self.dv_file_name = os.path.join(complete_model_dir, "DV.dat")
+        self.complete_model_dir = os.path.join(self.work_dir, "exps", self.exp_dir, self.model_dir)
+        self.nnets_file_name = os.path.join(self.complete_model_dir, "Model")
+        self.dv_file_name = os.path.join(self.complete_model_dir, "DV.dat")
 
         if cache_files:
-            prepare_script_file_path(file_dir=complete_model_dir, script_name=self.python_script_name)
-            prepare_script_file_path(file_dir=complete_model_dir, script_name=cfg.json_config_file)
+            prepare_script_file_path(file_dir=self.complete_model_dir, script_name=self.python_script_name)
+            prepare_script_file_path(file_dir=self.complete_model_dir, script_name=cfg.json_config_file)
 
     def additional_action_epoch(self, logger, dv_y_model):
         # Run every epoch, after train and eval; Add tests if necessary
