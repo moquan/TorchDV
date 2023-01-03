@@ -14,7 +14,7 @@ class dv_y_cmp_configuration(dv_y_configuration):
 
         self.retrain_model = False
         self.learning_rate  = 0.0001
-        self.prev_nnets_file_name = ''
+        self.prev_nnets_file_name = None
         self.python_script_name = os.path.realpath(__file__)
         self.data_dir_mode = 'scratch' # Use scratch for speed up
         self.train_by_window = True
@@ -29,11 +29,8 @@ class dv_y_cmp_configuration(dv_y_configuration):
 
         self.input_data_dim['S'] = 10
         self.feed_per_update = 40
-        # self.learning_rate = self.learning_rate / self.feed_per_update
         S_per_update = self.input_data_dim['S'] * self.feed_per_update
         self.epoch_num_batch  = {'train': int(52000/S_per_update), 'valid': int(8000/self.input_data_dim['S'])}
-        # self.feed_per_update = 2
-        # self.epoch_num_batch  = {'train': 10, 'valid': 10}
 
         self.dv_dim = 512
         self.nn_layer_config_list = [
@@ -42,7 +39,6 @@ class dv_y_cmp_configuration(dv_y_configuration):
             {'type':'Linear', 'size':self.dv_dim, 'dropout_p':0., 'layer_norm':True}
         ]
 
-        # self.gpu_id = 'cpu'
         self.gpu_id = 0
         self.auto_complete(cfg, cache_files)
 
