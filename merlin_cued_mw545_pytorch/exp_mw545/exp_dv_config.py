@@ -91,7 +91,7 @@ class dv_configuration_base(object):
         if self.run_mode == 'debug': self.change_to_debug_mode()
         if self.retrain_model: self.change_to_retrain_mode()
         
-        complete_model_dir = os.path.join(self.work_dir, self.exp_dir, self.model_dir)
+        complete_model_dir = os.path.join(self.work_dir, "exps", self.exp_dir, self.model_dir)
         self.nnets_file_name = os.path.join(complete_model_dir, "Model")
         self.dv_file_name = os.path.join(complete_model_dir, "DV.dat")
 
