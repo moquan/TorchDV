@@ -14,10 +14,10 @@ class dv_y_cmp_configuration(dv_y_configuration):
 
         self.retrain_model = False
         self.learning_rate  = 0.0001
-        self.prev_nnets_file_name = '/data/vectra2/tts/mw545/TorchDV/dv_cmp_dnn/dvy_cmp_lr1E-04_fpu40_LRe512L_LRe512L_Lin512L_DV512S10T40D3440_nTW10s/Model'
+        self.prev_nnets_file_name = ''
         self.python_script_name = os.path.realpath(__file__)
         self.data_dir_mode = 'scratch' # Use scratch for speed up
-        self.train_by_window = False
+        self.train_by_window = True
         self.train_num_seconds = 10
         self.data_loader_random_seed = 0
 
