@@ -3,6 +3,7 @@ from frontend_mw545.modules import prepare_script_file_path
 
 class configuration(object):
     def __init__(self, work_dir=None, config_file="", cache_files=True):
+        self.json_config_file = config_file
         self.load_json_config(config_file)
         self.init_all(work_dir, cache_files)
 
@@ -13,12 +14,15 @@ class configuration(object):
         self.data_dir = json_base_conf["dataDir"]
         self.result_dir = json_base_conf["resultDir"]
         
-        self.run_mode = json_conf["mode"]
-        self.init_processes(json_conf["processes"].split("|"))
-        self.test_list = json_conf["tests"].split("|")
-        self.script_name = json_conf["script"]
+        try: self.run_mode = json_conf["mode"]
+        except: self.run_mode = "normal"
 
-    def init_processes(self, processes_true):
+        self.script_name = json_conf["script"]
+        self.load_processes(json_conf["processes"].split("|"))
+        self.test_list = json_conf["tests"].split("|")
+        
+
+    def load_processes(self, processes_true):
         self.Processes = {}
         process_list = []
         # All kinds of tests
@@ -55,7 +59,7 @@ class configuration(object):
         for p in processes_true:
             self.Processes[p] = True
 
-    def init_all(self, work_dir, cache_files=True):
+    def init_all(self, work_dir, cache_files=False):
         if work_dir is None:
             # self.work_dir = "/home/dawna/tts/mw545/TorchDV/debug_nausicaa"
             self.work_dir = "/data/vectra2/tts/mw545/TorchDV"

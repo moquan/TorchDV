@@ -11,7 +11,7 @@ class dv_configuration_base(object):
         super(dv_configuration_base, self).__init__()
         self.cfg = cfg
         self.log_except_list = ['cfg', 'feat_index']
-        self.run_mode = 'normal'
+        self.run_mode = cfg.run_mode
         
     def init_dir(self):
         # Things to be filled
@@ -62,12 +62,9 @@ class dv_configuration_base(object):
 
     def change_to_debug_mode(self, process=None):
         self.logger.info('Change to Debug Mode')
-        self.run_mode = 'debug'
-        # self.input_data_dim['S'] = 1
         for k in self.epoch_num_batch:
             self.epoch_num_batch[k] = 1
-        if '_smallbatch' not in self.exp_dir:
-            self.exp_dir = self.exp_dir + '_smallbatch'
+        self.exp_dir = "debug"
         self.num_train_epoch = 100
         self.warmup_epoch    = 1
         self.early_stop_epoch = 1
@@ -88,23 +85,25 @@ class dv_configuration_base(object):
         # Directories
         self.work_dir = cfg.work_dir
         if self.exp_dir is None:
-            self.exp_dir  = self.make_dv_exp_dir_name(cfg)
+            self.exp_dir = cfg.script_name
+        self.model_dir = self.make_model_dir_name(cfg)
 
-        if 'debug' in self.work_dir: self.change_to_debug_mode()
+        self.run_mode == 'debug': self.change_to_debug_mode()
         if self.retrain_model: self.change_to_retrain_mode()
         
-        self.nnets_file_name = os.path.join(self.exp_dir, "Model")
-        self.dv_file_name = os.path.join(self.exp_dir, "DV.dat")
+        complete_model_dir = os.path.join(self.work_dir, self.exp_dir, self.model_dir)
+        self.nnets_file_name = os.path.join(complete_model_dir, "Model")
+        self.dv_file_name = os.path.join(complete_model_dir, "DV.dat")
 
         if cache_files:
-            prepare_script_file_path(file_dir=self.exp_dir, script_name=cfg.python_script_name)
-            prepare_script_file_path(file_dir=self.exp_dir, script_name=self.python_script_name)
+            prepare_script_file_path(file_dir=complete_model_dir, script_name=self.python_script_name)
+            prepare_script_file_path(file_dir=complete_model_dir, script_name=cfg.json_config_file)
 
     def additional_action_epoch(self, logger, dv_y_model):
         # Run every epoch, after train and eval; Add tests if necessary
         pass
 
-    def make_dv_exp_dir_name(self, cfg):
+    def make_model_dir_name(self, cfg):
         pass
 
 
@@ -217,9 +216,9 @@ class dv_y_configuration(dv_configuration_base):
         self.h_list_file_name = os.path.join(self.exp_dir, "h_spk_list.dat")
         self.file_list_dict = {(spk_id, 'gen'): [spk_id+'_'+self.utter_name] for spk_id in self.batch_speaker_list}
 
-    def make_dv_exp_dir_name(self, cfg=None):
+    def make_model_dir_name(self, cfg=None):
         if cfg is None: cfg = self.cfg
-        dv_exp_dir = 'dvy_%s_lr%.0E_fpu%i_' %(self.y_feat_name, self.learning_rate, self.feed_per_update)
+        dv_model_dir = 'dvy_%s_lr%.0E_fpu%i_' %(self.y_feat_name, self.learning_rate, self.feed_per_update)
 
         for nn_layer_config in self.nn_layer_config_list:
             if nn_layer_config['type'] == 'Tensor_Reshape':
@@ -243,27 +242,26 @@ class dv_y_configuration(dv_configuration_base):
                 if 'k_train' in nn_layer_config and nn_layer_config['k_train']:
                     layer_str = layer_str + 'T'
                 layer_str = layer_str + "_"
-            dv_exp_dir = dv_exp_dir + layer_str
+            dv_model_dir = dv_model_dir + layer_str
 
         if self.y_feat_name == 'wav':
             if 'wav_SBT' in self.out_feat_list:
-                dv_exp_dir = dv_exp_dir + "DV%iS%iT%i" %(self.dv_dim, self.input_data_dim['S'], self.input_data_dim['T_B'])
+                dv_model_dir = dv_model_dir + "DV%iS%iT%i" %(self.dv_dim, self.input_data_dim['S'], self.input_data_dim['T_B'])
                 if 'T_M' in self.input_data_dim:
-                    dv_exp_dir = dv_exp_dir + 'TM%i' % self.input_data_dim['T_M']
+                    dv_model_dir = dv_model_dir + 'TM%i' % self.input_data_dim['T_M']
         elif self.y_feat_name == 'cmp':
-            dv_exp_dir = dv_exp_dir + "DV%iS%iT%iD%i" %(self.dv_dim, self.input_data_dim['S'], self.input_data_dim['T_B'], self.input_data_dim['D'])
+            dv_model_dir = dv_model_dir + "DV%iS%iT%iD%i" %(self.dv_dim, self.input_data_dim['S'], self.input_data_dim['T_B'], self.input_data_dim['D'])
         if self.use_voiced_only:
-            dv_exp_dir = dv_exp_dir + "_vO"+str(self.use_voiced_threshold)
+            dv_model_dir = dv_model_dir + "_vO"+str(self.use_voiced_threshold)
         if not self.train_by_window:
-            dv_exp_dir = dv_exp_dir + "_nTW"
+            dv_model_dir = dv_model_dir + "_nTW"
             if self.train_num_seconds > 0:
-                dv_exp_dir = dv_exp_dir + str(self.train_num_seconds) + 's'
+                dv_model_dir = dv_model_dir + str(self.train_num_seconds) + 's'
         if self.data_loader_random_seed > 0:
-            dv_exp_dir = dv_exp_dir  + '_seed' + str(self.data_loader_random_seed)
+            dv_model_dir = dv_model_dir  + '_seed' + str(self.data_loader_random_seed)
         
-        self.dv_exp_dir = dv_exp_dir
-        exp_dir = os.path.join(cfg.work_dir, self.dv_exp_dir)
-        return exp_dir
+        self.model_dir = dv_model_dir
+        return dv_model_dir
 
 
 class dv_attention_configuration(dv_configuration_base):
@@ -337,17 +335,17 @@ class dv_attention_configuration(dv_configuration_base):
         self.feed_per_update = self.dv_y_cfg.feed_per_update
         self.epoch_num_batch  = self.dv_y_cfg.epoch_num_batch
 
-    def make_dv_exp_dir_name(self, cfg=None, dv_y_cfg=None):
+    def make_model_dir_name(self, cfg=None, dv_y_cfg=None):
         # exp_dir_name contains 3 parts:
-        # work_dir, atten_exp_dir, dv_y_exp_dir
+        # work_dir, atten_model_dir, dv_y_model_dir
         if cfg is None: cfg = self.cfg
         if dv_y_cfg is None: dv_y_cfg = self.dv_y_cfg
 
-        self.dv_y_exp_dir = dv_y_cfg.dv_exp_dir
+        self.dv_y_model_dir = dv_y_cfg.dv_model_dir
         if self.load_y_model:
-            self.dv_y_exp_dir += '_LY'
+            self.dv_y_model_dir += '_LY'
         
-        atten_exp_dir = 'dvatten_%s_%s_lr%.0E_fpu%i_' %(self.feat_name, self.y_model_name, self.learning_rate, self.feed_per_update)
+        atten_model_dir = 'dva_%s_%s_lr%.0E_fpu%i_' %(self.feat_name, self.y_model_name, self.learning_rate, self.feed_per_update)
         for nn_layer_config in self.nn_layer_config_list:
             if nn_layer_config['type'] == 'Tensor_Reshape':
                 layer_str = ''
@@ -371,17 +369,17 @@ class dv_attention_configuration(dv_configuration_base):
                 #     layer_str = layer_str + 'T'
                 
                 layer_str = layer_str + "_"
-            atten_exp_dir = atten_exp_dir + layer_str
+            atten_model_dir = atten_model_dir + layer_str
 
         if self.feat_name == 'lab':
-            atten_exp_dir = atten_exp_dir + "S%iM%iD%i" %(self.input_data_dim['S'], self.input_data_dim['M'], self.input_data_dim['D'])
+            atten_model_dir = atten_model_dir + "S%iM%iD%i" %(self.input_data_dim['S'], self.input_data_dim['M'], self.input_data_dim['D'])
 
         if self.data_loader_random_seed > 0:
-            atten_exp_dir = atten_exp_dir  + '_seed' + str(self.data_loader_random_seed)
+            atten_model_dir = atten_model_dir  + '_seed' + str(self.data_loader_random_seed)
 
-        self.atten_exp_dir = atten_exp_dir
-        exp_dir = os.path.join(cfg.work_dir, self.dv_y_exp_dir, self.atten_exp_dir)
-        return exp_dir
+        self.atten_model_dir = atten_model_dir
+        model_dir = os.path.join(self.dv_y_model_dir, self.atten_model_dir)
+        return model_dir
 
 
     def auto_complete(self, cfg=None, cache_files=True):

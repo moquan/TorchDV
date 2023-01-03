@@ -58,17 +58,20 @@ def test_model(cfg, dv_y_cfg=None):
     from exp_mw545.exp_dv_y import Build_DV_Y_Testing
     dv_y_model_test = Build_DV_Y_Testing(cfg, dv_y_cfg)
     # Additional output dir; also output to the exp dir
-    # output_dir = '/home/dawna/tts/mw545/Export_Temp/PNG_out'
-    output_dir = '/data/vectra2/tts/mw545/Export_Temp/PNG_out'
-    # dv_y_model_test.gen_dv(output_dir)
-    # dv_y_model_test.cross_entropy_accuracy_test()
-    dv_y_model_test.number_secs_accu_test()
-    dv_y_model_test.positional_test(output_dir, distance_type='cosine')
+    output_dir = cfg.result_dir
+    for test_name in cfg.test_list:
+        if test_name == "genDV":
+            dv_y_model_test.gen_dv(output_dir)
+            dv_y_model_test.cross_entropy_accuracy_test()
+        if test_name == "numberSecsAccu":
+            dv_y_model_test.number_secs_accu_test()
+        if test_name == "positional":
+            fig_file_name = os.path.join(output_dir, 'positional_cmp.png')
+            dv_y_model_test.positional_test(fig_file_name=fig_file_name, distance_type='cosine')
+        if test_name == "vuvLoss":
+            fig_file_name = os.path.join(output_dir, 'vuv_loss_cmp.png')
+            dv_y_model_test.vuv_loss_test(fig_file_name=fig_file_name, distance_type='cosine')
 
-    # fig_file_name = os.path.join(output_dir, 'vuv_loss_cmp.png')
-    # dv_y_model_test.vuv_loss_test(fig_file_name)
-    # fig_file_name = os.path.join(output_dir, 'positional_cmp.png')
-    # dv_y_model_test.positional_test(fig_file_name)
     
 
 

@@ -1,7 +1,7 @@
 {
     "mode": "debug",
-    "processes": "Train|Test",
-    "tests": "",
     "script": "exp_dv_cmp", 
+    "processes": "Train|Test",
+    "tests": "genDV|positional",
     "baseConfig": "./config/base_config.json"
 }
