@@ -1,12 +1,10 @@
-cp /home/dawna/tts/mw545/TorchDV/debug_nausicaa/*.sh .
-# Remember to change workdir
-# TODO: Better: write ${PWD} to run_nausicaa.sh directly
+export WorkDir=[Name of workdir here]
+mkdir ${WorkDir}
+cd ${WorkDir}
+cp /data/vectra2/tts/mw545/TorchDV/tools/template/*.sh .
+sed -i "s/export WorkDir=debug_grid/export WorkDir=${WorkDir}/" run_grid.sh
 
-
+export MerlinDir=/data/vectra2/tts/mw545/TorchDV/tools/merlin_cued_mw545
 mkdir log
-ln -s /data/vectra2/tts/mw545/Data/data_voicebank data
-
-ln -s /home/dawna/tts/mw545/TorchDV/tools/merlin_cued_mw545/run_nn_iv_batch_T4_DV.py
-ln -s /home/dawna/tts/mw545/TorchDV/tools/merlin_cued_mw545/exp_mw545/exp_dv_cmp_pytorch.py
-
-ln -s /home/dawna/tts/mw545/TorchDV/tools/merlin_cued_mw545/tests
+ln -s ${MerlinDir}/run_24kHz.py
+ln -s ${MerlinDir}/config_24kHz.py
