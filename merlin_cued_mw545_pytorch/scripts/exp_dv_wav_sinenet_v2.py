@@ -22,7 +22,7 @@ class dv_y_wav_sinenet_configuration(dv_y_configuration):
         self.out_feat_list = ['wav_SBT', 'f_SBM', 'tau_SBM', 'vuv_SBM']
         self.input_data_dim['T_B'] = int(0.125 * self.cfg.wav_sr)
         # self.input_data_dim['T_B'] = int(0.2 * self.cfg.wav_sr)
-        self.input_data_dim['B_stride'] = self.input_data_dim['T_B'] * 0.5
+        self.input_data_dim['B_stride'] = int(self.input_data_dim['T_B'] * 0.5)
         self.input_data_dim['T_M'] = 240
         self.input_data_dim['M_stride'] = 240
         self.update_wav_dim()
