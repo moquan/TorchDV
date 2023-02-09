@@ -1,0 +1,7 @@
+{
+    "mode": "normal",
+    "script": "exp_dv_wav_sinenet_v2", 
+    "processes": "Train|Test",
+    "tests": "genDV|positional|numberSecsAccu|vuvLoss",
+    "baseConfig": "./config/base_config.json"
+}
