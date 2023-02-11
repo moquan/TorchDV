@@ -66,7 +66,7 @@ def test_model(cfg, dv_y_cfg=None):
             dv_y_model_test.positional_test(fig_file_name=fig_file_name, distance_type='cosine')
         if test_name == "vuvLoss":
             fig_file_name = os.path.join(output_dir, 'vuv_loss_cmp.png')
-            dv_y_model_test.vuv_loss_test(fig_file_name=fig_file_name, distance_type='cosine')
+            dv_y_model_test.vuv_loss_test(fig_file_name=fig_file_name)
 
     
 

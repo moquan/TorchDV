@@ -1,0 +1,7 @@
+{
+    "mode": "normal",
+    "script": "exp_dv_cmp", 
+    "processes": "Train|Test",
+    "tests": "genDV|positional|numberSecsAccu|vuvLoss",
+    "baseConfig": "./config/base_config.json"
+}

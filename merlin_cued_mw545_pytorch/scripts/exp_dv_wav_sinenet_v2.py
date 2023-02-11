@@ -22,7 +22,7 @@ class dv_y_wav_sinenet_configuration(dv_y_configuration):
         self.out_feat_list = ['wav_SBT', 'f_SBM', 'tau_SBM', 'vuv_SBM']
         self.input_data_dim['T_B'] = int(0.125 * self.cfg.wav_sr)
         # self.input_data_dim['T_B'] = int(0.2 * self.cfg.wav_sr)
-        self.input_data_dim['B_stride'] = self.input_data_dim['T_B']
+        self.input_data_dim['B_stride'] = int(self.input_data_dim['T_B'] * 0.5)
         self.input_data_dim['T_M'] = 240
         self.input_data_dim['M_stride'] = 240
         self.update_wav_dim()
@@ -80,6 +80,20 @@ def test_model(cfg, dv_y_cfg=None):
 
     from exp_mw545.exp_dv_y import Build_DV_Y_Testing
     dv_y_model_test = Build_DV_Y_Testing(cfg, dv_y_cfg)
+    output_dir = cfg.result_dir
+    for test_name in cfg.test_list:
+        if test_name == "genDV":
+            dv_y_model_test.gen_dv(output_dir)
+            dv_y_model_test.cross_entropy_accuracy_test()
+        if test_name == "numberSecsAccu":
+            dv_y_model_test.number_secs_accu_test()
+        if test_name == "positional":
+            fig_file_name = os.path.join(output_dir, 'positional_wav_sinenet_v2.png')
+            dv_y_model_test.positional_test(fig_file_name=fig_file_name, distance_type='cosine')
+        if test_name == "vuvLoss":
+            fig_file_name = os.path.join(output_dir, 'vuv_loss_sinenet_v2.png')
+            dv_y_model_test.vuv_loss_test(fig_file_name=fig_file_name)
+
     # fig_file_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/vuv_loss_sinenet_v0.png'
     # dv_y_model_test.vuv_loss_test(fig_file_name)
     # fig_file_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/pos_sinenet_v0.png'
@@ -87,9 +101,23 @@ def test_model(cfg, dv_y_cfg=None):
 
     # Additional output dir; also output to the exp dir
     # output_dir = '/home/dawna/tts/mw545/Export_Temp/PNG_out'
-    output_dir = '/data/vectra2/tts/mw545/Export_Temp/PNG_out'
-    # dv_y_model_test.gen_dv(output_dir)
-    dv_y_model_test.cross_entropy_accuracy_test()
+    
+    
     dv_y_model_test.number_secs_accu_test()
     dv_y_model_test.positional_test(output_dir)
+
+    # Additional output dir; also output to the exp dir
+    output_dir = cfg.result_dir
+    for test_name in cfg.test_list:
+        if test_name == "genDV":
+            dv_y_model_test.gen_dv(output_dir)
+            dv_y_model_test.cross_entropy_accuracy_test()
+        if test_name == "numberSecsAccu":
+            dv_y_model_test.number_secs_accu_test()
+        if test_name == "positional":
+            fig_file_name = os.path.join(output_dir, 'positional_cmp.png')
+            dv_y_model_test.positional_test(fig_file_name=fig_file_name, distance_type='cosine')
+        if test_name == "vuvLoss":
+            fig_file_name = os.path.join(output_dir, 'vuv_loss_cmp.png')
+            dv_y_model_test.vuv_loss_test(fig_file_name=fig_file_name, distance_type='cosine')
     
