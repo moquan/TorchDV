@@ -1,4 +1,4 @@
-echo "$0 $1 $2" > lastCommand.log
+echo "$0 $1 $2" > lastCommand.sh
 
 #mv run_grid.sh.* logs/ 2>/dev/null
 if [ $1 = cudaAll ]; then
