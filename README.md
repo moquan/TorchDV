@@ -1,4 +1,4 @@
- 14_Oct_2019
+14_Oct_2019
 
 This repo uses PyTorch for speaker adaptation for speech synthesis with deep learning, using fixed-length speaker representations
 
