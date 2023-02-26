@@ -211,6 +211,7 @@ class Build_DV_Y_Testing_Base(object):
         self.cfg = cfg
         self.dv_y_cfg = dv_y_cfg
         self.dv_y_cfg.input_data_dim['S'] = 1
+        self.total_num_batch = 3000
         log_class_attri(self.dv_y_cfg, self.logger, except_list=self.dv_y_cfg.log_except_list)
 
         if load_model:
@@ -619,7 +620,6 @@ class Build_Wav_VUV_Loss_Test(Build_DV_Y_Testing_Base):
         if 'vuv_SBM' not in dv_y_cfg.out_feat_list:
             dv_y_cfg.out_feat_list.append('vuv_SBM')
         super().__init__(cfg, dv_y_cfg)
-        self.total_num_batch = 1000
         self.fig_file_name = fig_file_name
         self.tvt_list = ['train', 'valid', 'test']
 
@@ -631,13 +631,19 @@ class Build_Wav_VUV_Loss_Test(Build_DV_Y_Testing_Base):
 
     def action_per_batch(self, utter_tvt_name):
         # Make feed_dict for evaluation
-        feed_dict, batch_size = self.data_loader.make_feed_dict(utter_tvt_name=utter_tvt_name)
+        speaker_id = self.data_loader.dv_selecter.draw_n_speakers(n=1)[0]
+        file_id = self.data_loader.dv_selecter.draw_n_files(speaker_id=speaker_id, utter_tvt_name=utter_tvt_name, n=1)
+        feed_dict, batch_size = self.data_loader.make_feed_dict(utter_tvt_name=utter_tvt_name, file_id_list=[file_id], start_sample_list=[0])
         batch_loss_SB = self.model.gen_SB_loss_value(feed_dict=feed_dict) # This is a 1D vector!!
         logit_SBD = self.model.gen_logit_SBD_value(feed_dict=feed_dict)
         batch_accu_SB = self.cal_accuracy(logit_SBD, feed_dict['one_hot_S'])
-        vuv_SBM = feed_dict['vuv_SBM']
 
-        vuv_sum_SB = numpy.sum(vuv_SBM, axis=2)
+        pitch_file_name = os.path.join(self.cfg.nn_feat_scratch_dirs['pitch'], speaker_id, file_id+'.pitch')
+        _,vuv_BM = self.data_loader.dv_y_data_loader.make_tau_BM_single_file(pitch_file_name=pitch_file_name, B=batch_size, start_sample_number=0)
+        # vuv_SBM = feed_dict['vuv_SBM']
+        assert((feed_dict["h"][0,:,3024:]==vuv_BM).all())
+
+        vuv_sum_SB = numpy.sum(vuv_BM, axis=1)
 
         for s in range(self.dv_y_cfg.input_data_dim['S']):
             for b in range(self.dv_y_cfg.input_data_dim['B']):

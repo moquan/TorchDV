@@ -6,3 +6,7 @@ config/user/*
 
 run_grid.sh.e*
 run_grid.sh.o*
+
+lastCommand.sh
+
+.vscode
