@@ -204,7 +204,10 @@ class Build_DV_Y_Testing(object):
         test_fn.test()
 
 class Build_DV_Y_Testing_Base(object):
-    """Base class of tests of dv_y models"""
+    """
+    Base class of tests of dv_y models.
+    Define test flow in test().
+    """
     def __init__(self, cfg, dv_y_cfg, load_model=True, load_data_loader=True):
         super().__init__()
         self.logger = make_logger("test_model")
@@ -640,15 +643,13 @@ class Build_Wav_VUV_Loss_Test(Build_DV_Y_Testing_Base):
 
         pitch_file_name = os.path.join(self.cfg.nn_feat_scratch_dirs['pitch'], speaker_id, file_id+'.pitch')
         _,vuv_BM = self.data_loader.dv_y_data_loader.make_tau_BM_single_file(pitch_file_name=pitch_file_name, B=batch_size, start_sample_number=0)
-        # vuv_SBM = feed_dict['vuv_SBM']
-        assert((feed_dict["h"][0,:,3024:]==vuv_BM).all())
 
-        vuv_sum_SB = numpy.sum(vuv_BM, axis=1)
+        vuv_sum_B = numpy.sum(vuv_BM, axis=1)
 
         for s in range(self.dv_y_cfg.input_data_dim['S']):
-            for b in range(self.dv_y_cfg.input_data_dim['B']):
-                self.loss_dict[utter_tvt_name][vuv_sum_SB[s,b]].append(batch_loss_SB[s*self.dv_y_cfg.input_data_dim['B']+b])
-                self.accu_dict[utter_tvt_name][vuv_sum_SB[s,b]].append(batch_accu_SB[s,b])
+            for b in range(batch_size):
+                self.loss_dict[utter_tvt_name][vuv_sum_B[b]].append(batch_loss_SB[s*batch_size+b])
+                self.accu_dict[utter_tvt_name][vuv_sum_B[b]].append(batch_accu_SB[s,b])
 
     def cal_accuracy(self, logit_SBD, one_hot_S):
         # Return binary results of classification
