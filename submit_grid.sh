@@ -7,6 +7,8 @@ elif [ $1 = cuda ]; then
     qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=cuda-low,tests=0,mem_grab=0M,osrel=*,gpuclass=volta run_grid.sh $2 ${PWD}
 elif [ $1 = cpu ]; then
     qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=low,tests=0,mem_grab=0M,osrel=* run_grid.sh $2 ${PWD}
+elif [ $1 = local ]; then
+    export X_SGE_CUDA_DEVICE=1; ./run_grid.sh $2 ${PWD}
 else
     qsub -cwd -M mw545@cam.ac.uk -m e -S /bin/bash -o ${PWD} -e ${PWD} -l queue_priority=cuda-low,tests=0,mem_grab=0M,osrel=*,gpuclass=*,hostname=air$1 run_grid.sh $2 ${PWD}
 fi
