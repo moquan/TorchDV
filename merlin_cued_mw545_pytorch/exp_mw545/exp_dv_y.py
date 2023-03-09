@@ -741,10 +741,10 @@ class Build_CMP_VUV_Loss_Test(Build_Wav_VUV_Loss_Test):
         in loss_mean_list: loss_mean vs voicing (increasing)
     '''
     def __init__(self, cfg, dv_y_cfg, fig_file_name):
-        dv_y_cfg.input_data_dim['M'] = dv_y_cfg.input_data_dim['T_B']
+        
+        self.wav_cfg = self.get_wav_cfg(cfg, dv_y_cfg)
+        dv_y_cfg.input_data_dim['M'] = self.wav_cfg.input_data_dim['M']
         super().__init__(cfg, dv_y_cfg, fig_file_name)
-
-        self.wav_cfg = DV_Y_Config_CMP_2_Wav(dv_y_cfg)
         self.cmp_cfg = dv_y_cfg
 
         self.cmp_data_loader = self.data_loader.dv_y_data_loader
@@ -752,12 +752,22 @@ class Build_CMP_VUV_Loss_Test(Build_Wav_VUV_Loss_Test):
         # Use this to load vuv_BM and form vuv_SBM
         self.wav_data_loader = self.build_wav_data_loader() 
 
+    def get_wav_cfg(self,cfg, dv_y_cfg):
+        from scripts.exp_dv_wav_sinenet_v2 import dv_y_wav_sinenet_configuration
+        wav_cfg = dv_y_wav_sinenet_configuration(cfg, cache_files=False)
+        wav_cfg.input_data_dim['T_B'] = cfg.nn_feature_dims['wav'] * dv_y_cfg.input_data_dim['T_B']
+        wav_cfg.input_data_dim['B_stride'] = cfg.nn_feature_dims['wav'] * dv_y_cfg.input_data_dim['B_stride']
+        wav_cfg.input_data_dim['T_M'] = 240
+        wav_cfg.input_data_dim['M_stride'] = 240
+        wav_cfg.update_wav_dim()
+        return wav_cfg
+
     def build_wav_data_loader(self):
         '''
         This is a single file loader!
         '''
-        from frontend_mw545.data_loader import Build_dv_y_wav_data_loader_Single_File
-        wav_data_loader = Build_dv_y_wav_data_loader_Single_File(self.cfg, self.wav_cfg)
+        from frontend_mw545.data_loader import Build_dv_y_wav_data_loader_Multi_Speaker
+        wav_data_loader = Build_dv_y_wav_data_loader_Multi_Speaker(self.cfg, self.wav_cfg)
         return wav_data_loader
 
     def frame_2_sample_number(self, frame_number):
@@ -778,44 +788,24 @@ class Build_CMP_VUV_Loss_Test(Build_Wav_VUV_Loss_Test):
                 2.2.2 could be negative; got silence padding in data so no problem
             2.3 Extract vuv_BM
         '''
-        dv_y_cfg = self.wav_cfg
-        batch_speaker_id_list = self.data_loader.dv_selecter.draw_n_speakers(dv_y_cfg.input_data_dim['S'])
-        file_id_list = self.data_loader.draw_n_files(batch_speaker_id_list, utter_tvt_name)
-
-        one_hot, one_hot_S, batch_size = self.data_loader.dv_selecter.make_one_hot(batch_speaker_id_list)
-        feed_dict = {}
-        feed_dict['one_hot'] = one_hot
-        feed_dict['one_hot_S'] = one_hot_S
-
-        extra_file_len_ratio_list = numpy.random.rand(dv_y_cfg.input_data_dim['S'])
-
-        cmp_SBD = numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['B'], self.cmp_cfg.input_data_dim['D']))
-        vuv_SBM = numpy.zeros((dv_y_cfg.input_data_dim['S'], dv_y_cfg.input_data_dim['B'], self.wav_cfg.input_data_dim['M']))
-
-        for i, file_id in enumerate(file_id_list):
-            speaker_id = file_id.split('_')[0]
-            extra_file_len_ratio = extra_file_len_ratio_list[i]
-            cmp_resil_norm_file_name = os.path.join(self.cmp_data_loader.cmp_dir, speaker_id, file_id+'.cmp')
-            cmp_BD, start_frame_no_sil = self.cmp_data_loader.make_cmp_BD(cmp_resil_norm_file_name, None, extra_file_len_ratio)
-            cmp_SBD[i] = cmp_BD
-
-            start_sample_no_sil = self.frame_2_sample_number(start_frame_no_sil)
-            pitch_resil_norm_file_name = os.path.join(self.cfg.nn_feat_resil_dirs['pitch'], speaker_id, file_id+'.pitch')
-            tau_BM, vuv_BM = self.wav_data_loader.make_tau_BM(pitch_resil_norm_file_name, start_sample_no_sil)
-            vuv_SBM[i] = vuv_BM
-
-        feed_dict['h'] = cmp_SBD
-
-        batch_loss_SB = self.model.gen_SB_loss_value(feed_dict=feed_dict)
+        
+        # Make feed_dict for evaluation
+        speaker_id = self.data_loader.dv_selecter.draw_n_speakers(n=1)[0]
+        file_id = self.data_loader.dv_selecter.draw_n_files(speaker_id=speaker_id, utter_tvt_name=utter_tvt_name, n=1)
+        feed_dict, batch_size = self.data_loader.make_feed_dict(utter_tvt_name=utter_tvt_name, file_id_list=[file_id], start_sample_list=[0])
+        batch_loss_SB = self.model.gen_SB_loss_value(feed_dict=feed_dict) # This is a 1D vector!!
         logit_SBD = self.model.gen_logit_SBD_value(feed_dict=feed_dict)
         batch_accu_SB = self.cal_accuracy(logit_SBD, feed_dict['one_hot_S'])
 
-        vuv_sum_SB = numpy.sum(vuv_SBM, axis=2)
+        pitch_file_name = os.path.join(self.cfg.nn_feat_scratch_dirs['pitch'], speaker_id, file_id+'.pitch')
+        _,vuv_BM = self.wav_data_loader.make_tau_BM_single_file(pitch_file_name=pitch_file_name, B=batch_size, start_sample_number=0)
+        
+        vuv_sum_B = numpy.sum(vuv_BM, axis=1)
 
         for s in range(self.dv_y_cfg.input_data_dim['S']):
-            for b in range(self.dv_y_cfg.input_data_dim['B']):
-                self.loss_dict[utter_tvt_name][vuv_sum_SB[s,b]].append(batch_loss_SB[s*self.dv_y_cfg.input_data_dim['B']+b])
-                self.accu_dict[utter_tvt_name][vuv_sum_SB[s,b]].append(batch_accu_SB[s,b])
+            for b in range(batch_size):
+                self.loss_dict[utter_tvt_name][vuv_sum_B[b]].append(batch_loss_SB[s*batch_size+b])
+                self.accu_dict[utter_tvt_name][vuv_sum_B[b]].append(batch_accu_SB[s,b])
 
 class Build_Positional_Wav_Test_Old(Build_DV_Y_Testing_Base):
     '''
