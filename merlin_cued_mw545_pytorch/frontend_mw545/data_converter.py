@@ -112,7 +112,7 @@ class Data_File_Converter(object):
         return sr
 
     def wav_cmp_2_wav(self, in_file_name, out_file_name, sr=16000):
-        wav_1D_data, num_frames = self.DIO.load_data_file_frame(in_file_name, 1)
+        cmp_data, num_frames = self.DIO.load_data_file_frame(in_file_name, 1)
         wav_1D_data = numpy.array(cmp_data, dtype='int16')
         self.DIO.write_wav_1D_data_2_wav(wav_1D_data, out_file_name, sample_rate=sr, cfg=self.cfg)
 
