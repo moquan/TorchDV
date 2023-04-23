@@ -341,7 +341,7 @@ class dv_attention_configuration(dv_configuration_base):
         if cfg is None: cfg = self.cfg
         if dv_y_cfg is None: dv_y_cfg = self.dv_y_cfg
 
-        self.dv_y_model_dir = dv_y_cfg.dv_model_dir
+        self.dv_y_model_dir = dv_y_cfg.model_dir
         if self.load_y_model:
             self.dv_y_model_dir += '_LY'
         

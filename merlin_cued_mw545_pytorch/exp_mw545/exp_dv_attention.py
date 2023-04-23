@@ -3,7 +3,7 @@
 import os, sys, pickle, time, shutil, logging, copy
 import math, numpy, scipy, scipy.stats
 
-from frontend_mw545.modules import make_logger, read_file_list, log_class_attri, Graph_Plotting, List_Random_Loader, File_List_Selecter
+from frontend_mw545.modules import make_logger, read_file_list, log_class_attri, Graph_Plotting, List_Random_Loader, File_List_Selecter, prepare_script_file_path
 from frontend_mw545.data_io import Data_File_IO, Data_List_File_IO, Data_Meta_List_File_IO
 
 from nn_torch.torch_models import Build_DV_Attention_model
@@ -202,7 +202,6 @@ class Build_DV_Attention_Testing(object):
         test_fn = Build_DV_Generator(self.cfg, self.test_cfg, output_dir)
         test_fn.test()
 
-
 class Build_DV_Attention_Testing_Base(object):
     """Base class of tests of dv_y models"""
     def __init__(self, cfg, dv_attn_cfg):
@@ -221,6 +220,9 @@ class Build_DV_Attention_Testing_Base(object):
         numpy.random.seed(546)
         self.logger.info('Creating data loader')
         self.data_loader = Build_dv_atten_train_data_loader(self.cfg, self.dv_attn_cfg)
+
+        self.exp_result_dir = os.path.join(dv_attn_cfg.complete_model_dir, "results")
+        prepare_script_file_path(self.exp_result_dir)
 
     def load_model(self):
         dv_attn_cfg = self.dv_attn_cfg
@@ -253,6 +255,13 @@ class Build_DV_Attention_Testing_Base(object):
     def plot(self):
         pass
 
+    def log_and_save_results(self, result_strings, file_name="result.txt"):
+        with open(os.path.join(self.exp_result_dir, file_name), "a+") as f:
+            for s in result_strings:
+                self.logger.info(s)
+                if "\n" not in s:
+                    s = s+'\n'
+                f.write(s)
 
 class Build_DV_Attention_Number_Seconds_Accu_Test(Build_DV_Attention_Testing_Base):
     """
@@ -285,13 +294,14 @@ class Build_DV_Attention_Number_Seconds_Accu_Test(Build_DV_Attention_Testing_Bas
         mean_list = []
         std_list  = []
         for num_secs in self.list_num_seconds_to_test:
-            self.logger.info('Testing %i seconds' % num_secs)
+            self.log_and_save_results(['Testing %i seconds' % num_secs],"accuracy_numSeconds.txt")
             m, s = self.accuracy_test(num_secs)
-            self.logger.info('Results are %.5f %.5f' % (m, s))
             mean_list.append(m)
             std_list.append(s)
-            print(mean_list)
-            print(std_list)
+            result_strings = ['Results are %.5f %.5f' % (m, s),
+                         str(mean_list),
+                         str(std_list)]
+            self.log_and_save_results(result_strings,"accuracy_numSeconds.txt")
 
     def accuracy_test(self, num_secs):
         '''
@@ -362,7 +372,6 @@ class Build_DV_Attention_Number_Seconds_Accu_Test(Build_DV_Attention_Testing_Bas
         utter_accuracy = self.dv_calculator.cal_accuracy_S(logit_SD, one_hot_S)
         return utter_accuracy
 
-
 class Build_DV_Attention_Accu_Test(Build_DV_Attention_Testing_Base):
     """ 
     use test files only
@@ -392,9 +401,10 @@ class Build_DV_Attention_Accu_Test(Build_DV_Attention_Testing_Base):
                 total_num_files += 1.
                 total_utter_accuracy += utter_accuracy
 
-        self.logger.info('Results of model %s' % self.dv_attn_cfg.nnets_file_name)
-        self.logger.info('Number of files & utter_accuracy')
-        self.logger.info('%f & %.4f' %(total_num_files, total_utter_accuracy/total_num_files))
+        result_strings = ['Results of model %s' % self.dv_attn_cfg.nnets_file_name,
+                         'Number of files & utter_accuracy',
+                         '%f & %.4f' %(total_num_files, total_utter_accuracy/total_num_files)  ]
+        self.log_and_save_results(result_strings,"ce_accracy_utterance.txt")
 
     def compute_utter_accuracy(self, feed_dict):
         logit_SD = self.model.gen_logit_SD_value(feed_dict)
@@ -452,7 +462,7 @@ class Build_DV_Generator(Build_DV_Attention_Testing_Base):
 
             self.dv_spk_dict[speaker_id] = dv_speaker / total_num_frames
 
-        self.save_dv_files(self.dv_attn_cfg.exp_dir)
+        self.save_dv_files(self.dv_attn_cfg.complete_model_dir)
         if self.output_dir is not None:
             self.save_dv_files(self.output_dir)
 
@@ -480,8 +490,6 @@ class Build_DV_Generator(Build_DV_Attention_Testing_Base):
         self.DMLFIO.write_dv_spk_values_to_file(self.dv_spk_dict, dv_spk_dict_text, file_type='text')
         self.DMLFIO.write_dv_file_values_to_file(self.dv_file_dict, dv_file_dict_file, file_type='pickle')
         self.DMLFIO.write_dv_file_values_to_file(self.dv_file_dict, dv_file_dict_text, file_type='text')
-
-
 
 class Build_DV_Attention_Plotter(Build_DV_Attention_Testing_Base):
     """

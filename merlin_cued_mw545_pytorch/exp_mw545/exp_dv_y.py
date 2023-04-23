@@ -380,12 +380,13 @@ class Build_DV_Y_Number_Seconds_Accu_Test(Build_DV_Y_Testing_Base):
     def test(self):
         mean_list = []
         std_list  = []
-        for num_secs in self.list_num_seconds_to_test:
+        # for num_secs in self.list_num_seconds_to_test:
+        for num_secs in [55]:
+            self.log_and_save_results(['Testing %i seconds' % num_secs],"accuracy_numSeconds.txt")
             m, s = self.accuracy_test(num_secs)
             mean_list.append(m)
             std_list.append(s)
-            result_strings = ['Testing %i seconds' % num_secs,
-                             'Results are %.5f %.5f' % (m, s),
+            result_strings = ['Results are %.5f %.5f' % (m, s),
                               str(mean_list),
                               str(std_list) ]
             self.log_and_save_results(result_strings,"accuracy_numSeconds.txt")
@@ -637,18 +638,42 @@ class Build_Wav_VUV_Loss_Test(Build_DV_Y_Testing_Base):
         loss_mean_dict[utter_tvt_name] = loss_mean_list
         in loss_mean_list: loss_mean vs voicing (increasing)
     '''
-    def __init__(self, cfg, dv_y_cfg, fig_file_name):
-        if 'vuv_SBM' not in dv_y_cfg.out_feat_list:
-            dv_y_cfg.out_feat_list.append('vuv_SBM')
+    def __init__(self, cfg, dv_y_cfg, fig_file_name, build_vuv=True):
         super().__init__(cfg, dv_y_cfg)
         self.fig_file_name = fig_file_name
         self.tvt_list = ['train', 'valid', 'test']
 
         self.loss_dict = {}
         self.accu_dict = {}
+
+        if build_vuv:
+            self.vuv_cfg = self.get_vuv_cfg(cfg, dv_y_cfg)
+            self.vuv_data_loader = self.build_vuv_data_loader(self.vuv_cfg)
+            vuv_cfg = self.vuv_cfg
+        else:
+            vuv_cfg = self.dv_y_cfg
+
         for utter_tvt_name in self.tvt_list:
-            self.loss_dict[utter_tvt_name] = {i:[] for i in range(dv_y_cfg.input_data_dim['M']+1)}
-            self.accu_dict[utter_tvt_name] = {i:[] for i in range(dv_y_cfg.input_data_dim['M']+1)}
+            self.loss_dict[utter_tvt_name] = {i:[] for i in range(vuv_cfg.input_data_dim['M']+1)}
+            self.accu_dict[utter_tvt_name] = {i:[] for i in range(vuv_cfg.input_data_dim['M']+1)}
+
+    def get_vuv_cfg(self,cfg, dv_y_cfg):
+        from scripts.exp_dv_wav_sinenet_v2 import dv_y_wav_sinenet_configuration
+        wav_cfg = dv_y_wav_sinenet_configuration(cfg, cache_files=False)
+        wav_cfg.input_data_dim['T_B'] = dv_y_cfg.input_data_dim['T_B']
+        wav_cfg.input_data_dim['B_stride'] = dv_y_cfg.input_data_dim['B_stride']
+        wav_cfg.input_data_dim['T_M'] = 240
+        wav_cfg.input_data_dim['M_stride'] = 120
+        wav_cfg.update_wav_dim()
+        return wav_cfg
+
+    def build_vuv_data_loader(self, vuv_cfg):
+        '''
+        This is a single file loader!
+        '''
+        from frontend_mw545.data_loader import Build_dv_y_wav_data_loader_Multi_Speaker
+        vuv_data_loader = Build_dv_y_wav_data_loader_Multi_Speaker(self.cfg, vuv_cfg)
+        return vuv_data_loader
 
     def action_per_batch(self, utter_tvt_name):
         # Make feed_dict for evaluation
@@ -659,8 +684,10 @@ class Build_Wav_VUV_Loss_Test(Build_DV_Y_Testing_Base):
         logit_SBD = self.model.gen_logit_SBD_value(feed_dict=feed_dict)
         batch_accu_SB = self.cal_accuracy(logit_SBD, feed_dict['one_hot_S'])
 
+        # pitch_file_name = os.path.join(self.cfg.nn_feat_scratch_dirs['pitch'], speaker_id, file_id+'.pitch')
+        # _,vuv_BM = self.data_loader.dv_y_data_loader.make_tau_BM_single_file(pitch_file_name=pitch_file_name, B=batch_size, start_sample_number=0)
         pitch_file_name = os.path.join(self.cfg.nn_feat_scratch_dirs['pitch'], speaker_id, file_id+'.pitch')
-        _,vuv_BM = self.data_loader.dv_y_data_loader.make_tau_BM_single_file(pitch_file_name=pitch_file_name, B=batch_size, start_sample_number=0)
+        _,vuv_BM = self.vuv_data_loader.make_tau_BM_single_file(pitch_file_name=pitch_file_name, B=batch_size, start_sample_number=0)
 
         vuv_sum_B = numpy.sum(vuv_BM, axis=1)
 
@@ -683,7 +710,7 @@ class Build_Wav_VUV_Loss_Test(Build_DV_Y_Testing_Base):
         x-axis is percentage of vuv; [num of voiced]/M
         Easy to plot together with different M
         '''
-        M = self.dv_y_cfg.input_data_dim['M']
+        M = self.vuv_cfg.input_data_dim['M']
         
         loss_mean_dict = {}
         accu_mean_dict = {}
@@ -716,7 +743,7 @@ class Build_Wav_VUV_Loss_Test(Build_DV_Y_Testing_Base):
             str(accu_mean_dict['x']),
             str(accu_mean_dict['test']),
         ]
-        self.log_and_save_results(result_strings,"loss_vuv_accuracy_vus.txt"  )
+        self.log_and_save_results(result_strings,"loss_vuv_accuracy_vuv.txt"  )
 
 class Build_CMP_VUV_Loss_Test(Build_Wav_VUV_Loss_Test):
     '''
@@ -730,33 +757,25 @@ class Build_CMP_VUV_Loss_Test(Build_Wav_VUV_Loss_Test):
     '''
     def __init__(self, cfg, dv_y_cfg, fig_file_name):
         
-        self.wav_cfg = self.get_wav_cfg(cfg, dv_y_cfg)
-        dv_y_cfg.input_data_dim['M'] = self.wav_cfg.input_data_dim['M']
-        super().__init__(cfg, dv_y_cfg, fig_file_name)
+        self.vuv_cfg = self.get_vuv_cfg(cfg, dv_y_cfg)
+        dv_y_cfg.input_data_dim['M'] = self.vuv_cfg.input_data_dim['M']
+        super().__init__(cfg, dv_y_cfg, fig_file_name, build_vuv=False)
         self.cmp_cfg = dv_y_cfg
 
         self.cmp_data_loader = self.data_loader.dv_y_data_loader
         # This is a single wav file loader!
         # Use this to load vuv_BM and form vuv_SBM
-        self.wav_data_loader = self.build_wav_data_loader() 
+        self.vuv_data_loader = self.build_vuv_data_loader(self.vuv_cfg)
 
-    def get_wav_cfg(self,cfg, dv_y_cfg):
+    def get_vuv_cfg(self,cfg, dv_y_cfg):
         from scripts.exp_dv_wav_sinenet_v2 import dv_y_wav_sinenet_configuration
         wav_cfg = dv_y_wav_sinenet_configuration(cfg, cache_files=False)
         wav_cfg.input_data_dim['T_B'] = cfg.nn_feature_dims['wav'] * dv_y_cfg.input_data_dim['T_B']
         wav_cfg.input_data_dim['B_stride'] = cfg.nn_feature_dims['wav'] * dv_y_cfg.input_data_dim['B_stride']
         wav_cfg.input_data_dim['T_M'] = 240
-        wav_cfg.input_data_dim['M_stride'] = 240
+        wav_cfg.input_data_dim['M_stride'] = 120
         wav_cfg.update_wav_dim()
         return wav_cfg
-
-    def build_wav_data_loader(self):
-        '''
-        This is a single file loader!
-        '''
-        from frontend_mw545.data_loader import Build_dv_y_wav_data_loader_Multi_Speaker
-        wav_data_loader = Build_dv_y_wav_data_loader_Multi_Speaker(self.cfg, self.wav_cfg)
-        return wav_data_loader
 
     def frame_2_sample_number(self, frame_number):
         '''
@@ -786,7 +805,7 @@ class Build_CMP_VUV_Loss_Test(Build_Wav_VUV_Loss_Test):
         batch_accu_SB = self.cal_accuracy(logit_SBD, feed_dict['one_hot_S'])
 
         pitch_file_name = os.path.join(self.cfg.nn_feat_scratch_dirs['pitch'], speaker_id, file_id+'.pitch')
-        _,vuv_BM = self.wav_data_loader.make_tau_BM_single_file(pitch_file_name=pitch_file_name, B=batch_size, start_sample_number=0)
+        _,vuv_BM = self.vuv_data_loader.make_tau_BM_single_file(pitch_file_name=pitch_file_name, B=batch_size, start_sample_number=0)
         
         vuv_sum_B = numpy.sum(vuv_BM, axis=1)
 
