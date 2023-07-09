@@ -14,14 +14,13 @@ class dv_wav_sinenet_lab_attention_configuration(dv_attention_configuration):
         super().__init__(cfg, dv_y_cfg)
         self.retrain_model = False
         self.learning_rate  = 0.00001
-        # self.prev_nnets_file_name = '/home/dawna/tts/mw545/TorchDV/dv_cmp_baseline/dvy_cmp_lr1E-04_fpu40_LRe512L_LRe512L_Lin512L_DV512S10T40D3440/Model'
         self.python_script_name = os.path.realpath(__file__)
         self.data_dir_mode = 'scratch' # Use scratch for speed up
         self.data_loader_random_seed = 0
 
         self.y_model_name = 'sinenet_v2_frame'
         self.load_y_model = True
-        self.prev_y_model_name = '/data/vectra2/tts/mw545/TorchDV/dv_wav_sinenet_v2/dvy_wav_lr1E-04_fpu40_Sin80f64ks0.5T_LRe512L_LRe512L_Lin512L_DV512S10T3000TM240/Model'
+        self.prev_y_model_name = '/data/vectra2/tts/mw545/TorchDV/exps/exp_dv_wav_sinenet_v2/dvy_wav_lr1E-04_fpu40_Sin80f64ks0.5T_LRe512L_LRe512L_Lin512L_DV512S10T3000TM240/Model'
 
         self.init_lab_data()
         self.feat_name = 'lab'
@@ -105,17 +104,19 @@ def test_model(cfg, dv_attn_cfg=None, dv_y_cfg=None):
     from exp_mw545.exp_dv_attention import Build_DV_Attention_Testing
     dv_model_test = Build_DV_Attention_Testing(cfg, dv_attn_cfg)
 
+    output_dir = cfg.result_dir
+    for test_name in cfg.test_list:
+        if test_name == "genDV":
+            dv_model_test.gen_dv(output_dir)
+            dv_model_test.cross_entropy_accuracy_test()
+        if test_name == "numberSecsAccu":
+            dv_model_test.number_secs_accu_test()
+        # if test_name == "positional":
+        #     fig_file_name = os.path.join(output_dir, 'positional_cmp_lab.png')
+        #     dv_model_test.positional_test(fig_file_name=fig_file_name, distance_type='cosine')
+        if test_name == "vuvLoss":
+            fig_file_name = os.path.join(output_dir, 'vuv_loss_sinenet_v2_lab.png')
+            dv_model_test.vuv_loss_test(fig_file_name=fig_file_name)
 
-    # fig_file_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/vuv_loss_cmp.png'
-    # dv_model_test.vuv_loss_test(fig_file_name)
-    # fig_file_name = '/home/dawna/tts/mw545/Export_Temp/PNG_out/positional_cmp.png'
-    # dv_model_test.positional_test(fig_file_name)
-
-    # Additional output dir; also output to the exp dir
-    # output_dir = '/home/dawna/tts/mw545/Export_Temp/PNG_out'
-    output_dir = '/data/vectra2/tts/mw545/Export_Temp/PNG_out'
-    dv_model_test.gen_dv(output_dir)
-    dv_model_test.cross_entropy_accuracy_test()
-    dv_model_test.number_secs_accu_test(output_dir)
 
 
