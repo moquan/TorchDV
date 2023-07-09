@@ -1,0 +1,2 @@
+mkdir exps
+mkdir logs
